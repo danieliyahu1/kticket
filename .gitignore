@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.playwright/
+*.log
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Local opencode config & skills (opencode.json contains a Render MCP token)
+.opencode/
+opencode.json
+
+.DS_Store

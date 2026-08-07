@@ -1,0 +1,23 @@
+{
+  "name": "@kticket/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "kticket API — stateless Node.js + Fastify backend.",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@kticket/kit": "*",
+    "fastify": "^5.11.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.9"
+  }
+}

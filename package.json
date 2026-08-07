@@ -1,0 +1,31 @@
+{
+  "name": "kticket",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo for kticket — on-chain event ticketing on Kaspa (kit / api / web / door).",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0",
+    "npm": ">=10"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev:api": "npm run dev --workspace @kticket/api",
+    "dev:web": "npm run dev --workspace @kticket/web",
+    "dev:door": "npm run dev --workspace @kticket/door"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
