@@ -59,8 +59,7 @@ export interface FeeResult {
  * - fee = max(feerate × mass, relayFloor)
  * - change = inputTotal − sum(payouts) − fee
  *
- * Throws `FeeError` (policy) when inputs cannot cover the payouts + fee, or
- * when the fee is below the relay floor (0-fee tx would never relay).
+ * Throws `FeeError` (policy) when inputs cannot cover the payouts + fee.
  */
 export function computeFee(input: FeeInput): FeeResult {
   if (!Number.isSafeInteger(input.mass) || input.mass < 0) {
@@ -82,10 +81,6 @@ export function computeFee(input: FeeInput): FeeResult {
   const floor = relayFloor({ mass: input.mass, sizeBytes: input.sizeBytes });
   const estimated = input.feerateSompiPerGram * input.mass;
   const fee = Math.max(estimated, floor);
-
-  if (fee < floor) {
-    throw new FeeError("fee below relay floor — transaction would never relay");
-  }
 
   const change = input.inputTotal - payoutsTotal - fee;
   if (change < 0) {

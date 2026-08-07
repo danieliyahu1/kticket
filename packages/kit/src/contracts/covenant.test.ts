@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { decodeBase64Wasm } from "./artifact";
 import { BURN_ARTIFACT, TICKET_ARTIFACT } from "./artifacts";
-import { availableTicket, Covenant, ownedTicket, pkh } from "./covenant";
+import { availableTicket, Covenant, ownedTicket } from "./covenant";
 import type { CovenantContext, TicketConstants } from "./types";
 import { RESULT_CODES } from "./types";
 import { getWasmRuntime } from "./wasm";
+
+/** Deterministic 32-byte key hash: all zeros with `byte` in the last position. */
+function pkh(byte: number): Uint8Array {
+  const bytes = new Uint8Array(32);
+  bytes[31] = byte;
+  return bytes;
+}
 
 function constants(overrides: Partial<TicketConstants> = {}): TicketConstants {
   return {

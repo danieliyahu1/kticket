@@ -2,14 +2,9 @@ export interface WasmInstance {
   exports: Record<string, unknown>;
 }
 
-export interface WasmMemory {
-  readonly buffer: ArrayBuffer;
-}
-
 export interface WasmRuntime {
   Module: { new (bytes: Uint8Array): unknown };
   Instance: { new (module: unknown, imports?: Record<string, unknown>): WasmInstance };
-  Memory: { new (initialPages: number): WasmMemory };
   validate: (bytes: Uint8Array) => boolean;
 }
 

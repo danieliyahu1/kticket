@@ -9,6 +9,7 @@
 // ticket outputs to one `event_cov_id`; buy/transfer/handover continuation
 // outputs carry the same covenant_id as the ticket UTXO they spend.
 
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { AddressNetwork } from "./address.js";
 import { buildBurnRedeemScript, buildRedeemScript, scriptHash } from "./address.js";
 import type { AuthorizedOutput, Outpoint } from "./covenant.js";
@@ -27,7 +28,7 @@ export { FEE_PAYER } from "./tx.js";
 
 /** P2SH script public key for a redeem script (blake3-32 script hash). */
 export function p2shScript(redeemScript: Uint8Array): ScriptPublicKey {
-  return { version: 0, script: Buffer.from(scriptHash(redeemScript)).toString("hex") };
+  return { version: 0, script: bytesToHex(scriptHash(redeemScript)) };
 }
 
 function ticketScript(
@@ -40,7 +41,7 @@ function ticketScript(
 
 function asInput(outpoint: Outpoint): TxInput {
   return {
-    previousOutpoint: { txId: Buffer.from(outpoint.txId).toString("hex"), index: outpoint.index },
+    previousOutpoint: { txId: bytesToHex(outpoint.txId), index: outpoint.index },
     signatureScript: "",
     sequence: 0,
     sigOpCount: 1,
@@ -124,11 +125,9 @@ export function buildGenesis(input: GenesisInput): GenesisResult {
     index: k,
     value: 0,
     version: script.version,
-    script: Buffer.from(script.script, "hex"),
+    script: hexToBytes(script.script),
   }));
-  const eventCovenantId = Buffer.from(covenantId(input.authorizingOutpoint, authOutputs)).toString(
-    "hex",
-  );
+  const eventCovenantId = bytesToHex(covenantId(input.authorizingOutpoint, authOutputs));
 
   const binding: CovenantBinding = { authorizingInput: 0, covenantId: eventCovenantId };
   const ticketOutputs: TxOutput[] = ticketScripts.map((scriptPublicKey) => ({

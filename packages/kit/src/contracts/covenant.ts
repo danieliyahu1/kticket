@@ -30,12 +30,6 @@ export function ownedTicket(owner: Uint8Array): TicketState {
   return { phase: 1, owner };
 }
 
-export function pkh(byte: number): Uint8Array {
-  const bytes = new Uint8Array(32);
-  bytes[31] = byte;
-  return bytes;
-}
-
 export class Covenant {
   readonly artifact: ContractArtifact;
   readonly constants: Readonly<TicketConstants>;
@@ -59,7 +53,7 @@ export class Covenant {
     );
     const view = new DataView(this.#memory.buffer);
     view.setBigUint64(this.#abi.constPrice, BigInt(constants.price), true);
-    this.constants = Object.freeze({ ...constants, price: constants.price });
+    this.constants = Object.freeze({ ...constants });
   }
 
   transition(

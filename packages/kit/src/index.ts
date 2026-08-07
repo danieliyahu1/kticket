@@ -1,5 +1,5 @@
 import { BURN_ARTIFACT, TICKET_ARTIFACT } from "./contracts/artifacts.js";
-import { availableTicket, Covenant, ownedTicket, pkh } from "./contracts/covenant.js";
+import { availableTicket, Covenant, ownedTicket } from "./contracts/covenant.js";
 import { RESULT_CODES } from "./contracts/types.js";
 import type { KaspiaNet, NetworkConfig } from "./network.js";
 import { getNetworkConfig, isKaspiaNet, KASPANETS, NETWORKS, resolveNetwork } from "./network.js";
@@ -63,8 +63,8 @@ export type {
 } from "./runtime/preimage.js";
 export type {
   CovenantBinding,
-  Outpoint as TxOutpoint,
   ScriptPublicKey,
+  SerializedOutpoint as TxOutpoint,
   TxInput,
   TxOutput,
   UnsignedTransaction,
@@ -96,7 +96,6 @@ export {
   NETWORKS,
   ownedTicket,
   p2shScript,
-  pkh,
   RESULT_CODES,
   relayFloor,
   requiredInput,

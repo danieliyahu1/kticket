@@ -8,7 +8,7 @@
 
 export const TX_VERSION_V1 = 1;
 
-export interface Outpoint {
+export interface SerializedOutpoint {
   /** Transaction id as a hex string. */
   txId: string;
   index: number;
@@ -27,7 +27,7 @@ export interface CovenantBinding {
 }
 
 export interface TxInput {
-  previousOutpoint: Outpoint;
+  previousOutpoint: SerializedOutpoint;
   /** Empty for the covenant input before signing; wallet fills it. */
   signatureScript: string;
   sequence: number;

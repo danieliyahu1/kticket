@@ -6,7 +6,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
   const config = loadConfig();
 
-  app.get("/health", async () => ({ status: "ok", network: config.kaspiaNet }));
+  app.get("/health", async () => ({ status: "ok", network: config.kaspaNet }));
 
   app.get("/v1/events", async () => []);
 

@@ -15,9 +15,6 @@
 
 import type { TicketPhase } from "../contracts/types.js";
 
-/** Maximum safe size for a `price` value in sompi (u64 must fit in a JS safe int). */
-export const MAX_SAFE_PRICE = Number.MAX_SAFE_INTEGER;
-
 export interface DecodedState {
   phase: TicketPhase;
   owner: Uint8Array;
@@ -42,10 +39,6 @@ function assertSafePrice(price: number): void {
 }
 
 // --- state_bytes -----------------------------------------------------------
-
-export const PHASE_AVAILABLE = 0;
-export const PHASE_OWNED = 1;
-export const PHASE_GONE = 2;
 
 const STATE_BYTES_LEN = 1 + 32;
 

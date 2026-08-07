@@ -14,7 +14,6 @@ import { blake3 } from "@noble/hashes/blake3.js";
 import type { DecodedConstants, DecodedState } from "./preimage.js";
 import { encodeConstants, encodeState, PreimageError } from "./preimage.js";
 
-export const SCRIPT_VERSION = 0;
 export const P2SH_ADDRESS_VERSION = 8; // AddressVersion.ScriptHash
 
 export const NETWORK_PREFIXES = {

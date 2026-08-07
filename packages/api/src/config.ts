@@ -2,7 +2,7 @@ import { getNetworkConfig } from "@kticket/kit";
 
 export interface ApiConfig {
   port: number;
-  kaspiaNet: string;
+  kaspaNet: string;
 }
 
 const DEFAULT_PORT = 3000;
@@ -17,6 +17,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   return {
     port: Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : DEFAULT_PORT,
-    kaspiaNet: network.net,
+    kaspaNet: network.net,
   };
 }
