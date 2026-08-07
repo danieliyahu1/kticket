@@ -1,0 +1,51 @@
+{
+  "schema": "kticket/silverscript-artifact/v1",
+  "compiler": "silverc",
+  "compilerVersion": "0.1.0",
+  "name": "Burn",
+  "source": "burn.silverscript",
+  "unspendable": true,
+  "wasmBase64": "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxcCBm1lbW9yeQIACnRyYW5zaXRpb24AAAoHAQUAQQcPCw==",
+  "contract": {
+    "pragma": "^0.1.0",
+    "params": [
+      {
+        "type": "byte[32]",
+        "name": "event_id"
+      }
+    ],
+    "state": [
+      {
+        "type": "int",
+        "name": "count",
+        "initial": "1"
+      }
+    ],
+    "entrypoints": {},
+    "constantsBaked": true
+  },
+  "abi": {
+    "entry": 0,
+    "prevPhase": 4,
+    "authOutputCount": 8,
+    "hasOrgPayout": 12,
+    "holderSigned": 16,
+    "successorIsBurn": 20,
+    "arg": 24,
+    "newPhase": 64,
+    "newOwner": 68,
+    "ownerLen": 32,
+    "constPrice": 128,
+    "constPriceBytes": 8
+  },
+  "resultCodes": {
+    "OK": 0,
+    "ERR_PHASE": 1,
+    "ERR_AUTH_OUTPUT": 2,
+    "ERR_PAYOUT": 3,
+    "ERR_SIG": 4,
+    "ERR_BURN_TEMPLATE": 5,
+    "ERR_FUNCTION": 6,
+    "ERR_UNSPENDABLE": 7
+  }
+}

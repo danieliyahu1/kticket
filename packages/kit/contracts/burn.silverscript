@@ -1,0 +1,8 @@
+pragma silverscript ^0.1.0;
+
+// Unspendable. No entrypoints -> no valid spend -> permanent.
+// Each handover creates an INDEPENDENT burn output (parallel, no shared counter),
+// so concurrent handovers never contend on one UTXO.
+contract Burn(byte[32] event_id) {
+    int count = 1;
+}

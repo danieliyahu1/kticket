@@ -1,0 +1,34 @@
+pragma silverscript ^0.1.0;
+
+// Constants baked at genesis (rules freeze, FR-7):
+//   event_id : byte[32], index : int, price : int (sompi; 0 = free),
+//   org_spk  : byte[],   burn_tmpl : template
+
+contract Ticket(byte[32] event_id, int index, int price, byte[] org_spk, template burn_tmpl) {
+    int      phase = 0;          // 0 = available, 1 = owned
+    byte[32] owner = ZERO;
+
+    #[covenant(binding = auth, from = 1, to = 1)]
+    function buy(State prev, byte[32] buyer_pkh) : (State) {
+        require(prev.phase == 0);
+        require(OpAuthOutputCount(this.activeInputIndex) == 1);
+        if (price > 0) require(existsOutput(org_spk, price));   // payout in same tx
+        return({ phase: 1, owner: buyer_pkh });
+    }
+
+    #[covenant(binding = auth, from = 1, to = 1)]
+    function transfer(State prev, byte[32] new_owner) : (State) {
+        require(prev.phase == 1);
+        require(checkSigFromStack(prev.owner));                  // holder-only (NFR-4)
+        return({ phase: 1, owner: new_owner });
+    }
+
+    #[covenant(binding = auth, from = 1, to = 1)]
+    function use(State prev) : (State) {
+        require(prev.phase == 1);
+        require(checkSigFromStack(prev.owner));
+        int o = OpAuthOutputIdx(this.activeInputIndex, 0);
+        validateOutputStateWithTemplate(o, burn_tmpl);           // successor IS the burn
+        return(NONE);                                            // no ticket successor
+    }
+}

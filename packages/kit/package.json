@@ -10,9 +10,14 @@
     ".": "./src/index.ts"
   },
   "files": [
-    "src"
+    "src",
+    "artifacts",
+    "contracts",
+    "scripts"
   ],
   "scripts": {
+    "build": "node scripts/silverc.mjs",
+    "check:contracts": "node scripts/silverc.mjs --check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }

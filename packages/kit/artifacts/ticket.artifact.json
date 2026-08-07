@@ -1,0 +1,128 @@
+{
+  "schema": "kticket/silverscript-artifact/v1",
+  "compiler": "silverc",
+  "compilerVersion": "0.1.0",
+  "name": "Ticket",
+  "source": "ticket.silverscript",
+  "unspendable": false,
+  "wasmBase64": "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxcCBm1lbW9yeQIACnRyYW5zaXRpb24AAAqCBwH/BgBBAC0AAEEARgRAQQAtAARBAEcEQEEBDwtBAC0ACEEBRwRAQQIPC0EAKQCAAUIAVQRAQQAtAAxFBEBBAw8LC0HAAEEBOgAAQcQAQRgtAAA6AABBxQBBGS0AADoAAEHGAEEaLQAAOgAAQccAQRstAAA6AABByABBHC0AADoAAEHJAEEdLQAAOgAAQcoAQR4tAAA6AABBywBBHy0AADoAAEHMAEEgLQAAOgAAQc0AQSEtAAA6AABBzgBBIi0AADoAAEHPAEEjLQAAOgAAQdAAQSQtAAA6AABB0QBBJS0AADoAAEHSAEEmLQAAOgAAQdMAQSctAAA6AABB1ABBKC0AADoAAEHVAEEpLQAAOgAAQdYAQSotAAA6AABB1wBBKy0AADoAAEHYAEEsLQAAOgAAQdkAQS0tAAA6AABB2gBBLi0AADoAAEHbAEEvLQAAOgAAQdwAQTAtAAA6AABB3QBBMS0AADoAAEHeAEEyLQAAOgAAQd8AQTMtAAA6AABB4ABBNC0AADoAAEHhAEE1LQAAOgAAQeIAQTYtAAA6AABB4wBBNy0AADoAAEEADwVBAC0AAEEBRgRAQQAtAARBAUcEQEEBDwtBAC0AEEUEQEEEDwtBwABBAToAAEHEAEEYLQAAOgAAQcUAQRktAAA6AABBxgBBGi0AADoAAEHHAEEbLQAAOgAAQcgAQRwtAAA6AABByQBBHS0AADoAAEHKAEEeLQAAOgAAQcsAQR8tAAA6AABBzABBIC0AADoAAEHNAEEhLQAAOgAAQc4AQSItAAA6AABBzwBBIy0AADoAAEHQAEEkLQAAOgAAQdEAQSUtAAA6AABB0gBBJi0AADoAAEHTAEEnLQAAOgAAQdQAQSgtAAA6AABB1QBBKS0AADoAAEHWAEEqLQAAOgAAQdcAQSstAAA6AABB2ABBLC0AADoAAEHZAEEtLQAAOgAAQdoAQS4tAAA6AABB2wBBLy0AADoAAEHcAEEwLQAAOgAAQd0AQTEtAAA6AABB3gBBMi0AADoAAEHfAEEzLQAAOgAAQeAAQTQtAAA6AABB4QBBNS0AADoAAEHiAEE2LQAAOgAAQeMAQTctAAA6AABBAA8FQQAtAABBAkYEQEEALQAEQQFHBEBBAQ8LQQAtABBFBEBBBA8LQQAtABRFBEBBBQ8LQcAAQQI6AABBAA8FQQYPCwsLAAs=",
+  "contract": {
+    "pragma": "^0.1.0",
+    "params": [
+      {
+        "type": "byte[32]",
+        "name": "event_id"
+      },
+      {
+        "type": "int",
+        "name": "index"
+      },
+      {
+        "type": "int",
+        "name": "price"
+      },
+      {
+        "type": "byte[]",
+        "name": "org_spk"
+      },
+      {
+        "type": "template",
+        "name": "burn_tmpl"
+      }
+    ],
+    "state": [
+      {
+        "type": "int",
+        "name": "phase",
+        "initial": "0"
+      },
+      {
+        "type": "byte[32]",
+        "name": "owner",
+        "initial": "ZERO"
+      }
+    ],
+    "entrypoints": {
+      "buy": {
+        "id": 0,
+        "binding": "auth",
+        "from": 1,
+        "to": 1,
+        "args": [
+          "prev",
+          "buyer_pkh"
+        ],
+        "guards": [
+          "phase",
+          "authOutputCount",
+          "hasOrgPayout"
+        ],
+        "result": {
+          "phase": 1,
+          "owner": "buyer_pkh"
+        }
+      },
+      "transfer": {
+        "id": 1,
+        "binding": "auth",
+        "from": 1,
+        "to": 1,
+        "args": [
+          "prev",
+          "new_owner"
+        ],
+        "guards": [
+          "phase",
+          "holderSigned"
+        ],
+        "result": {
+          "phase": 1,
+          "owner": "new_owner"
+        }
+      },
+      "use": {
+        "id": 2,
+        "binding": "auth",
+        "from": 1,
+        "to": 1,
+        "args": [
+          "prev"
+        ],
+        "guards": [
+          "phase",
+          "holderSigned",
+          "successorIsBurn"
+        ],
+        "result": {
+          "phase": 2,
+          "owner": null
+        }
+      }
+    },
+    "constantsBaked": true
+  },
+  "abi": {
+    "entry": 0,
+    "prevPhase": 4,
+    "authOutputCount": 8,
+    "hasOrgPayout": 12,
+    "holderSigned": 16,
+    "successorIsBurn": 20,
+    "arg": 24,
+    "newPhase": 64,
+    "newOwner": 68,
+    "ownerLen": 32,
+    "constPrice": 128,
+    "constPriceBytes": 8
+  },
+  "resultCodes": {
+    "OK": 0,
+    "ERR_PHASE": 1,
+    "ERR_AUTH_OUTPUT": 2,
+    "ERR_PAYOUT": 3,
+    "ERR_SIG": 4,
+    "ERR_BURN_TEMPLATE": 5,
+    "ERR_FUNCTION": 6,
+    "ERR_UNSPENDABLE": 7
+  }
+}
