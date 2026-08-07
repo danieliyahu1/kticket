@@ -1,8 +1,9 @@
 pragma silverscript ^0.1.0;
 
-// Unspendable. No entrypoints -> no valid spend -> permanent.
-// Each handover creates an INDEPENDENT burn output (parallel, no shared counter),
-// so concurrent handovers never contend on one UTXO.
+// Burn-owner covenant (HLD v0.22 §2.1). Unspendable: no entrypoints -> no
+// valid spend -> permanent. Each handover spends the attendee's ticket
+// (amount = 1) into this covenant, so the ticket — dust included — is consumed
+// and gone from the wallet at the door.
 contract Burn(byte[32] event_id) {
     int count = 1;
 }

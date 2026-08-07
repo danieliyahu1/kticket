@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { BURN_ARTIFACT, TICKET_ARTIFACT } from "./artifacts";
+import { BURN_ARTIFACT, EVENT_ARTIFACT } from "./artifacts";
 
 const KIT_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const SILVERC = fileURLToPath(new URL("../../scripts/silverc.mjs", import.meta.url));
@@ -22,9 +22,9 @@ function runCompiler(args: string[]): { stdout: string; stderr: string; status: 
 
 describe("silverc compile pipeline", () => {
   it("compiled artifacts are in sync with the committed ones", () => {
-    const ticket = runCompiler(["--compile", "contracts/ticket.silverscript"]);
-    expect(ticket.status).toBe(0);
-    expect(JSON.parse(ticket.stdout)).toEqual(TICKET_ARTIFACT);
+    const event = runCompiler(["--compile", "contracts/event.silverscript"]);
+    expect(event.status).toBe(0);
+    expect(JSON.parse(event.stdout)).toEqual(EVENT_ARTIFACT);
 
     const burn = runCompiler(["--compile", "contracts/burn.silverscript"]);
     expect(burn.status).toBe(0);
@@ -32,8 +32,8 @@ describe("silverc compile pipeline", () => {
   });
 
   it("produces deterministic output across runs", () => {
-    const a = runCompiler(["--compile", "contracts/ticket.silverscript"]);
-    const b = runCompiler(["--compile", "contracts/ticket.silverscript"]);
+    const a = runCompiler(["--compile", "contracts/event.silverscript"]);
+    const b = runCompiler(["--compile", "contracts/event.silverscript"]);
     expect(a.stdout).toBe(b.stdout);
   });
 

@@ -1,13 +1,19 @@
 export interface CovenantAbi {
   entry: number;
-  prevPhase: number;
+  prevOwner: number;
+  prevIdentifierType: number;
+  prevAmount: number;
+  prevIsMinter: number;
   authOutputCount: number;
-  hasOrgPayout: number;
+  organizerSigned: number;
   holderSigned: number;
   successorIsBurn: number;
+  hasOrgPayout: number;
   arg: number;
-  newPhase: number;
   newOwner: number;
+  newAmount: number;
+  newIdentifierType: number;
+  newIsMinter: number;
   ownerLen: number;
   constPrice: number;
   constPriceBytes: number;
@@ -20,7 +26,7 @@ export interface ContractEntrypoint {
   to: number;
   args: string[];
   guards: string[];
-  result: { phase: number; owner: string | null };
+  result: { amount: number | string | null; owner: string | null };
 }
 
 export interface ContractArtifact {

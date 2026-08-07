@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { decodeBase64Wasm } from "./artifact";
-import { BURN_ARTIFACT, TICKET_ARTIFACT } from "./artifacts";
-import { availableTicket, Covenant, ownedTicket } from "./covenant";
-import type { CovenantContext, TicketConstants } from "./types";
+import { BURN_ARTIFACT, EVENT_ARTIFACT, TICKET_ARTIFACT } from "./artifacts";
+import { Covenant, eventCovenant, ticketCovenant } from "./covenant";
+import type { CovenantContext, Kcc20Constants } from "./types";
 import { RESULT_CODES } from "./types";
 import { getWasmRuntime } from "./wasm";
 
@@ -13,10 +13,9 @@ function pkh(byte: number): Uint8Array {
   return bytes;
 }
 
-function constants(overrides: Partial<TicketConstants> = {}): TicketConstants {
+function constants(overrides: Partial<Kcc20Constants> = {}): Kcc20Constants {
   return {
     eventId: pkh(0x11),
-    index: 0,
     price: 100,
     orgSpk: pkh(0x22),
     burnTemplateHash: pkh(0x33),
@@ -24,44 +23,53 @@ function constants(overrides: Partial<TicketConstants> = {}): TicketConstants {
   };
 }
 
-function buyCtx(overrides: Partial<CovenantContext> = {}): CovenantContext {
+function mintCtx(overrides: Partial<CovenantContext> = {}): CovenantContext {
   return {
-    authOutputCount: 1,
-    hasOrgPayout: true,
+    authOutputCount: 2,
+    organizerSigned: true,
     holderSigned: false,
     successorIsBurn: false,
+    hasOrgPayout: true,
     ...overrides,
   };
 }
 
 function transferCtx(holderSigned: boolean): CovenantContext {
-  return { authOutputCount: 0, hasOrgPayout: false, holderSigned, successorIsBurn: false };
+  return {
+    authOutputCount: 1,
+    organizerSigned: false,
+    holderSigned,
+    successorIsBurn: false,
+    hasOrgPayout: false,
+  };
 }
 
 function useCtx(overrides: Partial<CovenantContext> = {}): CovenantContext {
   return {
-    authOutputCount: 0,
-    hasOrgPayout: false,
+    authOutputCount: 1,
+    organizerSigned: false,
     holderSigned: true,
     successorIsBurn: true,
+    hasOrgPayout: false,
     ...overrides,
   };
 }
 
+const ORG = pkh(0x01);
 const ALICE = pkh(0xaa);
 const BOB = pkh(0xbb);
-const CAROL = pkh(0xcc);
 
 describe("artifacts", () => {
-  it("ticket artifact exposes the three entrypoints as auth covenants (HLD §2.1)", () => {
-    expect(TICKET_ARTIFACT.name).toBe("Ticket");
-    expect(TICKET_ARTIFACT.unspendable).toBe(false);
-    expect(TICKET_ARTIFACT.contract.entrypoints).toEqual({
-      buy: expect.objectContaining({ id: 0, binding: "auth", from: 1, to: 1 }),
+  it("event artifact exposes mint/transfer/use auth covenants (HLD v0.22 §2.1)", () => {
+    expect(EVENT_ARTIFACT.name).toBe("Event");
+    expect(EVENT_ARTIFACT.unspendable).toBe(false);
+    expect(EVENT_ARTIFACT.contract.entrypoints).toEqual({
+      mint: expect.objectContaining({ id: 0, binding: "auth", from: 1, to: 2 }),
       transfer: expect.objectContaining({ id: 1, binding: "auth", from: 1, to: 1 }),
       use: expect.objectContaining({ id: 2, binding: "auth", from: 1, to: 1 }),
     });
-    expect(TICKET_ARTIFACT.contract.constantsBaked).toBe(true);
+    expect(EVENT_ARTIFACT.contract.constantsBaked).toBe(true);
+    expect(TICKET_ARTIFACT).toBe(EVENT_ARTIFACT);
   });
 
   it("burn artifact is unspendable with no entrypoints", () => {
@@ -72,102 +80,98 @@ describe("artifacts", () => {
 
   it("both artifacts decode to valid WASM", () => {
     const validate = getWasmRuntime().validate;
-    expect(validate(decodeBase64Wasm(TICKET_ARTIFACT.wasmBase64))).toBe(true);
+    expect(validate(decodeBase64Wasm(EVENT_ARTIFACT.wasmBase64))).toBe(true);
     expect(validate(decodeBase64Wasm(BURN_ARTIFACT.wasmBase64))).toBe(true);
   });
 });
 
-describe("state machine available -> owned -> burned", () => {
-  const c = new Covenant(TICKET_ARTIFACT, constants());
+describe("state machine: event (remaining) -> mint -> transfer -> use", () => {
+  const c = new Covenant(EVENT_ARTIFACT, constants());
 
-  it("happy path: buy then transfer then use", () => {
-    const buy = c.transition("buy", availableTicket(), ALICE, buyCtx());
-    expect(buy).toMatchObject({ ok: true });
-    expect(buy.state).toEqual({ phase: 1, owner: ALICE });
+  it("happy path: mint a ticket, transfer it, then consume it", () => {
+    const mint = c.transition("mint", eventCovenant(ORG, 10), ALICE, mintCtx());
+    expect(mint).toMatchObject({ ok: true });
+    expect(mint.state).toEqual({ owner: ALICE, identifierType: 0, amount: 1, isMinter: false });
 
-    const transfer = c.transition("transfer", ownedTicket(ALICE), BOB, transferCtx(true));
+    const transfer = c.transition("transfer", ticketCovenant(ALICE), BOB, transferCtx(true));
     expect(transfer).toMatchObject({ ok: true });
-    expect(transfer.state).toEqual({ phase: 1, owner: BOB });
+    expect(transfer.state?.owner).toEqual(BOB);
+    expect(transfer.state?.amount).toBe(1);
 
-    const use = c.transition("use", ownedTicket(BOB), new Uint8Array(0), useCtx());
+    const use = c.transition("use", ticketCovenant(BOB), new Uint8Array(0), useCtx());
     expect(use).toMatchObject({ ok: true });
-    expect(use.state?.phase).toBe(2);
+    expect(use.state?.amount).toBe(1);
   });
 
-  it("a ticket issued only when payment succeeds in the same tx (FR-18)", () => {
-    const noPayout = c.transition("buy", availableTicket(), ALICE, buyCtx({ hasOrgPayout: false }));
-    expect(noPayout).toMatchObject({ ok: false, code: RESULT_CODES.ERR_PAYOUT });
+  it("mint requires the organizer to sign (organizer authorizes the sale)", () => {
+    const r = c.transition(
+      "mint",
+      eventCovenant(ORG, 10),
+      ALICE,
+      mintCtx({ organizerSigned: false }),
+    );
+    expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_SIG });
+  });
+
+  it("mint rejects an exhausted event (oversell, FR-8/27)", () => {
+    const r = c.transition("mint", eventCovenant(ORG, 0), ALICE, mintCtx());
+    expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_AMOUNT });
+  });
+
+  it("mint requires exactly two authorized outputs (ticket + remaining event)", () => {
+    expect(
+      c.transition("mint", eventCovenant(ORG, 10), ALICE, mintCtx({ authOutputCount: 1 })),
+    ).toMatchObject({
+      ok: false,
+      code: RESULT_CODES.ERR_AUTH_OUTPUT,
+    });
+  });
+
+  it("mint pays the organizer in the same tx when price > 0 (FR-18)", () => {
+    expect(
+      c.transition("mint", eventCovenant(ORG, 10), ALICE, mintCtx({ hasOrgPayout: false })),
+    ).toMatchObject({ ok: false, code: RESULT_CODES.ERR_AUTH_OUTPUT });
   });
 
   it("free events skip the payout requirement (FR-2)", () => {
-    const free = new Covenant(TICKET_ARTIFACT, constants({ price: 0 }));
-    const buy = free.transition("buy", availableTicket(), ALICE, buyCtx({ hasOrgPayout: false }));
-    expect(buy).toMatchObject({ ok: true });
-    expect(buy.state?.owner).toEqual(ALICE);
-  });
-
-  it("used ticket is gone forever, no path revives it (FR-11, NFR-5)", () => {
-    const gone = c.transition("use", ownedTicket(ALICE), new Uint8Array(0), useCtx());
-    expect(gone).toMatchObject({ ok: true, state: { phase: 2 } });
-  });
-});
-
-describe("buy guards (FR-17: one ticket per purchase)", () => {
-  const c = new Covenant(TICKET_ARTIFACT, constants());
-
-  it("buy requires phase 0 (double-buy rejected)", () => {
-    const doubleBuy = c.transition("buy", ownedTicket(ALICE), BOB, buyCtx());
-    expect(doubleBuy).toMatchObject({ ok: false, code: RESULT_CODES.ERR_PHASE });
-  });
-
-  it("buy requires exactly one auth output", () => {
-    expect(
-      c.transition("buy", availableTicket(), ALICE, buyCtx({ authOutputCount: 0 })),
-    ).toMatchObject({
-      ok: false,
-      code: RESULT_CODES.ERR_AUTH_OUTPUT,
-    });
-    expect(
-      c.transition("buy", availableTicket(), ALICE, buyCtx({ authOutputCount: 2 })),
-    ).toMatchObject({
-      ok: false,
-      code: RESULT_CODES.ERR_AUTH_OUTPUT,
-    });
-  });
-
-  it("buy pays the organizer in the same tx when price > 0", () => {
-    const paid = c.transition("buy", availableTicket(), ALICE, buyCtx({ hasOrgPayout: true }));
-    expect(paid).toMatchObject({ ok: true });
-    expect(paid.state?.owner).toEqual(ALICE);
+    const free = new Covenant(EVENT_ARTIFACT, constants({ price: 0 }));
+    const mint = free.transition(
+      "mint",
+      eventCovenant(ORG, 10),
+      ALICE,
+      mintCtx({ hasOrgPayout: false }),
+    );
+    expect(mint).toMatchObject({ ok: true });
+    expect(mint.state?.owner).toEqual(ALICE);
   });
 });
 
 describe("transfer is holder-only (NFR-4)", () => {
-  const c = new Covenant(TICKET_ARTIFACT, constants());
+  const c = new Covenant(EVENT_ARTIFACT, constants());
 
   it("non-holder cannot transfer", () => {
-    const r = c.transition("transfer", ownedTicket(ALICE), BOB, transferCtx(false));
+    const r = c.transition("transfer", ticketCovenant(ALICE), BOB, transferCtx(false));
     expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_SIG });
   });
 
   it("holder can transfer to a new owner", () => {
-    const r = c.transition("transfer", ownedTicket(ALICE), BOB, transferCtx(true));
-    expect(r).toMatchObject({ ok: true, state: { phase: 1, owner: BOB } });
+    const r = c.transition("transfer", ticketCovenant(ALICE), BOB, transferCtx(true));
+    expect(r).toMatchObject({ ok: true, state: { owner: BOB, amount: 1 } });
   });
 
-  it("transfer on an available ticket is rejected", () => {
-    const r = c.transition("transfer", availableTicket(), BOB, transferCtx(true));
-    expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_PHASE });
+  it("transfer on the event covenant (amount > 1) is rejected", () => {
+    const r = c.transition("transfer", eventCovenant(ORG, 5), BOB, transferCtx(true));
+    expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_AMOUNT });
   });
 });
 
-describe("use (handover) successor is the event burn (FR-9)", () => {
-  const c = new Covenant(TICKET_ARTIFACT, constants());
+describe("use (handover) successor is the burn-owner (FR-9)", () => {
+  const c = new Covenant(EVENT_ARTIFACT, constants());
 
   it("rejects a successor that is not the burn template", () => {
     const r = c.transition(
       "use",
-      ownedTicket(ALICE),
+      ticketCovenant(ALICE),
       new Uint8Array(0),
       useCtx({ successorIsBurn: false }),
     );
@@ -177,22 +181,22 @@ describe("use (handover) successor is the event burn (FR-9)", () => {
   it("only the holder can hand over", () => {
     const r = c.transition(
       "use",
-      ownedTicket(ALICE),
+      ticketCovenant(ALICE),
       new Uint8Array(0),
       useCtx({ holderSigned: false }),
     );
     expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_SIG });
   });
 
-  it("handover on an available ticket is rejected", () => {
-    const r = c.transition("use", availableTicket(), new Uint8Array(0), useCtx());
-    expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_PHASE });
+  it("handover on the event covenant is rejected", () => {
+    const r = c.transition("use", eventCovenant(ORG, 5), new Uint8Array(0), useCtx());
+    expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_AMOUNT });
   });
 });
 
-describe("rules freeze at genesis (FR-7)", () => {
+describe("rules freeze at deploy (FR-7)", () => {
   it("constants are immutable after deployment", () => {
-    const c = new Covenant(TICKET_ARTIFACT, constants({ price: 100 }));
+    const c = new Covenant(EVENT_ARTIFACT, constants({ price: 100 }));
     expect(Object.isFrozen(c.constants)).toBe(true);
     expect(() => {
       (c.constants as { price: number }).price = 0;
@@ -200,11 +204,11 @@ describe("rules freeze at genesis (FR-7)", () => {
     expect(c.constants.price).toBe(100);
   });
 
-  it("price is baked at genesis and stable across transitions", () => {
-    const c = new Covenant(TICKET_ARTIFACT, constants({ price: 100 }));
-    c.transition("buy", availableTicket(), ALICE, buyCtx({ hasOrgPayout: true }));
-    c.transition("transfer", ownedTicket(ALICE), BOB, transferCtx(true));
-    c.transition("use", ownedTicket(BOB), new Uint8Array(0), useCtx());
+  it("price is baked at deploy and stable across transitions", () => {
+    const c = new Covenant(EVENT_ARTIFACT, constants({ price: 100 }));
+    c.transition("mint", eventCovenant(ORG, 10), ALICE, mintCtx({ hasOrgPayout: true }));
+    c.transition("transfer", ticketCovenant(ALICE), BOB, transferCtx(true));
+    c.transition("use", ticketCovenant(BOB), new Uint8Array(0), useCtx());
     expect(c.constants.price).toBe(100);
   });
 });
@@ -212,47 +216,39 @@ describe("rules freeze at genesis (FR-7)", () => {
 describe("burn covenant is unspendable and contention-free", () => {
   it("any spend attempt on the burn covenant fails (unspendable)", () => {
     const burn = new Covenant(BURN_ARTIFACT, constants());
-    expect(burn.transition("use", ownedTicket(ALICE), new Uint8Array(0), useCtx())).toMatchObject({
+    expect(
+      burn.transition("use", ticketCovenant(ALICE), new Uint8Array(0), useCtx()),
+    ).toMatchObject({
       ok: false,
       code: RESULT_CODES.ERR_UNSPENDABLE,
     });
   });
 
   it("concurrent handovers never contend on one UTXO (no shared counter)", () => {
-    const evt = constants();
-    const a = new Covenant(TICKET_ARTIFACT, evt);
-    const b = new Covenant(TICKET_ARTIFACT, evt);
-
-    const handoverA = a.transition("use", ownedTicket(ALICE), new Uint8Array(0), useCtx());
-    const handoverB = b.transition("use", ownedTicket(BOB), new Uint8Array(0), useCtx());
-
-    expect(handoverA).toMatchObject({ ok: true, state: { phase: 2 } });
-    expect(handoverB).toMatchObject({ ok: true, state: { phase: 2 } });
+    const a = new Covenant(EVENT_ARTIFACT, constants());
+    const b = new Covenant(EVENT_ARTIFACT, constants());
+    const handoverA = a.transition("use", ticketCovenant(ALICE), new Uint8Array(0), useCtx());
+    const handoverB = b.transition("use", ticketCovenant(BOB), new Uint8Array(0), useCtx());
+    expect(handoverA).toMatchObject({ ok: true });
+    expect(handoverB).toMatchObject({ ok: true });
   });
 });
 
 describe("edge cases", () => {
-  const c = new Covenant(TICKET_ARTIFACT, constants());
+  const c = new Covenant(EVENT_ARTIFACT, constants());
 
   it("unknown entrypoint is rejected", () => {
-    const r = c.transition("resell" as "use", ownedTicket(ALICE), new Uint8Array(0), useCtx());
+    const r = c.transition("resell" as "use", ticketCovenant(ALICE), new Uint8Array(0), useCtx());
     expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_FUNCTION });
   });
 
-  it("wrong burn template at handover is rejected (wrong burn template edge case)", () => {
+  it("wrong burn template at handover is rejected", () => {
     const wrong = c.transition(
       "use",
-      ownedTicket(CAROL),
+      ticketCovenant(ALICE),
       new Uint8Array(0),
       useCtx({ successorIsBurn: false }),
     );
     expect(wrong).toMatchObject({ ok: false, code: RESULT_CODES.ERR_BURN_TEMPLATE });
-  });
-
-  it("a sold ticket can be re-bought only after it is gone — no third state (FR-20)", () => {
-    const gone = c.transition("use", ownedTicket(ALICE), new Uint8Array(0), useCtx());
-    expect(gone).toMatchObject({ ok: true, state: { phase: 2 } });
-    const rebuy = c.transition("buy", availableTicket(), BOB, buyCtx());
-    expect(rebuy).toMatchObject({ ok: true, state: { phase: 1, owner: BOB } });
   });
 });

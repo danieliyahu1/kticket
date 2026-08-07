@@ -1,0 +1,136 @@
+{
+  "schema": "kticket/silverscript-artifact/v2",
+  "compiler": "silverc",
+  "compilerVersion": "0.2.0",
+  "name": "Event",
+  "source": "event.silverscript",
+  "unspendable": false,
+  "wasmBase64": "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxcCBm1lbW9yeQIACnRyYW5zaXRpb24AAArMBwHJBwBBAC0AAEEARgRAQQAtADhFBEBBAw8LQSgpAABCAFVFBEBBAQ8LQQAtADRBAkcEQEECDwtBACkAoAFCAFUEQEEALQBERQRAQQIPCwtB6ABByAAtAAA6AABB6QBByQAtAAA6AABB6gBBygAtAAA6AABB6wBBywAtAAA6AABB7ABBzAAtAAA6AABB7QBBzQAtAAA6AABB7gBBzgAtAAA6AABB7wBBzwAtAAA6AABB8ABB0AAtAAA6AABB8QBB0QAtAAA6AABB8gBB0gAtAAA6AABB8wBB0wAtAAA6AABB9ABB1AAtAAA6AABB9QBB1QAtAAA6AABB9gBB1gAtAAA6AABB9wBB1wAtAAA6AABB+ABB2AAtAAA6AABB+QBB2QAtAAA6AABB+gBB2gAtAAA6AABB+wBB2wAtAAA6AABB/ABB3AAtAAA6AABB/QBB3QAtAAA6AABB/gBB3gAtAAA6AABB/wBB3wAtAAA6AABBgAFB4AAtAAA6AABBgQFB4QAtAAA6AABBggFB4gAtAAA6AABBgwFB4wAtAAA6AABBhAFB5AAtAAA6AABBhQFB5QAtAAA6AABBhgFB5gAtAAA6AABBhwFB5wAtAAA6AABBiAFCATcAAEEADwVBAC0AAEEBRgRAQQAtADxFBEBBAw8LQSgpAABCAVFFBEBBAQ8LQegAQcgALQAAOgAAQekAQckALQAAOgAAQeoAQcoALQAAOgAAQesAQcsALQAAOgAAQewAQcwALQAAOgAAQe0AQc0ALQAAOgAAQe4AQc4ALQAAOgAAQe8AQc8ALQAAOgAAQfAAQdAALQAAOgAAQfEAQdEALQAAOgAAQfIAQdIALQAAOgAAQfMAQdMALQAAOgAAQfQAQdQALQAAOgAAQfUAQdUALQAAOgAAQfYAQdYALQAAOgAAQfcAQdcALQAAOgAAQfgAQdgALQAAOgAAQfkAQdkALQAAOgAAQfoAQdoALQAAOgAAQfsAQdsALQAAOgAAQfwAQdwALQAAOgAAQf0AQd0ALQAAOgAAQf4AQd4ALQAAOgAAQf8AQd8ALQAAOgAAQYABQeAALQAAOgAAQYEBQeEALQAAOgAAQYIBQeIALQAAOgAAQYMBQeMALQAAOgAAQYQBQeQALQAAOgAAQYUBQeUALQAAOgAAQYYBQeYALQAAOgAAQYcBQecALQAAOgAAQYgBQSgpAAA3AABBAA8FQQAtAABBAkYEQEEALQA8RQRAQQMPC0EoKQAAQgFRRQRAQQEPC0EALQBARQRAQQQPC0EADwVBBQ8LCwsACw==",
+  "code": "0051",
+  "contract": {
+    "pragma": "^0.1.0",
+    "params": [
+      {
+        "type": "byte[32]",
+        "name": "event_id"
+      },
+      {
+        "type": "int",
+        "name": "price"
+      },
+      {
+        "type": "byte[]",
+        "name": "org_spk"
+      },
+      {
+        "type": "template",
+        "name": "burn_tmpl"
+      }
+    ],
+    "state": [
+      {
+        "type": "byte[32]",
+        "name": "owner",
+        "initial": "ZERO"
+      },
+      {
+        "type": "int",
+        "name": "amount",
+        "initial": "0"
+      },
+      {
+        "type": "bool",
+        "name": "is_minter",
+        "initial": "false"
+      }
+    ],
+    "entrypoints": {
+      "mint": {
+        "id": 0,
+        "binding": "auth",
+        "from": 1,
+        "to": 2,
+        "args": [
+          "prev",
+          "buyer_pkh"
+        ],
+        "guards": [
+          "organizerSigned",
+          "amountGtZero",
+          "authOutputCount",
+          "hasOrgPayout"
+        ],
+        "result": {
+          "amount": 1,
+          "owner": "arg"
+        }
+      },
+      "transfer": {
+        "id": 1,
+        "binding": "auth",
+        "from": 1,
+        "to": 1,
+        "args": [
+          "prev",
+          "new_owner"
+        ],
+        "guards": [
+          "holderSigned",
+          "amountOne"
+        ],
+        "result": {
+          "amount": "prev",
+          "owner": "arg"
+        }
+      },
+      "use": {
+        "id": 2,
+        "binding": "auth",
+        "from": 1,
+        "to": 1,
+        "args": [
+          "prev"
+        ],
+        "guards": [
+          "holderSigned",
+          "amountOne",
+          "successorIsBurn"
+        ],
+        "result": {
+          "amount": null,
+          "owner": null
+        }
+      }
+    },
+    "constantsBaked": true
+  },
+  "abi": {
+    "entry": 0,
+    "prevOwner": 4,
+    "prevIdentifierType": 36,
+    "prevAmount": 40,
+    "prevIsMinter": 48,
+    "authOutputCount": 52,
+    "organizerSigned": 56,
+    "holderSigned": 60,
+    "successorIsBurn": 64,
+    "hasOrgPayout": 68,
+    "arg": 72,
+    "newOwner": 104,
+    "newAmount": 136,
+    "newIdentifierType": 144,
+    "newIsMinter": 148,
+    "ownerLen": 32,
+    "constPrice": 160,
+    "constPriceBytes": 8
+  },
+  "resultCodes": {
+    "OK": 0,
+    "ERR_AMOUNT": 1,
+    "ERR_AUTH_OUTPUT": 2,
+    "ERR_SIG": 3,
+    "ERR_BURN_TEMPLATE": 4,
+    "ERR_FUNCTION": 5,
+    "ERR_UNSPENDABLE": 6
+  }
+}

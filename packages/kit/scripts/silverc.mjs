@@ -1,30 +1,35 @@
 #!/usr/bin/env node
 // silverc — reference SilverScript → WASM compiler for kticket (build-time only).
 //
-// The published silverc (Rust) toolchain is not available yet (HLD v0.21 open
-// question (e): "Pin the exact script_public_key byte layout SilverScript
-// emits"). This reference implementation parses the SilverScript subset used by
-// the Ticket / Burn contracts and emits a WASM artifact that the kit runtime
-// instantiates and executes. It is intentionally small, deterministic, and
-// side-effect-free except for writing artifacts under packages/kit/artifacts.
+// The published silverc (Rust) toolchain is not available yet (HLD v0.22 open
+// question (e)). This reference implementation parses the SilverScript subset
+// used by the kticket KCC20-fork contracts and emits a WASM artifact that the
+// kit runtime instantiates and executes. It is intentionally small,
+// deterministic, and side-effect-free except for writing artifacts.
 //
-// ABI (also mirrored in src/contracts/covenant.ts): the host writes inputs into
-// the exported linear memory, calls transition() -> i32, and reads outputs.
+// ABI (mirrored in src/contracts/covenant.ts): the host writes inputs into the
+// exported linear memory, calls transition() -> i32, and reads outputs.
 //
 //   offset  field                     notes
-//   0       entry (u8)                0=buy 1=transfer 2=use
-//   4       prevPhase (u8)            0=available 1=owned
-//   8       authOutputCount (u8)      buy: OpAuthOutputCount must be 1 (FR-17)
-//   12      hasOrgPayout (u8)         buy (price>0): payout present (FR-18)
-//   16      holderSigned (u8)         transfer/use: checkSigFromStack (NFR-4)
-//   20      successorIsBurn (u8)      use: validateOutputStateWithTemplate (FR-9)
-//   24      arg (32 bytes)            buyer_pkh / new_owner
-//   64      newPhase (u8) output      0/1/2 (2 = gone)
-//   68      newOwner (32 bytes) out
-//   128     constPrice (i64 LE)       frozen at genesis (FR-7); read-only here
+//   0       entry (u8)                0=mint 1=transfer 2=use
+//   4       prevOwner (32 bytes)      the spent covenant's owner identifier
+//   36      prevIdentifierType (u8)   0=pubkey 1=script-hash 2=covenant-id
+//   40      prevAmount (i64 LE)       remaining tickets / ticket balance
+//   48      prevIsMinter (u8)         fixed-supply events are never minter
+//   52      authOutputCount (u8)      authorized outputs in the tx
+//   56      organizerSigned (u8)      mint: checkSigFromStack(prev.owner)
+//   60      holderSigned (u8)         transfer/use: checkSigFromStack(prev.owner)
+//   64      successorIsBurn (u8)      use: validateOutputStateWithTemplate
+//   68      hasOrgPayout (u8)         mint (price>0): payout present (FR-18)
+//   72      arg (32 bytes)            buyer_pkh / new_owner
+//   104     newOwner (32 bytes) out
+//   136     newAmount (i64 LE) out    ticket successor amount
+//   144     newIdentifierType (u8) out
+//   148     newIsMinter (u8) out
+//   160     constPrice (i64 LE)       frozen at deploy (FR-7)
 //
-// Result codes: 0 OK, 1 ERR_PHASE, 2 ERR_AUTH_OUTPUT, 3 ERR_PAYOUT,
-//               4 ERR_SIG, 5 ERR_BURN_TEMPLATE, 6 ERR_FUNCTION, 7 ERR_UNSPENDABLE
+// Result codes: 0 OK, 1 ERR_AMOUNT, 2 ERR_AUTH_OUTPUT, 3 ERR_SIG,
+//               4 ERR_BURN_TEMPLATE, 5 ERR_FUNCTION, 6 ERR_UNSPENDABLE
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -35,55 +40,60 @@ const PACKAGE_ROOT = join(HERE, "..");
 const CONTRACTS_DIR = join(PACKAGE_ROOT, "contracts");
 const ARTIFACTS_DIR = join(PACKAGE_ROOT, "artifacts");
 
-const SCHEMA = "kticket/silverscript-artifact/v1";
+const SCHEMA = "kticket/silverscript-artifact/v2";
 const COMPILER = "silverc";
-const COMPILER_VERSION = "0.1.0";
+const COMPILER_VERSION = "0.2.0";
 
 // On-chain code segment emitted into the redeem script (after the preimage
 // pushes). Pending the pinned script_public_key layout (HLD open question e)
 // this is a deterministic, contract-name-derived placeholder:
-//   ticket: 0x00 0x51 (unspendable code / OP_TRUE)   -> spendable covenant VM code
-//   burn:   0x00 0x00 (unspendable code / OP_FALSE)  -> unspendable covenant VM code
+//   event/ticket: 0x00 0x51 (spendable covenant VM code)
+//   burn:         0x00 0x00 (unspendable covenant VM code)
 function covenantCode(contractName) {
   const name = contractName.toLowerCase();
-  if (name === "burn") return "0000";
+  if (name.includes("burn")) return "0000";
   return "0051";
 }
 
-const CONTRACT_SOURCES = ["ticket.silverscript", "burn.silverscript"];
+const CONTRACT_SOURCES = ["event.silverscript", "burn.silverscript"];
 
 const ABI = {
   entry: 0,
-  prevPhase: 4,
-  authOutputCount: 8,
-  hasOrgPayout: 12,
-  holderSigned: 16,
-  successorIsBurn: 20,
-  arg: 24,
-  newPhase: 64,
-  newOwner: 68,
+  prevOwner: 4,
+  prevIdentifierType: 36,
+  prevAmount: 40,
+  prevIsMinter: 48,
+  authOutputCount: 52,
+  organizerSigned: 56,
+  holderSigned: 60,
+  successorIsBurn: 64,
+  hasOrgPayout: 68,
+  arg: 72,
+  newOwner: 104,
+  newAmount: 136,
+  newIdentifierType: 144,
+  newIsMinter: 148,
   ownerLen: 32,
-  constPrice: 128,
+  constPrice: 160,
   constPriceBytes: 8,
 };
 
 const RESULT_CODES = {
   OK: 0,
-  ERR_PHASE: 1,
+  ERR_AMOUNT: 1,
   ERR_AUTH_OUTPUT: 2,
-  ERR_PAYOUT: 3,
-  ERR_SIG: 4,
-  ERR_BURN_TEMPLATE: 5,
-  ERR_FUNCTION: 6,
-  ERR_UNSPENDABLE: 7,
+  ERR_SIG: 3,
+  ERR_BURN_TEMPLATE: 4,
+  ERR_FUNCTION: 5,
+  ERR_UNSPENDABLE: 6,
 };
 
-const ENTRYPOINT_IDS = { buy: 0, transfer: 1, use: 2 };
+const ENTRYPOINT_IDS = { mint: 0, transfer: 1, use: 2 };
 
 const REQUIRED_GUARDS = {
-  buy: ["phase", "authOutputCount", "hasOrgPayout"],
-  transfer: ["phase", "holderSigned"],
-  use: ["phase", "holderSigned", "successorIsBurn"],
+  mint: ["organizerSigned", "amountGtZero", "authOutputCount"],
+  transfer: ["holderSigned", "amountOne"],
+  use: ["holderSigned", "amountOne", "successorIsBurn"],
 };
 
 // --- errors ---------------------------------------------------------------
@@ -94,7 +104,7 @@ function compileError(message) {
   return err;
 }
 
-// --- WASM binary writer ----------------------------------------------------
+// --- WASM binary writer ---------------------------------------------------
 
 function uleb(n) {
   const out = [];
@@ -152,9 +162,14 @@ function store8(offset) {
   return [0x3a, 0x00, ...uleb(offset)];
 }
 
+function store64(offset) {
+  return [0x37, 0x00, ...uleb(offset)];
+}
+
 const I32_EQZ = [0x45];
 const I32_NE = [0x47];
 const I32_EQ = [0x46];
+const I64_EQ = [0x51];
 const I64_GT_U = [0x55];
 const IF = [0x04, 0x40];
 const ELSE = [0x05];
@@ -181,7 +196,37 @@ function guardZero(offset, code) {
   return [...i32const(0), ...load8u(offset), ...I32_EQZ, ...IF, ...i32const(code), ...RET, ...END];
 }
 
-// buy: if constPrice > 0 then require hasOrgPayout (payout in same tx).
+function guardAmountGtZero(code) {
+  // if (!(prevAmount > 0)) return ERR_AMOUNT
+  return [
+    ...i32const(ABI.prevAmount),
+    ...i64load(0),
+    ...i64const(0),
+    ...I64_GT_U,
+    ...I32_EQZ,
+    ...IF,
+    ...i32const(code),
+    ...RET,
+    ...END,
+  ];
+}
+
+function guardAmountOne(code) {
+  // if (prevAmount != 1) return ERR_AMOUNT
+  return [
+    ...i32const(ABI.prevAmount),
+    ...i64load(0),
+    ...i64const(1),
+    ...I64_EQ,
+    ...I32_EQZ,
+    ...IF,
+    ...i32const(code),
+    ...RET,
+    ...END,
+  ];
+}
+
+// mint: if constPrice > 0 then require hasOrgPayout (payout in same tx).
 function payoutGuard(code) {
   return [
     ...i32const(0),
@@ -194,8 +239,12 @@ function payoutGuard(code) {
   ];
 }
 
-function setPhase(phase) {
-  return [...i32const(ABI.newPhase), ...i32const(phase), ...store8(0)];
+function setAmount(amount) {
+  return [...i32const(ABI.newAmount), ...i64const(amount), ...store64(0)];
+}
+
+function setAmountFromPrev() {
+  return [...i32const(ABI.newAmount), ...i32const(ABI.prevAmount), ...i64load(0), ...store64(0)];
 }
 
 function copyArgToOwner() {
@@ -206,21 +255,40 @@ function copyArgToOwner() {
   return out;
 }
 
+function copyPrevToNewOwner() {
+  const out = [];
+  for (let i = 0; i < ABI.ownerLen; i++) {
+    out.push(
+      ...i32const(ABI.newOwner + i),
+      ...i32const(ABI.prevOwner + i),
+      ...load8u(0),
+      ...store8(0),
+    );
+  }
+  return out;
+}
+
 function emitEntrypointBody(entrypoint) {
   const out = [];
   for (const guard of entrypoint.guards) {
     switch (guard.type) {
-      case "phase":
-        out.push(...guardEquals(ABI.prevPhase, guard.value, RESULT_CODES.ERR_PHASE));
+      case "organizerSigned":
+        out.push(...guardZero(ABI.organizerSigned, RESULT_CODES.ERR_SIG));
+        break;
+      case "holderSigned":
+        out.push(...guardZero(ABI.holderSigned, RESULT_CODES.ERR_SIG));
+        break;
+      case "amountGtZero":
+        out.push(...guardAmountGtZero(RESULT_CODES.ERR_AMOUNT));
+        break;
+      case "amountOne":
+        out.push(...guardAmountOne(RESULT_CODES.ERR_AMOUNT));
         break;
       case "authOutputCount":
         out.push(...guardEquals(ABI.authOutputCount, guard.value, RESULT_CODES.ERR_AUTH_OUTPUT));
         break;
       case "hasOrgPayout":
-        out.push(...payoutGuard(RESULT_CODES.ERR_PAYOUT));
-        break;
-      case "holderSigned":
-        out.push(...guardZero(ABI.holderSigned, RESULT_CODES.ERR_SIG));
+        out.push(...payoutGuard(RESULT_CODES.ERR_AUTH_OUTPUT));
         break;
       case "successorIsBurn":
         out.push(...guardZero(ABI.successorIsBurn, RESULT_CODES.ERR_BURN_TEMPLATE));
@@ -229,9 +297,20 @@ function emitEntrypointBody(entrypoint) {
         throw compileError(`unknown guard type: ${guard.type}`);
     }
   }
-  out.push(...setPhase(entrypoint.result.phase));
+
   if (entrypoint.result.owner !== null) {
-    out.push(...copyArgToOwner());
+    if (entrypoint.result.owner === "arg") {
+      out.push(...copyArgToOwner());
+    } else {
+      out.push(...copyPrevToNewOwner());
+    }
+  }
+  if (entrypoint.result.amount !== null) {
+    if (entrypoint.result.amount === "prev") {
+      out.push(...setAmountFromPrev());
+    } else {
+      out.push(...setAmount(entrypoint.result.amount));
+    }
   }
   out.push(...i32const(RESULT_CODES.OK), ...RET);
   return out;
@@ -329,17 +408,17 @@ function parseParams(source, sourcePath, str) {
 
 function parseGuard(source, sourcePath, expr) {
   const e = expr.trim();
-  let match = e.match(/^prev\.phase\s*==\s*(\d+)$/);
-  if (match) return { type: "phase", value: Number(match[1]) };
-
+  if (/^checkSigFromStack\(prev\.owner\)$/.test(e)) {
+    return { type: "prev.owner" };
+  }
+  let match = e.match(/^prev\.amount\s*>\s*0$/);
+  if (match) return { type: "amountGtZero" };
+  match = e.match(/^prev\.amount\s*==\s*1$/);
+  if (match) return { type: "amountOne" };
   match = e.match(/^OpAuthOutputCount\([^)]*\)\s*==\s*(\d+)$/);
   if (match) return { type: "authOutputCount", value: Number(match[1]) };
-
   if (/^existsOutput\(org_spk,\s*price\)$/.test(e)) {
     return { type: "hasOrgPayout" };
-  }
-  if (/^checkSigFromStack\(prev\.owner\)$/.test(e)) {
-    return { type: "holderSigned" };
   }
   if (/^validateOutputStateWithTemplate\([^)]*,\s*burn_tmpl\)$/.test(e)) {
     return { type: "successorIsBurn" };
@@ -349,9 +428,11 @@ function parseGuard(source, sourcePath, expr) {
 
 function parseReturn(source, sourcePath, value) {
   const v = value.trim();
-  if (v === "NONE") return { phase: 2, owner: null };
-  const match = v.match(/^\{\s*phase\s*:\s*(\d+)\s*,\s*owner\s*:\s*(\w+)\s*\}$/);
-  if (match) return { phase: Number(match[1]), owner: match[2] };
+  if (v === "NONE") return { amount: null, owner: null };
+  const match = v.match(/^\{\s*amount\s*:\s*(\d+)\s*,\s*owner\s*:\s*(\w+)\s*\}$/);
+  if (match) return { amount: Number(match[1]), owner: "arg" };
+  const keep = v.match(/^\{\s*amount\s*:\s*prev\.amount\s*,\s*owner\s*:\s*(\w+)\s*\}$/);
+  if (keep) return { amount: "prev", owner: "arg" };
   fail(source, sourcePath, -1, `unsupported return: "${value}"`);
 }
 
@@ -447,7 +528,7 @@ function parse(source, sourcePath) {
   const preamble = text.slice(0, preambleEnd);
 
   const state = [];
-  const stateRe = /(?:int|byte\[32\]|byte\[\]|template)\s+(\w+)\s*=\s*([^;]+);/g;
+  const stateRe = /(?:int|byte\[32\]|byte\[\]|template|bool)\s+(\w+)\s*=\s*([^;]+);/g;
   let stateMatch = stateRe.exec(preamble);
   while (stateMatch !== null) {
     state.push({
@@ -468,12 +549,12 @@ function parse(source, sourcePath) {
         `entrypoint ${header.name}: only binding = auth is supported`,
       );
     }
-    if (header.from !== 1 || header.to !== 1) {
+    if (header.from !== 1) {
       fail(
         source,
         sourcePath,
         header.index,
-        `entrypoint ${header.name}: only from = 1, to = 1 covenants are supported`,
+        `entrypoint ${header.name}: only from = 1 is supported`,
       );
     }
     if (!(header.name in ENTRYPOINT_IDS)) {
@@ -502,6 +583,12 @@ function parse(source, sourcePath) {
       fail(source, sourcePath, header.index, `entrypoint ${header.name}: missing return`);
     }
 
+    // Normalize `checkSigFromStack(prev.owner)` to the entrypoint's signer.
+    const ownerGuard = guards.find((g) => g.type === "prev.owner");
+    if (ownerGuard) {
+      ownerGuard.type = header.name === "mint" ? "organizerSigned" : "holderSigned";
+    }
+
     const required = REQUIRED_GUARDS[header.name] ?? [];
     const present = new Set(guards.map((g) => g.type));
     for (const type of required) {
@@ -515,23 +602,12 @@ function parse(source, sourcePath) {
       }
     }
 
-    const phaseGuard = guards.find((g) => g.type === "phase");
-    const expectedPhase = header.name === "buy" ? 0 : 1;
-    if (phaseGuard.value !== expectedPhase) {
+    if (result.owner !== null && !["arg", "prev.owner"].includes(result.owner)) {
       fail(
         source,
         sourcePath,
         header.index,
-        `entrypoint ${header.name}: prev.phase must be ${expectedPhase}`,
-      );
-    }
-
-    if (result.owner !== null && !header.args.includes(result.owner)) {
-      fail(
-        source,
-        sourcePath,
-        header.index,
-        `entrypoint ${header.name}: return owner "${result.owner}" is not an argument`,
+        `entrypoint ${header.name}: return owner "${result.owner}" is not "arg" or "prev.owner"`,
       );
     }
 
