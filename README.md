@@ -8,7 +8,7 @@ controlled by a guard-side "Door" client. This repository is the monorepo.
 | Package | Path | Stack | Responsibility |
 | --- | --- | --- | --- |
 | `@kticket/kit` | `packages/kit` | TypeScript (over `kaspa-wasm` + SilverScript artifacts) | Covenant WASM kit — on-chain ticket rules, tx building, covenant state decoding. Shared by api / web / door. |
-| `@kticket/api` | `packages/api` | Node.js + TypeScript (Fastify) | Stateless API — reads / build / broadcast via `api.kaspa.org`. |
+| `@kticket/api` | `packages/api` | Node.js + TypeScript (Fastify) | Stateless API — reads / build / broadcast via `api-tn10.kaspa.org`. |
 | `@kticket/web` | `packages/web` | React + Vite + TypeScript | Web SPA (buyer / organiser flows). |
 | `@kticket/door` | `packages/door` | React + Vite + TypeScript (PWA) | Door client — the guard's device app (access gate). |
 
@@ -40,8 +40,8 @@ CI runs build, lint, typecheck and tests (`.github/workflows/ci.yml`).
 
 ## Network selection (`KASPANET`)
 
-Both networks share identical semantics — only the endpoints/network id differ.
-Tests run on `testnet10`; the demo launch runs on `mainnet`.
+Only **testnet-10** is supported (HLD v0.23: mainnet is out of scope). The REST
+host is `api-tn10.kaspa.org`.
 
 Each package reads its own gitignored `.env` file when present; when unset or
 invalid, every host falls back to `testnet10`.

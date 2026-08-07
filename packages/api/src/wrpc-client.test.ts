@@ -5,7 +5,7 @@ const WASM = (await import("../vendor/kaspa-wasm/kaspa.js")) as {
     init: unknown,
   ) => {
     outputs: Array<{ covenant?: { authorizingInput: number; covenantId: string } }>;
-    id: () => string;
+    readonly id: string;
   };
 };
 

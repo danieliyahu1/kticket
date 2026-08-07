@@ -18,7 +18,6 @@ import { encodeConstants, encodeState, PreimageError } from "./preimage.js";
 export const P2SH_ADDRESS_VERSION = 8; // AddressVersion.ScriptHash
 
 export const NETWORK_PREFIXES = {
-  mainnet: "kaspa",
   testnet10: "kaspatest",
 } as const;
 

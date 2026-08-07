@@ -152,7 +152,7 @@ export interface BroadcastResult {
 
 export interface TxContext {
   kaspa: KaspaClientLike;
-  /** wRPC network id ("mainnet" | "testnet-10") for the broadcast relay. */
+  /** wRPC network id ("testnet-10") for the broadcast relay. */
   networkId: string;
 }
 

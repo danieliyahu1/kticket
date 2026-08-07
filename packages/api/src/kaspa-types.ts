@@ -1,5 +1,5 @@
-// Typed models for the Kaspa public REST API (api.kaspa.org, kaspa-rest-server
-// v2.3.0 — HLD v0.21 §1). Only the shapes the reader / availability use are
+// Typed models for the Kaspa public REST API (api-tn10.kaspa.org, kaspa-rest-server
+// v2.3.0 — HLD v0.23 §1). Only the shapes the reader / availability use are
 // modelled; amounts come back as strings from `/utxos` and integers from
 // `/full-transactions`, matching the upstream spec.
 

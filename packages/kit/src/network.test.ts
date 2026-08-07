@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { getNetworkConfig, isKaspiaNet, KASPANETS, NETWORKS, resolveNetwork } from "./network";
 
 describe("network selection (KASPANET)", () => {
-  it("supports exactly the two documented networks", () => {
-    expect(KASPANETS).toEqual(["testnet10", "mainnet"]);
+  it("supports only testnet10", () => {
+    expect(KASPANETS).toEqual(["testnet10"]);
   });
 
   it("defines a config for every supported network", () => {
@@ -14,10 +14,10 @@ describe("network selection (KASPANET)", () => {
 
   it("recognises valid KASPANET values", () => {
     expect(isKaspiaNet("testnet10")).toBe(true);
-    expect(isKaspiaNet("mainnet")).toBe(true);
   });
 
-  it("rejects invalid KASPANET values", () => {
+  it("rejects invalid KASPANET values (incl. mainnet)", () => {
+    expect(isKaspiaNet("mainnet")).toBe(false);
     expect(isKaspiaNet("banana")).toBe(false);
     expect(isKaspiaNet("")).toBe(false);
     expect(isKaspiaNet(undefined)).toBe(false);
@@ -25,21 +25,22 @@ describe("network selection (KASPANET)", () => {
 
   it("resolves valid values as-is", () => {
     expect(resolveNetwork("testnet10")).toBe("testnet10");
-    expect(resolveNetwork("mainnet")).toBe("mainnet");
   });
 
-  it("falls back to testnet10 for missing or invalid values", () => {
+  it("falls back to testnet10 for missing or invalid values (incl. mainnet)", () => {
     expect(resolveNetwork(undefined)).toBe("testnet10");
+    expect(resolveNetwork("mainnet")).toBe("testnet10");
     expect(resolveNetwork("banana")).toBe("testnet10");
   });
 
   it("honours an explicit fallback", () => {
-    expect(resolveNetwork("banana", "mainnet")).toBe("mainnet");
+    expect(resolveNetwork("banana", "testnet10")).toBe("testnet10");
   });
 
   it("getNetworkConfig returns the matching network config", () => {
-    expect(getNetworkConfig("mainnet").apiBaseUrl).toBe(NETWORKS.mainnet.apiBaseUrl);
+    expect(getNetworkConfig("testnet10").apiBaseUrl).toBe(NETWORKS.testnet10.apiBaseUrl);
     expect(getNetworkConfig("testnet10").networkId).toBe("testnet-10");
     expect(getNetworkConfig("banana").net).toBe("testnet10");
+    expect(getNetworkConfig("mainnet").net).toBe("testnet10");
   });
 });

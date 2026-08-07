@@ -10,8 +10,8 @@ describe("loadConfig (KASPANET wiring)", () => {
     expect(loadConfig({ KASPANET: "testnet10" }).kaspaNet).toBe("testnet10");
   });
 
-  it("resolves mainnet", () => {
-    expect(loadConfig({ KASPANET: "mainnet" }).kaspaNet).toBe("mainnet");
+  it("treats mainnet as invalid and falls back to testnet10", () => {
+    expect(loadConfig({ KASPANET: "mainnet" }).kaspaNet).toBe("testnet10");
   });
 
   it("falls back to testnet10 for invalid values", () => {
@@ -35,7 +35,6 @@ describe("loadConfig (KASPANET wiring)", () => {
 
   it("exposes the upstream API base URL for the network", () => {
     expect(loadConfig({ KASPANET: "testnet10" }).apiBaseUrl).toBe("https://api-tn10.kaspa.org");
-    expect(loadConfig({ KASPANET: "mainnet" }).apiBaseUrl).toBe("https://api.kaspa.org");
   });
 });
 

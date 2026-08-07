@@ -1,12 +1,12 @@
-// Typed HTTP client for the Kaspa public REST API (HLD v0.21 §2.2 — "reads via
-// api.kaspa.org"). Upstream handling per KTK-5:
-//   - 503 / 429  → retry with exponential backoff (honouring `Retry-After`),
+﻿// Typed HTTP client for the Kaspa public REST API (HLD v0.23 Â§2.2 â€” "reads via
+// api-tn10.kaspa.org"). Upstream handling per KTK-5:
+//   - 503 / 429  â†’ retry with exponential backoff (honouring `Retry-After`),
 //     then 503 `upstream` error (retryable).
-//   - timeout / connection errors → 502 `network` error (no retry).
+//   - timeout / connection errors â†’ 502 `network` error (no retry).
 //   - a short-TTL in-process cache is used only as a rate-limit valve.
 //
 // All 200 responses are cached; the reader and availability path reuse the
-// same client, so one event directory scan does not hammer api.kaspa.org.
+// same client, so one event directory scan does not hammer api-tn10.kaspa.org.
 
 import { networkError, upstreamError } from "./errors.js";
 import type {
@@ -18,7 +18,7 @@ import type {
   UtxoResponse,
 } from "./kaspa-types.js";
 
-/** Public surface used by the reader / routes — makes clients injectable in tests. */
+/** Public surface used by the reader / routes â€” makes clients injectable in tests. */
 export interface KaspaClientLike {
   getUtxos(address: string): Promise<UtxoResponse[]>;
   getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]>;
@@ -76,7 +76,7 @@ export class UpstreamRequestError extends Error {
   readonly body: string;
 
   constructor(status: number, body: string) {
-    super(`api.kaspa.org responded HTTP ${status}`);
+    super(`api-tn10.kaspa.org responded HTTP ${status}`);
     this.status = status;
     this.body = body;
   }
@@ -231,9 +231,9 @@ export class KaspaClient implements KaspaClientLike {
         });
       } catch (err) {
         if (isAbortError(err)) {
-          throw networkError(`api.kaspa.org timed out after ${this.#timeoutMs}ms`);
+          throw networkError(`api-tn10.kaspa.org timed out after ${this.#timeoutMs}ms`);
         }
-        throw networkError("api.kaspa.org unreachable", { detail: String(err) });
+        throw networkError("api-tn10.kaspa.org unreachable", { detail: String(err) });
       } finally {
         clearTimeout(timer);
       }
@@ -246,14 +246,14 @@ export class KaspaClient implements KaspaClientLike {
           await this.#sleep((retryAfter ?? 0) * 1000 + backoff);
           continue;
         }
-        throw upstreamError("api.kaspa.org is unavailable or rate-limited", {
+        throw upstreamError("api-tn10.kaspa.org is unavailable or rate-limited", {
           retryAfter: lastRetryAfter,
           detail: { status: res.status },
         });
       }
 
       if (res.status >= 500) {
-        throw upstreamError(`api.kaspa.org error (HTTP ${res.status})`, {
+        throw upstreamError(`api-tn10.kaspa.org error (HTTP ${res.status})`, {
           detail: { status: res.status },
         });
       }
@@ -267,7 +267,7 @@ export class KaspaClient implements KaspaClientLike {
       return json;
     }
 
-    throw upstreamError("api.kaspa.org is unavailable or rate-limited", {
+    throw upstreamError("api-tn10.kaspa.org is unavailable or rate-limited", {
       retryAfter: lastRetryAfter,
     });
   }

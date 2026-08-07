@@ -135,8 +135,8 @@ describe("address derivation", () => {
     expect(a).not.toBe(b);
   });
 
-  it("mainnet uses the kaspa prefix", () => {
-    expect(availableTicketAddress(0, CONSTANTS, CODE, "mainnet")).toMatch(/^kaspa:/);
+  it("testnet10 uses the kaspatest prefix", () => {
+    expect(availableTicketAddress(0, CONSTANTS, CODE, "testnet10")).toMatch(/^kaspatest:/);
   });
 
   it("payload is the blake3 script hash under the ScriptHash version byte", () => {

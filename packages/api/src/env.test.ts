@@ -20,15 +20,15 @@ describe("loadEnvFile", () => {
 
   it("loads a .env from the given directory", () => {
     const dir = mkdtempSync(join(tmpdir(), "kticket-env-load-"));
-    writeFileSync(join(dir, ".env"), "KASPANET=mainnet\nPORT=4000\n");
+    writeFileSync(join(dir, ".env"), "KASPANET=testnet10\nPORT=4000\n");
     loadEnvFile(dir);
-    expect(process.env.KASPANET).toBe("mainnet");
+    expect(process.env.KASPANET).toBe("testnet10");
     expect(process.env.PORT).toBe("4000");
   });
 
   it("never overrides existing shell environment", () => {
     const dir = mkdtempSync(join(tmpdir(), "kticket-env-keep-"));
-    writeFileSync(join(dir, ".env"), "KASPANET=mainnet\n");
+    writeFileSync(join(dir, ".env"), "KASPANET=testnet10\n");
     process.env.KASPANET = "testnet10";
     loadEnvFile(dir);
     expect(process.env.KASPANET).toBe("testnet10");

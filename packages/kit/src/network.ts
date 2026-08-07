@@ -1,4 +1,4 @@
-export const KASPANETS = ["testnet10", "mainnet"] as const;
+export const KASPANETS = ["testnet10"] as const;
 
 export type KaspiaNet = (typeof KASPANETS)[number];
 
@@ -13,22 +13,13 @@ export interface NetworkConfig {
   label: string;
 }
 
-/**
- * Both networks share identical semantics — only endpoints / network id differ.
- * Tests run on testnet10; the demo launch runs on mainnet.
- */
+/** Only testnet-10 is supported (HLD v0.23: mainnet out of scope). */
 export const NETWORKS: Record<KaspiaNet, NetworkConfig> = {
   testnet10: {
     net: "testnet10",
     apiBaseUrl: "https://api-tn10.kaspa.org",
     networkId: "testnet-10",
     label: "Testnet 10",
-  },
-  mainnet: {
-    net: "mainnet",
-    apiBaseUrl: "https://api.kaspa.org",
-    networkId: "mainnet",
-    label: "Mainnet",
   },
 };
 

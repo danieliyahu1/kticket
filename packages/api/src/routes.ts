@@ -17,7 +17,7 @@ export interface AppContext {
   kaspa: KaspaClientLike;
   events: EventRegistry;
   network: KaspiaNet;
-  /** wRPC network id for broadcast ("mainnet" | "testnet-10"). */
+  /** wRPC network id for broadcast ("testnet-10"). */
   networkId: string;
 }
 

@@ -7,7 +7,7 @@ export interface TlsConfig {
 }
 
 export interface UpstreamConfig {
-  /** Per-request timeout to api.kaspa.org in ms. */
+  /** Per-request timeout to api-tn10.kaspa.org in ms. */
   timeoutMs: number;
   /** Total attempts for 503/rate-limited responses. */
   maxAttempts: number;
@@ -17,13 +17,13 @@ export interface ApiConfig {
   port: number;
   host: string;
   kaspaNet: KaspiaNet;
-  /** wRPC network id for broadcast ("mainnet" | "testnet-10"). */
+  /** wRPC network id for broadcast ("testnet-10"). */
   networkId: string;
   /** Kaspa public REST API base URL for the selected network. */
   apiBaseUrl: string;
   /** HTTPS key/cert file paths. Undefined = plain HTTP. */
   tls?: TlsConfig;
-  /** Upstream api.kaspa.org handling (HLD §2.2 error taxonomy). */
+  /** Upstream api-tn10.kaspa.org handling (HLD §2.2 error taxonomy). */
   upstream: UpstreamConfig;
   /** Registry of known events served by the reader (the directory). */
   events: RegisteredEvent[];
@@ -40,11 +40,10 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 
 /**
  * Load runtime configuration. `KASPANET` selects the Kaspa network
- * (testnet10 | mainnet, identical semantics); `PORT` sets the HTTP port,
- * `HOST` the bind address. `TLS_KEY` / `TLS_CERT` point at PEM files to
- * serve HTTPS; both or neither must be set. `KTICKET_EVENTS` is the JSON
- * events directory; `KASPA_TIMEOUT_MS` / `KASPA_MAX_ATTEMPTS` tune the
- * upstream client.
+ * (testnet10 only); `PORT` sets the HTTP port, `HOST` the bind address.
+ * `TLS_KEY` / `TLS_CERT` point at PEM files to serve HTTPS; both or neither
+ * must be set. `KTICKET_EVENTS` is the JSON events directory;
+ * `KASPA_TIMEOUT_MS` / `KASPA_MAX_ATTEMPTS` tune the upstream client.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const network = getNetworkConfig(env.KASPANET);

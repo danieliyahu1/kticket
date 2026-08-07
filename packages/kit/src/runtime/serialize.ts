@@ -82,7 +82,7 @@ function outpointSize(): number {
 /**
  * Estimated serialized transaction size in bytes, matching rusty-kaspa's
  * `transaction_estimated_serialized_size` (deterministic, KIP-9). The `mass`
- * endpoint of api.kaspa.org computes mass from the same estimate; this is the
+ * endpoint of api-tn10.kaspa.org computes mass from the same estimate; this is the
  * "tx bytes" term of the relay floor.
  */
 export function estimatedSerializedSize(tx: UnsignedTransaction): number {
@@ -236,12 +236,12 @@ function endpointTxSize(tx: UnsignedTransaction): number {
 
 /**
  * Compute the transaction's mass locally, replicating the consensus
- * `calc_compute_mass` that api.kaspa.org's `/transactions/mass` implements.
+ * `calc_compute_mass` that api-tn10.kaspa.org's `/transactions/mass` implements.
  *
  * The public endpoint is unusable for kticket templates: its storage-mass
  * formula divides by output amount (`P = Σ C//o`) and raises ZeroDivisionError
  * → HTTP 500 on the 0-value covenant outputs every ticket transaction carries
- * (verified on both api.kaspa.org and api-tn10.kaspa.org). The compute mass is
+ * (verified on api-tn10.kaspa.org). The compute mass is
  * purely structural and deterministic, so the build endpoint derives it here.
  */
 export function computeMassLocal(tx: UnsignedTransaction): LocalMass {
