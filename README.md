@@ -43,11 +43,12 @@ CI runs build, lint, typecheck and tests (`.github/workflows/ci.yml`).
 Both networks share identical semantics — only the endpoints/network id differ.
 Tests run on `testnet10`; the demo launch runs on `mainnet`.
 
-- **API** reads `KASPANET` (and `PORT`) from the environment at runtime
-  (`packages/api/src/config.ts`).
-- **Web / Door** read `VITE_KASPANET` from their `.env` file (Vite convention,
-  see `packages/web/.env.example` and `packages/door/.env.example`).
-- **Kit** exposes the shared resolver (`getNetworkConfig`) used by all hosts.
+Each package reads its own gitignored `.env` file when present; when unset or
+invalid, every host falls back to `testnet10`.
 
-Copy the relevant `.env.example` to `.env` and set the value to `testnet10` or
-`mainnet`. When unset or invalid, every host falls back to `testnet10`.
+- **API** reads `KASPANET` (and `PORT`, `HOST`, `TLS_KEY`, `TLS_CERT`) from
+  `packages/api/.env` at boot (`packages/api/src/env.ts`), or from the
+  environment directly. Real shell/CI env always wins over the file.
+- **Web / Door** read `VITE_KASPANET` from `packages/web/.env` / `packages/door/.env`
+  (Vite convention, exposed via `import.meta.env`).
+- **Kit** exposes the shared resolver (`getNetworkConfig`) used by all hosts.

@@ -1,5 +1,8 @@
 import { buildApp } from "./app";
 import { loadConfig } from "./config";
+import { loadEnvFile } from "./env";
+
+loadEnvFile();
 
 const config = loadConfig();
 const app = await buildApp(config);
