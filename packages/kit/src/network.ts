@@ -20,7 +20,7 @@ export interface NetworkConfig {
 export const NETWORKS: Record<KaspiaNet, NetworkConfig> = {
   testnet10: {
     net: "testnet10",
-    apiBaseUrl: "https://api-testnet-10.kaspa.org",
+    apiBaseUrl: "https://api-tn10.kaspa.org",
     networkId: "testnet-10",
     label: "Testnet 10",
   },
