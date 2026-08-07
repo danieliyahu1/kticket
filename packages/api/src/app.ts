@@ -1,10 +1,20 @@
+import { readFileSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
-import { loadConfig } from "./config";
+import { type ApiConfig, loadConfig } from "./config";
 
-export async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true });
-  const config = loadConfig();
+export async function buildApp(config: ApiConfig = loadConfig()): Promise<FastifyInstance> {
+  const https = config.tls
+    ? {
+        key: readFileSync(config.tls.keyFile),
+        cert: readFileSync(config.tls.certFile),
+      }
+    : undefined;
+
+  const app = Fastify({
+    logger: true,
+    ...(https ? { https } : {}),
+  }) as FastifyInstance;
 
   app.get("/health", async () => ({ status: "ok", network: config.kaspaNet }));
 
