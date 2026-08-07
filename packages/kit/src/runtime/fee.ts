@@ -45,6 +45,12 @@ export interface FeeInput {
   inputTotal: number;
   /** Non-change output values, e.g. the organizer payout on a buy. */
   payouts: readonly number[];
+  /**
+   * The `compute` mass component of the relay floor (grams). Defaults to `mass`.
+   * The build endpoint passes `compute_mass` from the mass endpoint — the floor
+   * is `100 sompi × max(compute grams, 2 × tx bytes)`.
+   */
+  computeMass?: number;
 }
 
 export interface FeeResult {
@@ -78,7 +84,10 @@ export function computeFee(input: FeeInput): FeeResult {
     return acc + value;
   }, 0);
 
-  const floor = relayFloor({ mass: input.mass, sizeBytes: input.sizeBytes });
+  const floor = relayFloor({
+    mass: input.computeMass ?? input.mass,
+    sizeBytes: input.sizeBytes,
+  });
   const estimated = input.feerateSompiPerGram * input.mass;
   const fee = Math.max(estimated, floor);
 

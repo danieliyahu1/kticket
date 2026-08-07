@@ -1,13 +1,21 @@
-// Transaction builders (HLD v0.21 §2.1 "Transactions (v1)").
+// Transaction builders (HLD v0.22 §2.1 "Transactions (v1)" — forge-style KCC20).
 //
 // Each builder returns an *unsigned* v1 transaction template with covenant
 // bindings set. Fee handling: the fee payer's UTXOs are inputs and a change
-// output is derived so `sum(inputs) − sum(outputs) = fee`. The concrete
-// kaspa-wasm v1 serialization is applied at the network boundary.
+// output is derived so `sum(inputs) − sum(outputs) = fee`.
 //
-// covenant_id pin (KIP-20, spike d): per-family. The genesis fanout binds all
-// ticket outputs to one `event_cov_id`; buy/transfer/handover continuation
-// outputs carry the same covenant_id as the ticket UTXO they spend.
+//   deploy   — one event covenant (remaining = capacity, ~0.5 KAS dust,
+//              price in constants). No per-ticket pre-creation.
+//   buy      — the event covenant splits: ticket (amount=1, buyer) + event
+//              covenant (remaining−1) + org payout (price) + change. Buyer pays
+//              price + ticket dust + fee.
+//   transfer — re-bind a ticket (amount=1) to a new owner; dust rides along.
+//   handover — consume the ticket into this event's burn-owner covenant
+//              (unspendable) — the ticket, dust included, is gone.
+//
+// covenant_id pin (KIP-20, spike d): per-family. The deploy binds the event
+// covenant output to the event_cov_id; mint/transfer/handover continuation
+// outputs carry the same covenant_id as the covenant UTXO they spend.
 
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { AddressNetwork } from "./address.js";
@@ -31,12 +39,16 @@ export function p2shScript(redeemScript: Uint8Array): ScriptPublicKey {
   return { version: 0, script: bytesToHex(scriptHash(redeemScript)) };
 }
 
-function ticketScript(
+function covenantScript(
   state: DecodedState,
   constants: DecodedConstants,
   code: Uint8Array,
 ): ScriptPublicKey {
   return p2shScript(buildRedeemScript(state, constants, code));
+}
+
+function burnScriptFor(eventId: Uint8Array, burnCode: Uint8Array): ScriptPublicKey {
+  return p2shScript(buildBurnRedeemScript(eventId, burnCode));
 }
 
 function asInput(outpoint: Outpoint): TxInput {
@@ -61,21 +73,29 @@ function totalOf(values: readonly number[]): number {
   return values.reduce((a, b) => a + b, 0);
 }
 
-// --- genesis ---------------------------------------------------------------
+/** Default covenant dust for a ticket output (~0.5 KAS). */
+export const TICKET_DUST = 50_000_000;
 
-export interface GenesisInput {
-  /** Organizer KAS UTXO (input index 0) authorizing the fanout. */
+/** Default covenant dust for the event covenant (~0.5 KAS). */
+export const EVENT_DUST = 50_000_000;
+
+// --- deploy (one event covenant) -------------------------------------------
+
+export interface DeployInput {
+  /** Organizer KAS UTXO (input index 0) authorizing the deploy. */
   authorizingOutpoint: Outpoint;
   /** Additional organizer KAS UTXOs funding the fee. */
   organizerUtxos: Outpoint[];
   /** Values (sompi) of every organizer input, incl. the authorizing one. */
   organizerUtxoValues: readonly number[];
-  /** Ticket constants shared by every ticket in the event. */
-  constants: DecodedConstants;
-  /** `capacity` ≤ 100 — one phase-0 output per ticket (index = k). */
+  /** Organizer's 32-byte owner identifier (pubkey). */
+  organizer: Uint8Array;
+  /** Event capacity — becomes the event covenant's `remaining`. */
   capacity: number;
-  /** Ticket contract code segment (from the Ticket artifact). */
-  ticketCode: Uint8Array;
+  /** Event constants (event_id, price, org_spk, burn_template_hash). */
+  constants: DecodedConstants;
+  /** Event covenant code segment (from the Event artifact). */
+  covenantCode: Uint8Array;
   /** Change address for the organizer. */
   changeScript: ScriptPublicKey;
   /** Network fee in sompi (paid by the organizer). */
@@ -83,16 +103,17 @@ export interface GenesisInput {
   network: AddressNetwork;
 }
 
-export interface GenesisResult {
+export interface DeployResult {
   tx: UnsignedTransaction;
-  /** Per-family covenant_id of the event (all ticket outputs share it). */
+  /** Per-family covenant_id of the event (all minted tickets share it). */
   eventCovenantId: string;
+  /** The event covenant output's index (0). */
+  eventOutputIndex: number;
 }
 
-export function buildGenesis(input: GenesisInput): GenesisResult {
-  const { capacity } = input;
-  if (!Number.isInteger(capacity) || capacity < 0 || capacity > 100) {
-    throw new Error(`capacity must be 0..100, got ${capacity}`);
+export function buildDeploy(input: DeployInput): DeployResult {
+  if (!Number.isInteger(input.capacity) || input.capacity < 0 || input.capacity > 100) {
+    throw new Error(`capacity must be 0..100, got ${input.capacity}`);
   }
   if (!Number.isSafeInteger(input.fee) || input.fee < 0) {
     throw new Error(`fee ${input.fee} is invalid`);
@@ -103,61 +124,61 @@ export function buildGenesis(input: GenesisInput): GenesisResult {
     throw new Error("organizerUtxoValues must match the organizer input count");
   }
   const inputTotal = totalOf(input.organizerUtxoValues);
-  const change = inputTotal - input.fee;
+  const change = inputTotal - input.fee - EVENT_DUST;
   if (change < 0) {
-    throw new Error(`organizer inputs ${inputTotal} cannot cover fee ${input.fee}`);
-  }
-
-  const inputs = txInputs(null, allUtxos);
-
-  const ticketScripts: ScriptPublicKey[] = [];
-  for (let k = 0; k < capacity; k++) {
-    ticketScripts.push(
-      ticketScript(
-        { phase: 0, owner: new Uint8Array(32) },
-        { ...input.constants, index: k },
-        input.ticketCode,
-      ),
+    throw new Error(
+      `organizer inputs ${inputTotal} cannot cover dust ${EVENT_DUST} + fee ${input.fee}`,
     );
   }
 
-  const authOutputs: AuthorizedOutput[] = ticketScripts.map((script, k) => ({
-    index: k,
-    value: 0,
-    version: script.version,
-    script: hexToBytes(script.script),
-  }));
-  const eventCovenantId = bytesToHex(covenantId(input.authorizingOutpoint, authOutputs));
+  const eventState: DecodedState = {
+    owner: input.organizer,
+    identifierType: 0,
+    amount: input.capacity,
+    isMinter: false,
+  };
+  const eventScript = covenantScript(eventState, input.constants, input.covenantCode);
 
+  const authOutputs: AuthorizedOutput[] = [
+    {
+      index: 0,
+      value: EVENT_DUST,
+      version: eventScript.version,
+      script: hexToBytes(eventScript.script),
+    },
+  ];
+  const eventCovenantId = bytesToHex(covenantId(input.authorizingOutpoint, authOutputs));
   const binding: CovenantBinding = { authorizingInput: 0, covenantId: eventCovenantId };
-  const ticketOutputs: TxOutput[] = ticketScripts.map((scriptPublicKey) => ({
-    value: 0,
-    scriptPublicKey,
-    covenant: binding,
-  }));
 
   return {
     tx: {
       version: TX_VERSION_V1,
-      inputs,
-      outputs: [...ticketOutputs, changeOutput(input.changeScript, change)],
+      inputs: txInputs(null, allUtxos),
+      outputs: [
+        { value: EVENT_DUST, scriptPublicKey: eventScript, covenant: binding },
+        changeOutput(input.changeScript, change),
+      ],
       lockTime: 0,
     },
     eventCovenantId,
+    eventOutputIndex: 0,
   };
 }
 
-// --- buy -------------------------------------------------------------------
+// --- buy (mint on sale) ----------------------------------------------------
 
 export interface BuyInput {
-  /** The available ticket input (input index 0). */
-  ticketOutpoint: Outpoint;
-  /** The spent ticket UTXO's covenant_id (= event_cov_id). */
+  /** The event covenant UTXO (input index 0). */
+  eventOutpoint: Outpoint;
+  /** The event covenant's covenant_id (= event_cov_id). */
   eventCovenantId: string;
+  /** The event covenant's current owner identifier (preserved). */
+  eventOwner: Uint8Array;
+  /** Event constants (event_id, price, org_spk, burn_template_hash). */
   constants: DecodedConstants;
-  /** Buyer's key hash (owner of the owned ticket). */
-  buyerPkh: Uint8Array;
-  /** Buyer KAS UTXOs covering price + fee (fee payer = buyer). */
+  /** Buyer's 32-byte owner identifier (pubkey). */
+  buyer: Uint8Array;
+  /** Buyer KAS UTXOs covering price + ticket dust + fee (fee payer = buyer). */
   buyerUtxos: Outpoint[];
   /** Buyer input values (sompi). */
   buyerUtxoValues: readonly number[];
@@ -165,10 +186,15 @@ export interface BuyInput {
   orgScript: ScriptPublicKey;
   /** Buyer change script public key. */
   changeScript: ScriptPublicKey;
-  ticketCode: Uint8Array;
+  /** Event/ticket covenant code segment. */
+  covenantCode: Uint8Array;
+  /** Current `remaining` on the event covenant (must be > 0). */
+  remaining: number;
   network: AddressNetwork;
   /** Network fee in sompi (paid by the buyer). */
   fee: number;
+  /** Dust locked in the minted ticket output. */
+  ticketDust?: number;
 }
 
 export function buildBuy(input: BuyInput): UnsignedTransaction {
@@ -176,23 +202,33 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
   if (input.buyerUtxoValues.length !== input.buyerUtxos.length) {
     throw new Error("buyerUtxoValues must match the buyer input count");
   }
+  if (!Number.isInteger(input.remaining) || input.remaining <= 0) {
+    throw new Error(`cannot mint from an event with remaining ${input.remaining}`);
+  }
+  const ticketDust = input.ticketDust ?? TICKET_DUST;
   const buyerTotal = totalOf(input.buyerUtxoValues);
-  const change = buyerTotal - price - input.fee;
+  const change = buyerTotal - price - ticketDust - input.fee;
   if (change < 0) {
-    throw new Error(`buyer inputs ${buyerTotal} cannot cover price ${price} + fee ${input.fee}`);
+    throw new Error(
+      `buyer inputs ${buyerTotal} cannot cover price ${price} + ticket dust ${ticketDust} + fee ${input.fee}`,
+    );
   }
 
   const binding: CovenantBinding = { authorizingInput: 0, covenantId: input.eventCovenantId };
+  const ticket = covenantScript(
+    { owner: input.buyer, identifierType: 0, amount: 1, isMinter: false },
+    input.constants,
+    input.covenantCode,
+  );
+  const remainingEvent = covenantScript(
+    { owner: input.eventOwner, identifierType: 0, amount: input.remaining - 1, isMinter: false },
+    input.constants,
+    input.covenantCode,
+  );
+
   const outputs: TxOutput[] = [
-    {
-      value: 0,
-      scriptPublicKey: ticketScript(
-        { phase: 1, owner: input.buyerPkh },
-        input.constants,
-        input.ticketCode,
-      ),
-      covenant: binding,
-    },
+    { value: ticketDust, scriptPublicKey: ticket, covenant: binding },
+    { value: EVENT_DUST, scriptPublicKey: remainingEvent, covenant: binding },
   ];
   if (price > 0) {
     outputs.push({ value: price, scriptPublicKey: input.orgScript, covenant: null });
@@ -201,7 +237,7 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
 
   return {
     version: TX_VERSION_V1,
-    inputs: txInputs(input.ticketOutpoint, input.buyerUtxos),
+    inputs: txInputs(input.eventOutpoint, input.buyerUtxos),
     outputs,
     lockTime: 0,
   };
@@ -214,14 +250,16 @@ export interface TransferInput {
   eventCovenantId: string;
   constants: DecodedConstants;
   /** New owner key hash. */
-  newOwnerPkh: Uint8Array;
+  newOwner: Uint8Array;
   /** Holder KAS UTXOs covering the fee (fee payer = holder). */
   holderUtxos: Outpoint[];
   holderUtxoValues: readonly number[];
   changeScript: ScriptPublicKey;
-  ticketCode: Uint8Array;
+  covenantCode: Uint8Array;
   network: AddressNetwork;
   fee: number;
+  /** Dust carried by the ticket output (rides along unchanged). */
+  ticketDust?: number;
 }
 
 export function buildTransfer(input: TransferInput): UnsignedTransaction {
@@ -239,11 +277,11 @@ export function buildTransfer(input: TransferInput): UnsignedTransaction {
     inputs: txInputs(input.ticketOutpoint, input.holderUtxos),
     outputs: [
       {
-        value: 0,
-        scriptPublicKey: ticketScript(
-          { phase: 1, owner: input.newOwnerPkh },
+        value: input.ticketDust ?? TICKET_DUST,
+        scriptPublicKey: covenantScript(
+          { owner: input.newOwner, identifierType: 0, amount: 1, isMinter: false },
           input.constants,
-          input.ticketCode,
+          input.covenantCode,
         ),
         covenant: binding,
       },
@@ -253,7 +291,7 @@ export function buildTransfer(input: TransferInput): UnsignedTransaction {
   };
 }
 
-// --- handover --------------------------------------------------------------
+// --- handover (consume into the burn-owner covenant) -----------------------
 
 export interface HandoverInput {
   ticketOutpoint: Outpoint;
@@ -267,15 +305,28 @@ export interface HandoverInput {
   changeScript: ScriptPublicKey;
   network: AddressNetwork;
   fee: number;
+  /** Dust consumed with the ticket (rides into the burn output). */
+  ticketDust?: number;
 }
 
 /**
- * The event's burn output script public key — the successor every handover
- * must create (FR-9). The burn redeem script is `OP_PUSH(count=1)
+ * The event's burn-owner output script public key — the successor every
+ * handover must create (FR-9). The burn redeem script is `OP_PUSH(count=1)
  * OP_PUSH(event_id) <burn code>`, fixed per event.
  */
 export function burnScript(constants: DecodedConstants, burnCode: Uint8Array): ScriptPublicKey {
-  return p2shScript(buildBurnRedeemScript(constants.eventId, burnCode));
+  return burnScriptFor(constants.eventId, burnCode);
+}
+
+/**
+ * Hex script hash of an event's burn-owner covenant output — the "burn
+ * template" a handover must create (HLD §2.1). The reader (HLD §2.2) compares a
+ * handover successor's on-chain script against this to report GONE.
+ */
+export function burnTemplateHash(eventIdHex: string, burnCodeHex: string): string {
+  return bytesToHex(
+    scriptHash(buildBurnRedeemScript(hexToBytes(eventIdHex), hexToBytes(burnCodeHex))),
+  );
 }
 
 export function buildHandover(input: HandoverInput): UnsignedTransaction {
@@ -292,7 +343,11 @@ export function buildHandover(input: HandoverInput): UnsignedTransaction {
     version: TX_VERSION_V1,
     inputs: txInputs(input.ticketOutpoint, input.attendeeUtxos),
     outputs: [
-      { value: 0, scriptPublicKey: burnScript(input.constants, input.burnCode), covenant: binding },
+      {
+        value: input.ticketDust ?? TICKET_DUST,
+        scriptPublicKey: burnScript(input.constants, input.burnCode),
+        covenant: binding,
+      },
       changeOutput(input.changeScript, change),
     ],
     lockTime: 0,

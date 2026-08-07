@@ -1,35 +1,54 @@
-// Preimage layout — the on-chain ticket bytes the covenant VM (and the reader)
-// decode to reconstruct ticket state (HLD v0.21 §2.1 "Preimage layout").
+// Preimage layout — the on-chain covenant bytes (HLD v0.22 §2.1, forge-style KCC20 fork).
 //
-//   state_bytes    = u8 phase | byte[32] owner
-//   constants_bytes= byte[32] event_id | u32 index (LE) | u64 price (LE)
-//                    | varbytes org_spk | byte[32] burn_template_hash
+//   state_bytes     = byte[32] owner_identifier | u8 identifier_type
+//                     | u64 amount (LE) | u8 is_minter
+//   constants_bytes = byte[32] event_id | u64 price (LE)
+//                     | varbytes org_spk | byte[32] burn_template_hash
 //
 // `varbytes` is a LEB128 length prefix followed by the raw bytes. All integers
 // are little-endian, matching Kaspa consensus serialization.
 //
+// `amount` is the covenant's unit balance: the event covenant starts with
+// `amount = capacity` (remaining tickets) and each mint-on-sale splits off a
+// ticket covenant with `amount = 1`. `capacity` itself is not a constant — it
+// is the event covenant's initial state, so "sold" is `capacity − remaining`.
+//
 // The redeem script embeds both pushes (`OP_PUSH(state_bytes)
 // OP_PUSH(constants_bytes) <silverc code>`, see address.ts); `decode` is what
-// the kit exposes so a script public key can be parsed back into ticket state
+// the kit exposes so a script public key can be parsed back into covenant state
 // without trusting the chain for anything but the bytes themselves.
 
-import type { TicketPhase } from "../contracts/types.js";
+import type { IdentifierType } from "../contracts/types.js";
 
 export interface DecodedState {
-  phase: TicketPhase;
+  /** 32-byte owner identifier (pubkey / script hash / covenant id). */
   owner: Uint8Array;
+  /** Identifier kind (0 = pubkey, 1 = script hash, 2 = covenant id). */
+  identifierType: IdentifierType;
+  /** Token balance: remaining tickets on the event covenant, 1 on a ticket. */
+  amount: number;
+  /** Whether this covenant may mint (unused — fixed-supply events). */
+  isMinter: boolean;
 }
 
 export interface DecodedConstants {
   eventId: Uint8Array;
-  index: number;
+  /** Price per ticket in sompi (0 = free). */
   price: number;
+  /** Organizer payout script (the `org_spk` payout output on a buy). */
   orgSpk: Uint8Array;
+  /** Script hash of the event's burn-owner covenant template. */
   burnTemplateHash: Uint8Array;
 }
 
 export class PreimageError extends Error {
   override readonly name = "PreimageError";
+}
+
+function assertSafeAmount(amount: number): void {
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    throw new PreimageError(`amount ${amount} is not a non-negative safe integer`);
+  }
 }
 
 function assertSafePrice(price: number): void {
@@ -40,15 +59,23 @@ function assertSafePrice(price: number): void {
 
 // --- state_bytes -----------------------------------------------------------
 
-const STATE_BYTES_LEN = 1 + 32;
+const STATE_BYTES_LEN = 32 + 1 + 8 + 1;
 
-export function encodeState(phase: TicketPhase, owner: Uint8Array): Uint8Array {
+export function encodeState(
+  owner: Uint8Array,
+  identifierType: IdentifierType,
+  amount: number,
+  isMinter = false,
+): Uint8Array {
   if (owner.length !== 32) {
     throw new PreimageError(`owner must be 32 bytes, got ${owner.length}`);
   }
+  assertSafeAmount(amount);
   const out = new Uint8Array(STATE_BYTES_LEN);
-  out[0] = phase;
-  out.set(owner, 1);
+  out.set(owner, 0);
+  out[32] = identifierType;
+  new DataView(out.buffer).setBigUint64(33, BigInt(amount), true);
+  out[41] = isMinter ? 1 : 0;
   return out;
 }
 
@@ -56,12 +83,18 @@ export function decodeState(bytes: Uint8Array): DecodedState {
   if (bytes.length !== STATE_BYTES_LEN) {
     throw new PreimageError(`state_bytes must be ${STATE_BYTES_LEN} bytes, got ${bytes.length}`);
   }
-  return { phase: bytes[0] as TicketPhase, owner: bytes.slice(1) };
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return {
+    owner: bytes.slice(0, 32),
+    identifierType: bytes[32] as IdentifierType,
+    amount: Number(view.getBigUint64(33, true)),
+    isMinter: bytes[41] === 1,
+  };
 }
 
 // --- constants_bytes -------------------------------------------------------
 
-const CONSTANTS_FIXED_LEN = 32 + 4 + 8 + 32; // event_id + index + price + burn_template_hash
+const CONSTANTS_FIXED_LEN = 32 + 8 + 32; // event_id + price + burn_template_hash
 
 /**
  * Encode a LEB128 (unsigned, base-128 varint) length prefix. Used for
@@ -118,13 +151,6 @@ export function encodeConstants(constants: DecodedConstants): Uint8Array {
       `burnTemplateHash must be 32 bytes, got ${constants.burnTemplateHash.length}`,
     );
   }
-  if (
-    !Number.isSafeInteger(constants.index) ||
-    constants.index < 0 ||
-    constants.index > 0xffffffff
-  ) {
-    throw new PreimageError(`index ${constants.index} is not a u32`);
-  }
   assertSafePrice(constants.price);
 
   const orgLen = constants.orgSpk.length;
@@ -133,9 +159,8 @@ export function encodeConstants(constants: DecodedConstants): Uint8Array {
   const view = new DataView(out.buffer);
 
   out.set(constants.eventId, 0);
-  view.setUint32(32, constants.index, true);
-  view.setBigUint64(36, BigInt(constants.price), true);
-  let offset = 44;
+  view.setBigUint64(32, BigInt(constants.price), true);
+  let offset = 40;
   const prefix = encodeVarint(orgLen);
   out.set(prefix, offset);
   offset += prefix.length;
@@ -153,9 +178,8 @@ export function decodeConstants(bytes: Uint8Array): DecodedConstants {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
   const eventId = bytes.slice(0, 32);
-  const index = view.getUint32(32, true);
-  const price = Number(view.getBigUint64(36, true));
-  let offset = 44;
+  const price = Number(view.getBigUint64(32, true));
+  let offset = 40;
   const len = decodeVarint(bytes, offset);
   offset += len.bytesRead;
   if (offset + len.value > bytes.length) {
@@ -168,7 +192,7 @@ export function decodeConstants(bytes: Uint8Array): DecodedConstants {
   }
   const burnTemplateHash = bytes.slice(offset, offset + 32);
 
-  return { eventId, index, price, orgSpk, burnTemplateHash };
+  return { eventId, price, orgSpk, burnTemplateHash };
 }
 
 // --- combined preimage -----------------------------------------------------
@@ -179,7 +203,10 @@ export interface Preimage {
 }
 
 export function encodePreimage(state: DecodedState, constants: DecodedConstants): Preimage {
-  return { state: encodeState(state.phase, state.owner), constants: encodeConstants(constants) };
+  return {
+    state: encodeState(state.owner, state.identifierType, state.amount, state.isMinter),
+    constants: encodeConstants(constants),
+  };
 }
 
 /**

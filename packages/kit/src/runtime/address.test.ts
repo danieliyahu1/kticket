@@ -1,8 +1,10 @@
 import { blake3 } from "@noble/hashes/blake3.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 import type { AddressNetwork } from "./address";
 import {
   addressFor,
+  addressFromScriptHash,
   availableTicketAddress,
   buildRedeemScript,
   encodeAddress,
@@ -16,12 +18,12 @@ const ORG_SPK = new Uint8Array([0x21, 0x02, 0x00, 0x01]);
 const BURN_HASH = new Uint8Array(32).fill(0x77);
 const CONSTANTS = {
   eventId: EVENT_ID,
-  index: 3,
   price: 100,
   orgSpk: ORG_SPK,
   burnTemplateHash: BURN_HASH,
 };
 const CODE = new Uint8Array([0x00, 0x51]);
+const OWNER = new Uint8Array(32).fill(0x42);
 
 describe("bech32 address encoding (vectors from crypto/addresses/src/lib.rs)", () => {
   it("matches the Rust reference vectors", () => {
@@ -31,10 +33,13 @@ describe("bech32 address encoding (vectors from crypto/addresses/src/lib.rs)", (
 });
 
 describe("redeem script assembly", () => {
-  it("is OP_PUSH(state) OP_PUSH(constants) <code> (HLD §2.1)", () => {
-    const preimage = encodePreimage({ phase: 1, owner: new Uint8Array(32).fill(0x42) }, CONSTANTS);
+  it("is OP_PUSH(state) OP_PUSH(constants) <code> (HLD v0.22 §2.1)", () => {
+    const preimage = encodePreimage(
+      { owner: OWNER, identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+    );
     const redeem = buildRedeemScript(
-      { phase: 1, owner: new Uint8Array(32).fill(0x42) },
+      { owner: OWNER, identifierType: 0, amount: 1, isMinter: false },
       CONSTANTS,
       CODE,
     );
@@ -49,11 +54,17 @@ describe("redeem script assembly", () => {
   });
 
   it("the assembly is decodable back via the preimage layout", () => {
-    const owner = new Uint8Array(32).fill(0x42);
-    const redeem = buildRedeemScript({ phase: 1, owner }, CONSTANTS, CODE);
-    const preimage = encodePreimage({ phase: 1, owner }, CONSTANTS);
+    const redeem = buildRedeemScript(
+      { owner: OWNER, identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+    );
+    const preimage = encodePreimage(
+      { owner: OWNER, identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+    );
     expect(decodePreimage(new Uint8Array([...preimage.state, ...preimage.constants]))).toEqual({
-      state: { phase: 1, owner },
+      state: { owner: OWNER, identifierType: 0, amount: 1, isMinter: false },
       constants: CONSTANTS,
     });
     expect(redeem).toBeInstanceOf(Uint8Array);
@@ -62,7 +73,11 @@ describe("redeem script assembly", () => {
 
 describe("scriptHash (blake3-32)", () => {
   it("equals BLAKE3 of the redeem script", () => {
-    const redeem = buildRedeemScript({ phase: 0, owner: new Uint8Array(32) }, CONSTANTS, CODE);
+    const redeem = buildRedeemScript(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+    );
     expect([...scriptHash(redeem)]).toEqual([...blake3(redeem)]);
     expect(scriptHash(redeem)).toHaveLength(32);
   });
@@ -72,27 +87,52 @@ describe("address derivation", () => {
   const network: AddressNetwork = "testnet10";
 
   it("addresses are deterministic for the same state + constants", () => {
-    const a = addressFor({ phase: 0, owner: new Uint8Array(32) }, CONSTANTS, CODE, network);
-    const b = addressFor({ phase: 0, owner: new Uint8Array(32) }, CONSTANTS, CODE, network);
-    expect(a).toBe(b);
-    expect(a).toMatch(/^kaspatest:/);
-  });
-
-  it("phase-0 address differs from phase-1 (owner) address", () => {
-    const available = availableTicketAddress(3, CONSTANTS, CODE, network);
-    const owned = addressFor(
-      { phase: 1, owner: new Uint8Array(32).fill(0x42) },
+    const a = addressFor(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
       CONSTANTS,
       CODE,
       network,
     );
-    expect(available).not.toBe(owned);
+    const b = addressFor(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+      network,
+    );
+    expect(a).toBe(b);
+    expect(a).toMatch(/^kaspatest:/);
   });
 
-  it("different index -> different address", () => {
-    expect(availableTicketAddress(0, CONSTANTS, CODE, network)).not.toBe(
-      availableTicketAddress(1, CONSTANTS, CODE, network),
+  it("ticket (amount 1) address differs from the event covenant (amount capacity)", () => {
+    const ticket = addressFor(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+      network,
     );
+    const eventCov = addressFor(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 100, isMinter: false },
+      CONSTANTS,
+      CODE,
+      network,
+    );
+    expect(ticket).not.toBe(eventCov);
+  });
+
+  it("different owner -> different address", () => {
+    const a = addressFor(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+      network,
+    );
+    const b = addressFor(
+      { owner: new Uint8Array(32).fill(0x01), identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+      network,
+    );
+    expect(a).not.toBe(b);
   });
 
   it("mainnet uses the kaspa prefix", () => {
@@ -100,9 +140,56 @@ describe("address derivation", () => {
   });
 
   it("payload is the blake3 script hash under the ScriptHash version byte", () => {
-    const redeem = buildRedeemScript({ phase: 0, owner: new Uint8Array(32) }, CONSTANTS, CODE);
+    const redeem = buildRedeemScript(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+    );
     const hash = scriptHash(redeem);
     const expected = encodeAddress("kaspatest", Uint8Array.from([8, ...hash]));
-    expect(availableTicketAddress(3, CONSTANTS, CODE, network)).toBe(expected);
+    expect(availableTicketAddress(1, CONSTANTS, CODE, network)).toBe(expected);
+  });
+});
+
+describe("addressFromScriptHash (the reader's on-chain address derivation)", () => {
+  const network: AddressNetwork = "testnet10";
+
+  it("derives the same address as addressFor from the on-chain script hash", () => {
+    const redeem = buildRedeemScript(
+      { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+    );
+    const onChainScript = bytesToHex(scriptHash(redeem));
+    expect(addressFromScriptHash(onChainScript, network)).toBe(
+      addressFor(
+        { owner: new Uint8Array(32), identifierType: 0, amount: 1, isMinter: false },
+        CONSTANTS,
+        CODE,
+        network,
+      ),
+    );
+  });
+
+  it("is stable under an uppercase script hex input", () => {
+    const redeem = buildRedeemScript(
+      { owner: OWNER, identifierType: 0, amount: 1, isMinter: false },
+      CONSTANTS,
+      CODE,
+    );
+    const onChainScript = bytesToHex(scriptHash(redeem)).toUpperCase();
+    expect(addressFromScriptHash(onChainScript, network)).toBe(
+      addressFor(
+        { owner: OWNER, identifierType: 0, amount: 1, isMinter: false },
+        CONSTANTS,
+        CODE,
+        network,
+      ),
+    );
+  });
+
+  it("rejects a script that is not a 32-byte hash", () => {
+    expect(() => addressFromScriptHash("00", network)).toThrow();
+    expect(() => addressFromScriptHash("00".repeat(33), network)).toThrow();
   });
 });

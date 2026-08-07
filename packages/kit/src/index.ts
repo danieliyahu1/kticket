@@ -1,10 +1,11 @@
-import { BURN_ARTIFACT, TICKET_ARTIFACT } from "./contracts/artifacts.js";
-import { availableTicket, Covenant, ownedTicket } from "./contracts/covenant.js";
+import { BURN_ARTIFACT, EVENT_ARTIFACT, TICKET_ARTIFACT } from "./contracts/artifacts.js";
+import { Covenant, eventCovenant, ticketCovenant } from "./contracts/covenant.js";
 import { RESULT_CODES } from "./contracts/types.js";
 import type { KaspiaNet, NetworkConfig } from "./network.js";
 import { getNetworkConfig, isKaspiaNet, KASPANETS, NETWORKS, resolveNetwork } from "./network.js";
 import {
   addressFor,
+  addressFromScriptHash,
   availableTicketAddress,
   buildRedeemScript,
   encodeAddress,
@@ -12,9 +13,10 @@ import {
 } from "./runtime/address.js";
 import {
   buildBuy,
-  buildGenesis,
+  buildDeploy,
   buildHandover,
   buildTransfer,
+  burnTemplateHash,
   p2shScript,
 } from "./runtime/builder.js";
 import { covenantId } from "./runtime/covenant.js";
@@ -27,6 +29,14 @@ import {
   encodePreimage,
   encodeState,
 } from "./runtime/preimage.js";
+import {
+  computeMassLocal,
+  decodeSigOpCount,
+  estimatedSerializedSize,
+  payloadDigest,
+  txIdPreimageV1,
+  txIdV1,
+} from "./runtime/serialize.js";
 
 export type {
   ContractArtifact,
@@ -35,11 +45,11 @@ export type {
 } from "./contracts/artifact.js";
 export type {
   CovenantContext,
+  IdentifierType,
+  Kcc20Constants,
+  Kcc20State,
   ResultCode,
-  TicketConstants,
   TicketEntrypoint,
-  TicketPhase,
-  TicketState,
   TransitionResult,
 } from "./contracts/types.js";
 export type {
@@ -49,8 +59,8 @@ export type {
 } from "./runtime/address.js";
 export type {
   BuyInput,
-  GenesisInput,
-  GenesisResult,
+  DeployInput,
+  DeployResult,
   HandoverInput,
   TransferInput,
 } from "./runtime/builder.js";
@@ -72,34 +82,43 @@ export type {
 export type { KaspiaNet, NetworkConfig };
 export {
   addressFor,
-  availableTicket,
+  addressFromScriptHash,
   availableTicketAddress,
   BURN_ARTIFACT,
   buildBuy,
-  buildGenesis,
+  buildDeploy,
   buildHandover,
   buildRedeemScript,
   buildTransfer,
+  burnTemplateHash,
   Covenant,
   computeFee,
+  computeMassLocal,
   covenantId,
   decodeConstants,
   decodePreimage,
+  decodeSigOpCount,
   decodeState,
+  EVENT_ARTIFACT,
   encodeAddress,
   encodeConstants,
   encodePreimage,
   encodeState,
+  estimatedSerializedSize,
+  eventCovenant,
   getNetworkConfig,
   isKaspiaNet,
   KASPANETS,
   NETWORKS,
-  ownedTicket,
   p2shScript,
+  payloadDigest,
   RESULT_CODES,
   relayFloor,
   requiredInput,
   resolveNetwork,
   scriptHash,
   TICKET_ARTIFACT,
+  ticketCovenant,
+  txIdPreimageV1,
+  txIdV1,
 };

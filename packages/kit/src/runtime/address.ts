@@ -11,6 +11,7 @@
 // the consensus-aligned blake3-32 hash (32-byte ScriptHash payload).
 
 import { blake3 } from "@noble/hashes/blake3.js";
+import { hexToBytes } from "@noble/hashes/utils.js";
 import type { DecodedConstants, DecodedState } from "./preimage.js";
 import { encodeConstants, encodeState, PreimageError } from "./preimage.js";
 
@@ -71,21 +72,21 @@ export function assembleRedeemScript(
   return out;
 }
 
-/** Assemble the redeem script for a ticket covenant output. */
+/** Assemble the redeem script for an event/ticket covenant output. */
 export function buildRedeemScript(
   state: DecodedState,
   constants: DecodedConstants,
   code: Uint8Array,
 ): Uint8Array {
   return assembleRedeemScript(
-    encodeState(state.phase, state.owner),
+    encodeState(state.owner, state.identifierType, state.amount, state.isMinter),
     encodeConstants(constants),
     code,
   );
 }
 
 /**
- * Assemble the redeem script for the event burn covenant. The burn's own
+ * Assemble the redeem script for the event burn-owner covenant. The burn's own
  * layout is `count = 1` (state) + `event_id` (constants) — it has no owner,
  * price, org_spk, or template hash (see burn.silverscript).
  */
@@ -200,21 +201,39 @@ export function addressFor(
 }
 
 /**
- * Convenience: address of the phase-0 (available) ticket `index` — used by the
- * genesis builder and the reader's availability walk.
+ * Convenience: address of the event covenant output at `capacity` — used by the
+ * deploy builder and the reader's availability walk. The event covenant carries
+ * `amount = capacity` as its initial `remaining`.
  */
 export function availableTicketAddress(
-  index: number,
+  capacity: number,
   constants: DecodedConstants,
   code: Uint8Array,
   network: AddressNetwork,
   options: AddressOptions = {},
 ): string {
   return addressFor(
-    { phase: 0, owner: new Uint8Array(32) },
-    { ...constants, index },
+    { owner: new Uint8Array(32), identifierType: 0, amount: capacity, isMinter: false },
+    constants,
     code,
     network,
     options,
   );
+}
+
+/**
+ * P2SH address for an on-chain covenant output script. The chain stores the
+ * script hash only (`p2shScript` → `blake3(redeem_script)`), so the address is
+ * just that hash under the ScriptHash version byte — the reader (HLD §2.2)
+ * derives addresses this way without needing the redeem script.
+ */
+export function addressFromScriptHash(scriptHashHex: string, network: AddressNetwork): string {
+  const hash = hexToBytes(scriptHashHex);
+  if (hash.length !== 32) {
+    throw new PreimageError(`script hash must be 32 bytes, got ${hash.length}`);
+  }
+  const payload = new Uint8Array(1 + hash.length);
+  payload[0] = P2SH_ADDRESS_VERSION;
+  payload.set(hash, 1);
+  return encodeAddress(NETWORK_PREFIXES[network], payload);
 }
