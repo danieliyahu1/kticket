@@ -34,9 +34,7 @@ describe("loadConfig (KASPANET wiring)", () => {
   });
 
   it("exposes the upstream API base URL for the network", () => {
-    expect(loadConfig({ KASPANET: "testnet10" }).apiBaseUrl).toBe(
-      "https://api-testnet-10.kaspa.org",
-    );
+    expect(loadConfig({ KASPANET: "testnet10" }).apiBaseUrl).toBe("https://api-tn10.kaspa.org");
     expect(loadConfig({ KASPANET: "mainnet" }).apiBaseUrl).toBe("https://api.kaspa.org");
   });
 });
