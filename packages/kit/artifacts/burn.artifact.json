@@ -6,6 +6,7 @@
   "source": "burn.silverscript",
   "unspendable": true,
   "wasmBase64": "AGFzbQEAAAABBQFgAAF/AwIBAAUDAQABBxcCBm1lbW9yeQIACnRyYW5zaXRpb24AAAoHAQUAQQcPCw==",
+  "code": "0000",
   "contract": {
     "pragma": "^0.1.0",
     "params": [

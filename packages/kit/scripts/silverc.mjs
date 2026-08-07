@@ -39,6 +39,17 @@ const SCHEMA = "kticket/silverscript-artifact/v1";
 const COMPILER = "silverc";
 const COMPILER_VERSION = "0.1.0";
 
+// On-chain code segment emitted into the redeem script (after the preimage
+// pushes). Pending the pinned script_public_key layout (HLD open question e)
+// this is a deterministic, contract-name-derived placeholder:
+//   ticket: 0x00 0x51 (unspendable code / OP_TRUE)   -> spendable covenant VM code
+//   burn:   0x00 0x00 (unspendable code / OP_FALSE)  -> unspendable covenant VM code
+function covenantCode(contractName) {
+  const name = contractName.toLowerCase();
+  if (name === "burn") return "0000";
+  return "0051";
+}
+
 const CONTRACT_SOURCES = ["ticket.silverscript", "burn.silverscript"];
 
 const ABI = {
@@ -566,6 +577,7 @@ function compileSource(source, sourcePath) {
     source: sourcePath.split(/[\\/]/).pop(),
     unspendable: parsed.entrypoints.length === 0,
     wasmBase64: Buffer.from(wasm).toString("base64"),
+    code: covenantCode(parsed.contractName),
     contract: {
       pragma: parsed.pragma,
       params: parsed.params,

@@ -31,6 +31,13 @@ export interface ContractArtifact {
   source: string;
   unspendable: boolean;
   wasmBase64: string;
+  /**
+   * On-chain script code segment appended after the preimage pushes in the
+   * redeem script (`OP_PUSH(state) OP_PUSH(constants) <code>`). Hex string.
+   * Pending the pinned silverc script_public_key layout (HLD open question e)
+   * this is a deterministic placeholder; see docs/decisions/spike-covenant-runtime.md.
+   */
+  code: string;
   contract: {
     pragma: string;
     params: { type: string; name: string }[];
