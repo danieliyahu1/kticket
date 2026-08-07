@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import { type ApiConfig, loadConfig } from "./config";
+import { registerErrorHandler } from "./error-handler";
 
 export async function buildApp(config: ApiConfig = loadConfig()): Promise<FastifyInstance> {
   const https = config.tls
@@ -15,6 +16,8 @@ export async function buildApp(config: ApiConfig = loadConfig()): Promise<Fastif
     logger: true,
     ...(https ? { https } : {}),
   }) as FastifyInstance;
+
+  registerErrorHandler(app);
 
   app.get("/health", async () => ({ status: "ok", network: config.kaspaNet }));
 
