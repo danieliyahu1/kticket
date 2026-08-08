@@ -30,10 +30,12 @@ export function computeMass(computeGrams: number): number {
   return computeGrams;
 }
 
+const RELAY_FLOOR_SOMPI = 100;
+
 /** Relay floor: 100 sompi × max(compute grams, 2 × tx bytes). */
 export function relayFloor(massAndSize: MassAndSize): number {
   const bound = Math.max(massAndSize.mass, 2 * massAndSize.sizeBytes);
-  return 100 * bound;
+  return RELAY_FLOOR_SOMPI * bound;
 }
 
 export interface FeeInput {

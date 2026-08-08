@@ -91,8 +91,8 @@ function validatePairedValues(
 }
 
 /** Covenant binding every continuation output carries (input 0, pinned family id). */
-function covenantBinding(covenantId: string): CovenantBinding {
-  return { authorizingInput: 0, covenantId };
+function covenantBinding(id: string): CovenantBinding {
+  return { authorizingInput: 0, covenantId: id };
 }
 
 /** Dust carried by a ticket-style output (defaults to the standard ticket dust). */
@@ -140,7 +140,7 @@ export interface DeployResult {
   eventOutputIndex: number;
 }
 
-export function buildDeploy(input: DeployInput): DeployResult {
+function validateDeploy(input: DeployInput): number {
   if (
     !Number.isInteger(input.capacity) ||
     input.capacity < 0 ||
@@ -154,7 +154,24 @@ export function buildDeploy(input: DeployInput): DeployResult {
 
   const allUtxos = [input.authorizingOutpoint, ...input.organizerUtxos];
   validatePairedValues(input.organizerUtxoValues, allUtxos, "organizer");
-  const inputTotal = totalOf(input.organizerUtxoValues);
+  return totalOf(input.organizerUtxoValues);
+}
+
+function eventCovenantIdOf(authorizingOutpoint: Outpoint, eventScript: ScriptPublicKey): string {
+  const authOutputs: AuthorizedOutput[] = [
+    {
+      index: 0,
+      value: EVENT_DUST,
+      version: eventScript.version,
+      script: hexToBytes(eventScript.script),
+    },
+  ];
+  return bytesToHex(covenantId(authorizingOutpoint, authOutputs));
+}
+
+export function buildDeploy(input: DeployInput): DeployResult {
+  const allUtxos = [input.authorizingOutpoint, ...input.organizerUtxos];
+  const inputTotal = validateDeploy(input);
   const change = inputTotal - input.fee - EVENT_DUST;
   if (change < 0) {
     throw new Error(
@@ -169,16 +186,7 @@ export function buildDeploy(input: DeployInput): DeployResult {
     isMinter: false,
   };
   const eventScript = covenantScript(eventState, input.constants, input.covenantCode);
-
-  const authOutputs: AuthorizedOutput[] = [
-    {
-      index: 0,
-      value: EVENT_DUST,
-      version: eventScript.version,
-      script: hexToBytes(eventScript.script),
-    },
-  ];
-  const eventCovenantId = bytesToHex(covenantId(input.authorizingOutpoint, authOutputs));
+  const eventCovenantId = eventCovenantIdOf(input.authorizingOutpoint, eventScript);
 
   return {
     tx: {

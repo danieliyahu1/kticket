@@ -4,6 +4,7 @@ import {
   buildDeploy,
   type DecodedConstants,
   EVENT_ARTIFACT,
+  type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
@@ -16,17 +17,35 @@ import {
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
 
+const TXID_BYTE_LENGTH = 32;
+const EVENT_ID_FIRST_BYTE = 0xab;
+const ORG_SPK_VERSION = 0x21;
+const ORG_SPK_FLAG = 0x02;
+const ORG_SPK_ZERO_BYTE = 0x00;
+const ORG_SPK_LENGTH_BYTE = 0x01;
+const ORG_PKH_BYTE = 0x01;
+const BURN_TEMPLATE_BYTE = 0x77;
+const BUYER_BYTE = 0x02;
+const UTXO_VALUE = 10_000_000_000;
+
 const NETWORK = "testnet10";
-const EVENT_ID = new Uint8Array(32).map((_, i) => (i === 0 ? 0xab : i));
-const ORG_SPK = new Uint8Array([0x21, 0x02, 0x00, 0x01]);
-const ORG_PKH = new Uint8Array(32).fill(0x01);
-const G_ID = "aa".repeat(32);
+const EVENT_ID = new Uint8Array(TXID_BYTE_LENGTH).map((_, i) =>
+  i === 0 ? EVENT_ID_FIRST_BYTE : i,
+);
+const ORG_SPK = new Uint8Array([
+  ORG_SPK_VERSION,
+  ORG_SPK_FLAG,
+  ORG_SPK_ZERO_BYTE,
+  ORG_SPK_LENGTH_BYTE,
+]);
+const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(ORG_PKH_BYTE);
+const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
 
 const CONSTANTS: DecodedConstants = {
   eventId: EVENT_ID,
   price: 1_000,
   orgSpk: ORG_SPK,
-  burnTemplateHash: new Uint8Array(32).fill(0x77),
+  burnTemplateHash: new Uint8Array(TXID_BYTE_LENGTH).fill(BURN_TEMPLATE_BYTE),
 };
 
 const EVENT: RegisteredEvent = {
@@ -34,7 +53,7 @@ const EVENT: RegisteredEvent = {
   genesisTxId: G_ID,
   orgPkh: bytesToHex(ORG_PKH),
   orgSpk: bytesToHex(ORG_SPK),
-  burnTemplateHash: "77".repeat(32),
+  burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
   name: "Testnet Rave",
   date: "2026-12-31",
   price: 1_000,
@@ -45,11 +64,31 @@ function outpointBytes(txIdHex: string, index: number) {
   return { txId: hexToBytes(txIdHex), index };
 }
 
+function buyTxModel(tx: UnsignedTransaction, txId: string): TxModel {
+  return {
+    transaction_id: txId,
+    inputs: tx.inputs.map((input, index) => ({
+      transaction_id: input.previousOutpoint.txId,
+      index,
+      previous_outpoint_hash: input.previousOutpoint.txId,
+      previous_outpoint_index: String(input.previousOutpoint.index),
+      signature_script: input.signatureScript,
+    })),
+    outputs: tx.outputs.map((output, index) => ({
+      transaction_id: txId,
+      index,
+      amount: output.value,
+      script_public_key: output.scriptPublicKey.script,
+      covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
+    })),
+  };
+}
+
 function deployModel(capacity: number): TxModel {
   const { tx } = buildDeploy({
-    authorizingOutpoint: outpointBytes("11".repeat(32), 0),
-    organizerUtxos: [outpointBytes("22".repeat(32), 0)],
-    organizerUtxoValues: [10_000_000_000, 10_000_000_000],
+    authorizingOutpoint: outpointBytes("11".repeat(TXID_BYTE_LENGTH), 0),
+    organizerUtxos: [outpointBytes("22".repeat(TXID_BYTE_LENGTH), 0)],
+    organizerUtxoValues: [UTXO_VALUE, UTXO_VALUE],
     organizer: ORG_PKH,
     capacity,
     constants: CONSTANTS,
@@ -145,8 +184,8 @@ describe("EventRegistry", () => {
 
   it("returns undefined for unknown events", () => {
     const registry = new EventRegistry([EVENT]);
-    expect(registry.byEventId("ff".repeat(32))).toBeUndefined();
-    expect(registry.byGenesisTxId("ff".repeat(32))).toBeUndefined();
+    expect(registry.byEventId("ff".repeat(TXID_BYTE_LENGTH))).toBeUndefined();
+    expect(registry.byGenesisTxId("ff".repeat(TXID_BYTE_LENGTH))).toBeUndefined();
   });
 });
 
@@ -171,7 +210,9 @@ describe("parseRegisteredEvents (KTICKET_EVENTS)", () => {
     );
     expect(parsed).toEqual([EVENT]);
   });
+});
 
+describe("parseRegisteredEvents (validation)", () => {
   it("rejects invalid JSON and non-arrays", () => {
     expect(() => parseRegisteredEvents("{nope")).toThrow();
     expect(() => parseRegisteredEvents('{"a":1}')).toThrow();
@@ -209,11 +250,11 @@ function deploySpk(genesis: TxModel): string {
   return spk;
 }
 
-function buyModel(): TxModel {
-  const deploy = buildDeploy({
-    authorizingOutpoint: outpointBytes("11".repeat(32), 0),
+function buyDeploy() {
+  return buildDeploy({
+    authorizingOutpoint: outpointBytes("11".repeat(TXID_BYTE_LENGTH), 0),
     organizerUtxos: [],
-    organizerUtxoValues: [10_000_000_000],
+    organizerUtxoValues: [UTXO_VALUE],
     organizer: ORG_PKH,
     capacity: 3,
     constants: CONSTANTS,
@@ -222,14 +263,18 @@ function buyModel(): TxModel {
     fee: 1_000,
     network: NETWORK,
   });
+}
+
+function buyModel(): TxModel {
+  const deploy = buyDeploy();
   const buy = buildBuy({
     eventOutpoint: outpointBytes(G_ID, 0),
     eventCovenantId: deploy.eventCovenantId,
     eventOwner: ORG_PKH,
     constants: CONSTANTS,
-    buyer: new Uint8Array(32).fill(0x02),
-    buyerUtxos: [outpointBytes("33".repeat(32), 0)],
-    buyerUtxoValues: [10_000_000_000],
+    buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
+    buyerUtxos: [outpointBytes("33".repeat(TXID_BYTE_LENGTH), 0)],
+    buyerUtxoValues: [UTXO_VALUE],
     orgScript: { version: 0, script: "51" },
     changeScript: { version: 0, script: "51" },
     covenantCode: hexToBytes(EVENT_ARTIFACT.code),
@@ -237,28 +282,12 @@ function buyModel(): TxModel {
     network: NETWORK,
     fee: 400,
   });
-  return {
-    transaction_id: G_ID,
-    inputs: buy.inputs.map((input, index) => ({
-      transaction_id: input.previousOutpoint.txId,
-      index,
-      previous_outpoint_hash: input.previousOutpoint.txId,
-      previous_outpoint_index: String(input.previousOutpoint.index),
-      signature_script: input.signatureScript,
-    })),
-    outputs: buy.outputs.map((output, index) => ({
-      transaction_id: G_ID,
-      index,
-      amount: output.value,
-      script_public_key: output.scriptPublicKey.script,
-      covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
-    })),
-  };
+  return buyTxModel(buy, G_ID);
 }
 
 describe("eventAvailability (GET /v1/events/{id})", () => {
   it("reports sold 0 / left capacity when the event covenant is unspent", async () => {
-    const deploy = deployModel(3);
+    const deploy = deployModel(EVENT.capacity);
     const kaspa = new FakeKaspa(deploy);
     kaspa.utxosAt(addressFromScriptHash(deploySpk(deploy), NETWORK), {
       transactionId: G_ID,
@@ -269,7 +298,7 @@ describe("eventAvailability (GET /v1/events/{id})", () => {
   });
 
   it("walks the event covenant lineage and counts mints as sold", async () => {
-    const deploy = deployModel(3);
+    const deploy = deployModel(EVENT.capacity);
     const kaspa = new FakeKaspa(deploy);
     // One mint: a buy tx spends the event covenant (G_ID:0) and re-creates it
     // with remaining 2 (output index 1).
@@ -285,7 +314,9 @@ describe("eventAvailability (GET /v1/events/{id})", () => {
     const availability = await eventAvailability(EVENT, kaspa, NETWORK);
     expect(availability).toEqual({ capacity: 3, sold: 1, left: 2 });
   });
+});
 
+describe("eventAvailability (edge cases)", () => {
   it("handles a capacity-0 event", async () => {
     const deploy = deployModel(0);
     const kaspa = new FakeKaspa(deploy);
@@ -294,7 +325,11 @@ describe("eventAvailability (GET /v1/events/{id})", () => {
   });
 
   it("treats a missing deploy tx as an invalid event, not an upstream outage", async () => {
-    const kaspa = new FakeKaspa({ transaction_id: "ff".repeat(32), inputs: [], outputs: [] });
+    const kaspa = new FakeKaspa({
+      transaction_id: "ff".repeat(TXID_BYTE_LENGTH),
+      inputs: [],
+      outputs: [],
+    });
     await expect(eventAvailability(EVENT, kaspa, NETWORK)).rejects.toMatchObject({
       type: "invalid",
       statusCode: 400,

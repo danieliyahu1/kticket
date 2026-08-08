@@ -107,24 +107,26 @@ function compileError(message) {
 // --- WASM binary writer ---------------------------------------------------
 
 function uleb(n) {
+  let remaining = n;
   const out = [];
   do {
-    let byte = n & 0x7f;
-    n >>>= 7;
-    if (n !== 0) byte |= 0x80;
+    let byte = remaining & 0x7f;
+    remaining >>>= 7;
+    if (remaining !== 0) byte |= 0x80;
     out.push(byte);
-  } while (n !== 0);
+  } while (remaining !== 0);
   return out;
 }
 
 function sleb(n) {
+  let remaining = n;
   const out = [];
   let more = true;
   while (more) {
-    let byte = n & 0x7f;
-    n >>= 7;
+    let byte = remaining & 0x7f;
+    remaining >>= 7;
     const sign = byte & 0x40;
-    if ((n === 0 && sign === 0) || (n === -1 && sign !== 0)) {
+    if ((remaining === 0 && sign === 0) || (remaining === -1 && sign !== 0)) {
       more = false;
     } else {
       byte |= 0x80;
@@ -142,40 +144,84 @@ function bytesOf(str) {
   return [...str].map((c) => c.charCodeAt(0));
 }
 
+// --- WASM binary format constants ------------------------------------------
+
+const WASM_MAGIC = [0, ...bytesOf("asm")];
+const WASM_VERSION = [1, 0, 0, 0];
+
+const WASM_SECTION_TYPE = 1;
+const WASM_SECTION_FUNCTION = 3;
+const WASM_SECTION_MEMORY = 5;
+const WASM_SECTION_EXPORT = 7;
+const WASM_SECTION_CODE = 10;
+
+const WASM_FUNC_TYPE = 0x60;
+const WASM_VALTYPE_I32 = 0x7f;
+const WASM_TYPE_SECTION_ENTRIES = 1;
+const WASM_TYPE_SECTION_RESULT_COUNT = 1;
+const WASM_FUNC_SECTION_COUNT = 1;
+const WASM_MEMORY_SECTION_COUNT = 1;
+const WASM_MEMORY_FLAGS = 0;
+const WASM_MEMORY_MIN = 1;
+const WASM_CODE_SECTION_COUNT = 1;
+const WASM_EXPORT_COUNT = 0x02;
+const WASM_EXPORT_KIND_MEMORY = 0x02;
+const WASM_EXPORT_KIND_FUNCTION = 0;
+const WASM_EXPORT_INDEX_ZERO = 0;
+
+const WASM_OP_I32_CONST = 0x41;
+const WASM_OP_I64_CONST = 0x42;
+const WASM_OP_I32_LOAD8_U = 0x2d;
+const WASM_OP_I64_LOAD = 0x29;
+const WASM_OP_I32_STORE8 = 0x3a;
+const WASM_OP_I64_STORE = 0x37;
+const WASM_OP_I32_EQZ = 0x45;
+const WASM_OP_I32_NE = 0x47;
+const WASM_OP_I32_EQ = 0x46;
+const WASM_OP_I64_EQ = 0x51;
+const WASM_OP_I64_GT_U = 0x55;
+const WASM_OP_IF = 0x04;
+const WASM_OP_ELSE = 0x05;
+const WASM_OP_END = 0x0b;
+const WASM_OP_RET = 0x0f;
+const WASM_OP_UNREACHABLE = 0x00;
+const WASM_BLOCKTYPE_VOID = 0x40;
+const WASM_ALIGN_ZERO = 0;
+
+const I32_EQZ = [WASM_OP_I32_EQZ];
+const I32_NE = [WASM_OP_I32_NE];
+const I32_EQ = [WASM_OP_I32_EQ];
+const I64_EQ = [WASM_OP_I64_EQ];
+const I64_GT_U = [WASM_OP_I64_GT_U];
+const IF = [WASM_OP_IF, WASM_BLOCKTYPE_VOID];
+const ELSE = [WASM_OP_ELSE];
+const END = [WASM_OP_END];
+const RET = [WASM_OP_RET];
+const UNREACHABLE = [WASM_OP_UNREACHABLE];
+
 function i32const(n) {
-  return [0x41, ...sleb(n)];
+  return [WASM_OP_I32_CONST, ...sleb(n)];
 }
 
 function i64const(n) {
-  return [0x42, ...sleb(n)];
+  return [WASM_OP_I64_CONST, ...sleb(n)];
 }
 
 function load8u(offset) {
-  return [0x2d, 0x00, ...uleb(offset)];
+  return [WASM_OP_I32_LOAD8_U, WASM_ALIGN_ZERO, ...uleb(offset)];
 }
 
 function i64load(offset) {
-  return [0x29, 0x00, ...uleb(offset)];
+  return [WASM_OP_I64_LOAD, WASM_ALIGN_ZERO, ...uleb(offset)];
 }
 
 function store8(offset) {
-  return [0x3a, 0x00, ...uleb(offset)];
+  return [WASM_OP_I32_STORE8, WASM_ALIGN_ZERO, ...uleb(offset)];
 }
 
 function store64(offset) {
-  return [0x37, 0x00, ...uleb(offset)];
+  return [WASM_OP_I64_STORE, WASM_ALIGN_ZERO, ...uleb(offset)];
 }
-
-const I32_EQZ = [0x45];
-const I32_NE = [0x47];
-const I32_EQ = [0x46];
-const I64_EQ = [0x51];
-const I64_GT_U = [0x55];
-const IF = [0x04, 0x40];
-const ELSE = [0x05];
-const END = [0x0b];
-const RET = [0x0f];
-const UNREACHABLE = [0x00];
 
 // Guards: emit `if (condition) return <code>`.
 
@@ -268,34 +314,31 @@ function copyPrevToNewOwner() {
   return out;
 }
 
+function emitGuard(guard) {
+  switch (guard.type) {
+    case "organizerSigned":
+      return guardZero(ABI.organizerSigned, RESULT_CODES.ERR_SIG);
+    case "holderSigned":
+      return guardZero(ABI.holderSigned, RESULT_CODES.ERR_SIG);
+    case "amountGtZero":
+      return guardAmountGtZero(RESULT_CODES.ERR_AMOUNT);
+    case "amountOne":
+      return guardAmountOne(RESULT_CODES.ERR_AMOUNT);
+    case "authOutputCount":
+      return guardEquals(ABI.authOutputCount, guard.value, RESULT_CODES.ERR_AUTH_OUTPUT);
+    case "hasOrgPayout":
+      return payoutGuard(RESULT_CODES.ERR_AUTH_OUTPUT);
+    case "successorIsBurn":
+      return guardZero(ABI.successorIsBurn, RESULT_CODES.ERR_BURN_TEMPLATE);
+    default:
+      throw compileError(`unknown guard type: ${guard.type}`);
+  }
+}
+
 function emitEntrypointBody(entrypoint) {
   const out = [];
   for (const guard of entrypoint.guards) {
-    switch (guard.type) {
-      case "organizerSigned":
-        out.push(...guardZero(ABI.organizerSigned, RESULT_CODES.ERR_SIG));
-        break;
-      case "holderSigned":
-        out.push(...guardZero(ABI.holderSigned, RESULT_CODES.ERR_SIG));
-        break;
-      case "amountGtZero":
-        out.push(...guardAmountGtZero(RESULT_CODES.ERR_AMOUNT));
-        break;
-      case "amountOne":
-        out.push(...guardAmountOne(RESULT_CODES.ERR_AMOUNT));
-        break;
-      case "authOutputCount":
-        out.push(...guardEquals(ABI.authOutputCount, guard.value, RESULT_CODES.ERR_AUTH_OUTPUT));
-        break;
-      case "hasOrgPayout":
-        out.push(...payoutGuard(RESULT_CODES.ERR_AUTH_OUTPUT));
-        break;
-      case "successorIsBurn":
-        out.push(...guardZero(ABI.successorIsBurn, RESULT_CODES.ERR_BURN_TEMPLATE));
-        break;
-      default:
-        throw compileError(`unknown guard type: ${guard.type}`);
-    }
+    out.push(...emitGuard(guard));
   }
 
   if (entrypoint.result.owner !== null) {
@@ -335,40 +378,53 @@ function emitDispatch(entrypoints) {
   return out;
 }
 
-function emitWasm(entrypoints) {
-  const magic = [0x00, 0x61, 0x73, 0x6d];
-  const version = [0x01, 0x00, 0x00, 0x00];
-
-  const typeSection = section(1, [0x01, 0x60, 0x00, 0x01, 0x7f]);
-  const funcSection = section(3, [0x01, 0x00]);
-  const memSection = section(5, [0x01, 0x00, 0x01]);
-  const exportSection = section(7, [
-    0x02,
-    0x06,
+function exportSection() {
+  return section(WASM_SECTION_EXPORT, [
+    WASM_EXPORT_COUNT,
+    ...uleb(bytesOf("memory").length),
     ...bytesOf("memory"),
-    0x02,
-    0x00,
-    0x0a,
+    WASM_EXPORT_KIND_MEMORY,
+    WASM_EXPORT_INDEX_ZERO,
+    ...uleb(bytesOf("transition").length),
     ...bytesOf("transition"),
-    0x00,
-    0x00,
+    WASM_EXPORT_KIND_FUNCTION,
+    WASM_EXPORT_INDEX_ZERO,
   ]);
+}
 
-  const body =
-    entrypoints.length === 0
-      ? [...i32const(RESULT_CODES.ERR_UNSPENDABLE), ...RET]
-      : emitDispatch(entrypoints);
+function emitBody(entrypoints) {
+  return entrypoints.length === 0
+    ? [...i32const(RESULT_CODES.ERR_UNSPENDABLE), ...RET]
+    : emitDispatch(entrypoints);
+}
 
-  const codeContent = [0x01, ...uleb(body.length + 2), 0x00, ...body, ...END];
-  const codeSection = section(10, codeContent);
+function emitWasm(entrypoints) {
+  const typeSection = section(WASM_SECTION_TYPE, [
+    WASM_TYPE_SECTION_ENTRIES,
+    WASM_FUNC_TYPE,
+    0,
+    WASM_TYPE_SECTION_RESULT_COUNT,
+    WASM_VALTYPE_I32,
+  ]);
+  const funcSection = section(WASM_SECTION_FUNCTION, [WASM_FUNC_SECTION_COUNT, 0]);
+  const memSection = section(WASM_SECTION_MEMORY, [
+    WASM_MEMORY_SECTION_COUNT,
+    WASM_MEMORY_FLAGS,
+    WASM_MEMORY_MIN,
+  ]);
+  const exports = exportSection();
+
+  const body = emitBody(entrypoints);
+  const codeContent = [WASM_CODE_SECTION_COUNT, ...uleb(body.length + 2), 0, ...body, ...END];
+  const codeSection = section(WASM_SECTION_CODE, codeContent);
 
   return Uint8Array.from([
-    ...magic,
-    ...version,
+    ...WASM_MAGIC,
+    ...WASM_VERSION,
     ...typeSection,
     ...funcSection,
     ...memSection,
-    ...exportSection,
+    ...exports,
     ...codeSection,
   ]);
 }
@@ -490,22 +546,107 @@ function parseEntrypointArgs(str) {
     });
 }
 
-function parse(source, sourcePath) {
-  const text = stripComments(source);
+function validateEntrypointHeader(source, sourcePath, header) {
+  if (header.binding !== "auth") {
+    fail(
+      source,
+      sourcePath,
+      header.index,
+      `entrypoint ${header.name}: only binding = auth is supported`,
+    );
+  }
+  if (header.from !== 1) {
+    fail(source, sourcePath, header.index, `entrypoint ${header.name}: only from = 1 is supported`);
+  }
+  if (!(header.name in ENTRYPOINT_IDS)) {
+    fail(source, sourcePath, header.index, `unknown entrypoint name: ${header.name}`);
+  }
+}
 
-  const pragmaMatch = text.match(/pragma\s+silverscript\s+([^\s;]+)\s*;/);
-  if (!pragmaMatch) {
-    fail(source, sourcePath, 0, "missing `pragma silverscript <version>;` declaration");
+function validateEntrypointGuards(source, sourcePath, header, guards) {
+  const required = REQUIRED_GUARDS[header.name] ?? [];
+  const present = new Set(guards.map((g) => g.type));
+  for (const type of required) {
+    if (!present.has(type)) {
+      fail(
+        source,
+        sourcePath,
+        header.index,
+        `entrypoint ${header.name}: missing required guard "${type}"`,
+      );
+    }
+  }
+}
+
+function validateEntrypointResult(source, sourcePath, header, result) {
+  if (result.owner !== null && !["arg", "prev.owner"].includes(result.owner)) {
+    fail(
+      source,
+      sourcePath,
+      header.index,
+      `entrypoint ${header.name}: return owner "${result.owner}" is not "arg" or "prev.owner"`,
+    );
+  }
+}
+
+function entrypointFrom(header, guards, result) {
+  return {
+    name: header.name,
+    id: ENTRYPOINT_IDS[header.name],
+    binding: header.binding,
+    from: header.from,
+    to: header.to,
+    args: header.args,
+    guards,
+    result,
+  };
+}
+
+function parseEntrypointStatements(source, sourcePath, statements) {
+  const guards = [];
+  let result = null;
+  for (const stmt of statements) {
+    const parsed = parseStatement(source, sourcePath, stmt);
+    if (parsed === null) continue;
+    if (parsed.kind === "guard") {
+      guards.push(parsed.guard);
+    } else if (parsed.kind === "return") {
+      result = parsed.result;
+    }
+  }
+  return { guards, result };
+}
+
+function normalizeOwnerGuard(guards, header) {
+  const ownerGuard = guards.find((g) => g.type === "prev.owner");
+  if (ownerGuard) {
+    ownerGuard.type = header.name === "mint" ? "organizerSigned" : "holderSigned";
+  }
+}
+
+function parseEntrypoint(source, sourcePath, text, header) {
+  validateEntrypointHeader(source, sourcePath, header);
+
+  const bodyText = extractBalanced(source, sourcePath, text, header.index + header.length);
+  const statements = bodyText
+    .split(";")
+    .map((stmt) => stmt.trim())
+    .filter(Boolean);
+
+  const { guards, result } = parseEntrypointStatements(source, sourcePath, statements);
+
+  if (result === null) {
+    fail(source, sourcePath, header.index, `entrypoint ${header.name}: missing return`);
   }
 
-  const contractMatch = text.match(/contract\s+(\w+)\s*\(([^)]*)\)\s*\{/);
-  if (!contractMatch) {
-    fail(source, sourcePath, 0, "missing `contract <name>(<params>) {` declaration");
-  }
+  normalizeOwnerGuard(guards, header);
+  validateEntrypointGuards(source, sourcePath, header, guards);
+  validateEntrypointResult(source, sourcePath, header, result);
 
-  const contractName = contractMatch[1];
-  const params = parseParams(source, sourcePath, contractMatch[2]);
+  return entrypointFrom(header, guards, result);
+}
 
+function parseHeaders(text) {
   const headerRe =
     /#\[covenant\s*\(\s*binding\s*=\s*(\w+)\s*,\s*from\s*=\s*(\d+)\s*,\s*to\s*=\s*(\d+)\s*\)\s*\]\s*function\s+(\w+)\s*\(([^)]*)\)\s*:\s*\(([^)]*)\)\s*\{/g;
 
@@ -523,10 +664,10 @@ function parse(source, sourcePath) {
     });
     match = headerRe.exec(text);
   }
+  return headers;
+}
 
-  const preambleEnd = headers.length > 0 ? headers[0].index : text.length;
-  const preamble = text.slice(0, preambleEnd);
-
+function parseState(preamble) {
   const state = [];
   const stateRe = /(?:int|byte\[32\]|byte\[\]|template|bool)\s+(\w+)\s*=\s*([^;]+);/g;
   let stateMatch = stateRe.exec(preamble);
@@ -538,103 +679,43 @@ function parse(source, sourcePath) {
     });
     stateMatch = stateRe.exec(preamble);
   }
+  return state;
+}
 
-  const entrypoints = [];
-  for (const header of headers) {
-    if (header.binding !== "auth") {
-      fail(
-        source,
-        sourcePath,
-        header.index,
-        `entrypoint ${header.name}: only binding = auth is supported`,
-      );
-    }
-    if (header.from !== 1) {
-      fail(
-        source,
-        sourcePath,
-        header.index,
-        `entrypoint ${header.name}: only from = 1 is supported`,
-      );
-    }
-    if (!(header.name in ENTRYPOINT_IDS)) {
-      fail(source, sourcePath, header.index, `unknown entrypoint name: ${header.name}`);
-    }
+function parse(source, sourcePath) {
+  const text = stripComments(source);
 
-    const bodyText = extractBalanced(source, sourcePath, text, header.index + header.length);
-    const statements = bodyText
-      .split(";")
-      .map((stmt) => stmt.trim())
-      .filter(Boolean);
-
-    const guards = [];
-    let result = null;
-    for (const stmt of statements) {
-      const parsed = parseStatement(source, sourcePath, stmt);
-      if (parsed === null) continue;
-      if (parsed.kind === "guard") {
-        guards.push(parsed.guard);
-      } else if (parsed.kind === "return") {
-        result = parsed.result;
-      }
-    }
-
-    if (result === null) {
-      fail(source, sourcePath, header.index, `entrypoint ${header.name}: missing return`);
-    }
-
-    // Normalize `checkSigFromStack(prev.owner)` to the entrypoint's signer.
-    const ownerGuard = guards.find((g) => g.type === "prev.owner");
-    if (ownerGuard) {
-      ownerGuard.type = header.name === "mint" ? "organizerSigned" : "holderSigned";
-    }
-
-    const required = REQUIRED_GUARDS[header.name] ?? [];
-    const present = new Set(guards.map((g) => g.type));
-    for (const type of required) {
-      if (!present.has(type)) {
-        fail(
-          source,
-          sourcePath,
-          header.index,
-          `entrypoint ${header.name}: missing required guard "${type}"`,
-        );
-      }
-    }
-
-    if (result.owner !== null && !["arg", "prev.owner"].includes(result.owner)) {
-      fail(
-        source,
-        sourcePath,
-        header.index,
-        `entrypoint ${header.name}: return owner "${result.owner}" is not "arg" or "prev.owner"`,
-      );
-    }
-
-    entrypoints.push({
-      name: header.name,
-      id: ENTRYPOINT_IDS[header.name],
-      binding: header.binding,
-      from: header.from,
-      to: header.to,
-      args: header.args,
-      guards,
-      result,
-    });
+  const pragmaMatch = text.match(/pragma\s+silverscript\s+([^\s;]+)\s*;/);
+  if (!pragmaMatch) {
+    fail(source, sourcePath, 0, "missing `pragma silverscript <version>;` declaration");
   }
 
-  return { pragma: pragmaMatch[1], contractName, params, state, entrypoints };
+  const contractMatch = text.match(/contract\s+(\w+)\s*\(([^)]*)\)\s*\{/);
+  if (!contractMatch) {
+    fail(source, sourcePath, 0, "missing `contract <name>(<params>) {` declaration");
+  }
+
+  const headers = parseHeaders(text);
+  const preambleEnd = headers.length > 0 ? headers[0].index : text.length;
+  const state = parseState(text.slice(0, preambleEnd));
+
+  const entrypoints = headers.map((header) => parseEntrypoint(source, sourcePath, text, header));
+
+  return {
+    pragma: pragmaMatch[1],
+    contractName: contractMatch[1],
+    params: parseParams(source, sourcePath, contractMatch[2]),
+    state,
+    entrypoints,
+  };
 }
 
 // --- artifact --------------------------------------------------------------
 
-function compileSource(source, sourcePath) {
-  const parsed = parse(source, sourcePath);
-  const wasm = emitWasm(parsed.entrypoints);
-
-  const entrypoints = {};
-  for (const ep of parsed.entrypoints) {
-    entrypoints[ep.name] = {
+function entrypointMap(entrypoints) {
+  const map = {};
+  for (const ep of entrypoints) {
+    map[ep.name] = {
       id: ep.id,
       binding: ep.binding,
       from: ep.from,
@@ -644,6 +725,12 @@ function compileSource(source, sourcePath) {
       result: ep.result,
     };
   }
+  return map;
+}
+
+function compileSource(source, sourcePath) {
+  const parsed = parse(source, sourcePath);
+  const wasm = emitWasm(parsed.entrypoints);
 
   return {
     schema: SCHEMA,
@@ -658,7 +745,7 @@ function compileSource(source, sourcePath) {
       pragma: parsed.pragma,
       params: parsed.params,
       state: parsed.state,
-      entrypoints,
+      entrypoints: entrypointMap(parsed.entrypoints),
       constantsBaked: true,
     },
     abi: ABI,
@@ -676,25 +763,41 @@ function artifactJson(artifact) {
 
 // --- CLI -------------------------------------------------------------------
 
+function checkArtifacts() {
+  let stale = false;
+  for (const sourceName of CONTRACT_SOURCES) {
+    const source = readFileSync(join(CONTRACTS_DIR, sourceName), "utf8");
+    const artifact = compileSource(source, sourceName);
+    const path = artifactPathFor(sourceName);
+    if (!existsSync(path) || readFileSync(path, "utf8") !== artifactJson(artifact)) {
+      process.stderr.write(`silverc: artifact out of sync: ${path}\n`);
+      stale = true;
+    }
+  }
+  if (stale) {
+    process.stderr.write("silverc: run `npm run build --workspace @kticket/kit` to regenerate\n");
+    process.exit(1);
+  }
+  process.stdout.write("silverc: artifacts up to date\n");
+}
+
+function compileAll() {
+  mkdirSync(ARTIFACTS_DIR, { recursive: true });
+  for (const sourceName of CONTRACT_SOURCES) {
+    const source = readFileSync(join(CONTRACTS_DIR, sourceName), "utf8");
+    const artifact = compileSource(source, sourceName);
+    writeFileSync(artifactPathFor(sourceName), artifactJson(artifact));
+  }
+  process.stdout.write(
+    `silverc: compiled ${CONTRACT_SOURCES.length} contracts -> ${ARTIFACTS_DIR}\n`,
+  );
+}
+
 function main(argv) {
   const [mode, arg] = argv;
 
   if (mode === "--check") {
-    let stale = false;
-    for (const sourceName of CONTRACT_SOURCES) {
-      const source = readFileSync(join(CONTRACTS_DIR, sourceName), "utf8");
-      const artifact = compileSource(source, sourceName);
-      const path = artifactPathFor(sourceName);
-      if (!existsSync(path) || readFileSync(path, "utf8") !== artifactJson(artifact)) {
-        process.stderr.write(`silverc: artifact out of sync: ${path}\n`);
-        stale = true;
-      }
-    }
-    if (stale) {
-      process.stderr.write("silverc: run `npm run build --workspace @kticket/kit` to regenerate\n");
-      process.exit(1);
-    }
-    process.stdout.write("silverc: artifacts up to date\n");
+    checkArtifacts();
     return;
   }
 
@@ -705,15 +808,7 @@ function main(argv) {
     return;
   }
 
-  mkdirSync(ARTIFACTS_DIR, { recursive: true });
-  for (const sourceName of CONTRACT_SOURCES) {
-    const source = readFileSync(join(CONTRACTS_DIR, sourceName), "utf8");
-    const artifact = compileSource(source, sourceName);
-    writeFileSync(artifactPathFor(sourceName), artifactJson(artifact));
-  }
-  process.stdout.write(
-    `silverc: compiled ${CONTRACT_SOURCES.length} contracts -> ${ARTIFACTS_DIR}\n`,
-  );
+  compileAll();
 }
 
 try {

@@ -85,10 +85,10 @@ function resolveTls(env: NodeJS.ProcessEnv): TlsConfig | undefined {
   const keyFile = env.TLS_KEY?.trim();
   const certFile = env.TLS_CERT?.trim();
 
-  if (!keyFile && !certFile) {
+  if (!(keyFile || certFile)) {
     return undefined;
   }
-  if (!keyFile || !certFile) {
+  if (!(keyFile && certFile)) {
     throw new ConfigError("TLS_KEY and TLS_CERT must both be set to enable HTTPS");
   }
 

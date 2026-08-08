@@ -6,19 +6,29 @@ import type { CovenantContext, Kcc20Constants } from "./types";
 import { RESULT_CODES } from "./types";
 import { getWasmRuntime } from "./wasm";
 
+const HASH_LENGTH = 32;
+const EVENT_ID_BYTE = 0x11;
+const ORG_SPK_BYTE = 0x22;
+const BURN_HASH_BYTE = 0x33;
+const ORG_BYTE = 0x01;
+const ALICE_BYTE = 0xaa;
+const BOB_BYTE = 0xbb;
+const EVENT_CAPACITY = 5;
+const DEFAULT_PRICE = 100;
+
 /** Deterministic 32-byte key hash: all zeros with `byte` in the last position. */
 function pkh(byte: number): Uint8Array {
-  const bytes = new Uint8Array(32);
-  bytes[31] = byte;
+  const bytes = new Uint8Array(HASH_LENGTH);
+  bytes[HASH_LENGTH - 1] = byte;
   return bytes;
 }
 
 function constants(overrides: Partial<Kcc20Constants> = {}): Kcc20Constants {
   return {
-    eventId: pkh(0x11),
-    price: 100,
-    orgSpk: pkh(0x22),
-    burnTemplateHash: pkh(0x33),
+    eventId: pkh(EVENT_ID_BYTE),
+    price: DEFAULT_PRICE,
+    orgSpk: pkh(ORG_SPK_BYTE),
+    burnTemplateHash: pkh(BURN_HASH_BYTE),
     ...overrides,
   };
 }
@@ -55,9 +65,9 @@ function useCtx(overrides: Partial<CovenantContext> = {}): CovenantContext {
   };
 }
 
-const ORG = pkh(0x01);
-const ALICE = pkh(0xaa);
-const BOB = pkh(0xbb);
+const ORG = pkh(ORG_BYTE);
+const ALICE = pkh(ALICE_BYTE);
+const BOB = pkh(BOB_BYTE);
 
 describe("artifacts", () => {
   it("event artifact exposes mint/transfer/use auth covenants (HLD v0.22 §2.1)", () => {
@@ -85,7 +95,7 @@ describe("artifacts", () => {
   });
 });
 
-describe("state machine: event (remaining) -> mint -> transfer -> use", () => {
+describe("state machine: mint (happy path and free events)", () => {
   const c = new Covenant(EVENT_ARTIFACT, constants());
 
   it("happy path: mint a ticket, transfer it, then consume it", () => {
@@ -102,6 +112,22 @@ describe("state machine: event (remaining) -> mint -> transfer -> use", () => {
     expect(use).toMatchObject({ ok: true });
     expect(use.state?.amount).toBe(1);
   });
+
+  it("free events skip the payout requirement (FR-2)", () => {
+    const free = new Covenant(EVENT_ARTIFACT, constants({ price: 0 }));
+    const mint = free.transition(
+      "mint",
+      eventCovenant(ORG, 10),
+      ALICE,
+      mintCtx({ hasOrgPayout: false }),
+    );
+    expect(mint).toMatchObject({ ok: true });
+    expect(mint.state?.owner).toEqual(ALICE);
+  });
+});
+
+describe("state machine: mint validation", () => {
+  const c = new Covenant(EVENT_ARTIFACT, constants());
 
   it("mint requires the organizer to sign (organizer authorizes the sale)", () => {
     const r = c.transition(
@@ -132,18 +158,6 @@ describe("state machine: event (remaining) -> mint -> transfer -> use", () => {
       c.transition("mint", eventCovenant(ORG, 10), ALICE, mintCtx({ hasOrgPayout: false })),
     ).toMatchObject({ ok: false, code: RESULT_CODES.ERR_AUTH_OUTPUT });
   });
-
-  it("free events skip the payout requirement (FR-2)", () => {
-    const free = new Covenant(EVENT_ARTIFACT, constants({ price: 0 }));
-    const mint = free.transition(
-      "mint",
-      eventCovenant(ORG, 10),
-      ALICE,
-      mintCtx({ hasOrgPayout: false }),
-    );
-    expect(mint).toMatchObject({ ok: true });
-    expect(mint.state?.owner).toEqual(ALICE);
-  });
 });
 
 describe("transfer is holder-only (NFR-4)", () => {
@@ -160,7 +174,7 @@ describe("transfer is holder-only (NFR-4)", () => {
   });
 
   it("transfer on the event covenant (amount > 1) is rejected", () => {
-    const r = c.transition("transfer", eventCovenant(ORG, 5), BOB, transferCtx(true));
+    const r = c.transition("transfer", eventCovenant(ORG, EVENT_CAPACITY), BOB, transferCtx(true));
     expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_AMOUNT });
   });
 });
@@ -189,27 +203,27 @@ describe("use (handover) successor is the burn-owner (FR-9)", () => {
   });
 
   it("handover on the event covenant is rejected", () => {
-    const r = c.transition("use", eventCovenant(ORG, 5), new Uint8Array(0), useCtx());
+    const r = c.transition("use", eventCovenant(ORG, EVENT_CAPACITY), new Uint8Array(0), useCtx());
     expect(r).toMatchObject({ ok: false, code: RESULT_CODES.ERR_AMOUNT });
   });
 });
 
 describe("rules freeze at deploy (FR-7)", () => {
   it("constants are immutable after deployment", () => {
-    const c = new Covenant(EVENT_ARTIFACT, constants({ price: 100 }));
+    const c = new Covenant(EVENT_ARTIFACT, constants({ price: DEFAULT_PRICE }));
     expect(Object.isFrozen(c.constants)).toBe(true);
     expect(() => {
       (c.constants as { price: number }).price = 0;
     }).toThrow();
-    expect(c.constants.price).toBe(100);
+    expect(c.constants.price).toBe(DEFAULT_PRICE);
   });
 
   it("price is baked at deploy and stable across transitions", () => {
-    const c = new Covenant(EVENT_ARTIFACT, constants({ price: 100 }));
+    const c = new Covenant(EVENT_ARTIFACT, constants({ price: DEFAULT_PRICE }));
     c.transition("mint", eventCovenant(ORG, 10), ALICE, mintCtx({ hasOrgPayout: true }));
     c.transition("transfer", ticketCovenant(ALICE), BOB, transferCtx(true));
     c.transition("use", ticketCovenant(BOB), new Uint8Array(0), useCtx());
-    expect(c.constants.price).toBe(100);
+    expect(c.constants.price).toBe(DEFAULT_PRICE);
   });
 });
 

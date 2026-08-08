@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ConfigError, loadConfig } from "./config";
 
+const DEFAULT_PORT = 3000;
+const EXPLICIT_PORT = 8080;
+
 describe("loadConfig (KASPANET wiring)", () => {
   it("defaults to testnet10 when KASPANET is unset", () => {
     expect(loadConfig({}).kaspaNet).toBe("testnet10");
@@ -19,13 +22,13 @@ describe("loadConfig (KASPANET wiring)", () => {
   });
 
   it("parses PORT with a sane default", () => {
-    expect(loadConfig({}).port).toBe(3000);
-    expect(loadConfig({ PORT: "8080" }).port).toBe(8080);
+    expect(loadConfig({}).port).toBe(DEFAULT_PORT);
+    expect(loadConfig({ PORT: "8080" }).port).toBe(EXPLICIT_PORT);
   });
 
   it("ignores invalid PORT values", () => {
-    expect(loadConfig({ PORT: "-1" }).port).toBe(3000);
-    expect(loadConfig({ PORT: "abc" }).port).toBe(3000);
+    expect(loadConfig({ PORT: "-1" }).port).toBe(DEFAULT_PORT);
+    expect(loadConfig({ PORT: "abc" }).port).toBe(DEFAULT_PORT);
   });
 
   it("defaults HOST and reads an explicit one", () => {

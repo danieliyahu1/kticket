@@ -26,7 +26,7 @@ import {
 import { invalidError } from "./errors.js";
 import type { RegisteredEvent } from "./events.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
-import { findSpend, findSuccessor } from "./lineage.js";
+import { findSpend, findSuccessor, type OutpointRef } from "./lineage.js";
 
 export const MAX_LINEAGE_DEPTH = 16;
 
@@ -55,15 +55,13 @@ const HEX64 = /^[0-9a-fA-F]{64}$/;
 /** Parse a `ticket_id` of the form `<64-hex deploy txid>:<index>`. */
 export function parseTicketId(raw: string): { txId: string; index: number } {
   const [, txId, indexStr] = TICKET_ID_RE.exec(raw.trim()) ?? [];
-  if (!txId || !indexStr) {
+  if (!(txId && indexStr)) {
     throw invalidError("ticket_id must be '<64-hex genesis txid>:<index>'");
   }
   return { txId: txId.toLowerCase(), index: Number(indexStr) };
 }
 
-export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<VerifyResult> {
-  const { txId, index } = parseTicketId(raw);
-
+async function loadGenesis(ctx: ReaderContext, txId: string, index: number) {
   const genesis = await ctx.kaspa.getTransaction(txId);
   if (!genesis) throw invalidError(`genesis transaction ${txId} not found`);
 
@@ -74,49 +72,97 @@ export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<Ver
   if (typeof spk !== "string" || !HEX64.test(spk)) {
     throw invalidError("output is not a kticket covenant output");
   }
+  return spk;
+}
+
+function liveResult(
+  utxos: readonly { outpoint: OutpointRef }[],
+  event: RegisteredEvent | undefined,
+): VerifyResult | undefined {
+  const live = utxos[0];
+  if (!live) return undefined;
+  return {
+    state: "alive",
+    liveOutpoint: {
+      transaction_id: live.outpoint.transactionId,
+      index: live.outpoint.index,
+    },
+    ...eventMeta(event),
+  };
+}
+
+function isBurnSuccessor(event: RegisteredEvent | undefined, scriptPublicKey: string): boolean {
+  return (
+    event !== undefined &&
+    scriptPublicKey.toLowerCase() === burnTemplateHash(event.eventId, BURN_ARTIFACT.code)
+  );
+}
+
+type AdvanceOutcome =
+  | { done: true; result: VerifyResult }
+  | { done: false; address: string; outpoint: OutpointRef };
+
+async function advance(
+  ctx: ReaderContext,
+  address: string,
+  outpoint: OutpointRef,
+  event: RegisteredEvent | undefined,
+): Promise<AdvanceOutcome> {
+  const utxos = await ctx.kaspa.getUtxos(address);
+  const alive = liveResult(utxos, event);
+  if (alive) return { done: true, result: alive };
+
+  const txs = await ctx.kaspa.getFullTransactions(address);
+  const spend = findSpend(txs, outpoint);
+  if (!spend) {
+    return {
+      done: true,
+      result: { state: "unknown", cause: "unresolved-spend", ...eventMeta(event) },
+    };
+  }
+
+  const successor = findSuccessor(spend.tx, spend.input);
+  const scriptPublicKey = successor?.script_public_key;
+  if (!successor || typeof scriptPublicKey !== "string") {
+    return { done: true, result: { state: "unknown", cause: "no-successor", ...eventMeta(event) } };
+  }
+
+  if (isBurnSuccessor(event, scriptPublicKey)) {
+    return {
+      done: true,
+      result: { state: "gone", atTx: spend.tx.transaction_id, ...eventMeta(event) },
+    };
+  }
+
+  if (!event) {
+    // Cannot tell a burn successor from a ticket successor without the event's
+    // burn template — never guess (DEC-12).
+    return {
+      done: true,
+      result: { state: "unknown", cause: "unknown-event", ...eventMeta(event) },
+    };
+  }
+
+  return {
+    done: false,
+    address: addressFromScriptHash(scriptPublicKey, ctx.network),
+    outpoint: { transactionId: spend.tx.transaction_id, index: successor.index },
+  };
+}
+
+export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<VerifyResult> {
+  const { txId, index } = parseTicketId(raw);
+  const spk = await loadGenesis(ctx, txId, index);
 
   const event = ctx.events.byGenesisTxId(txId);
   let address = addressFromScriptHash(spk, ctx.network);
-  let outpoint = { transactionId: txId, index };
+  let outpoint: OutpointRef = { transactionId: txId, index };
 
   for (let depth = 0; depth <= MAX_LINEAGE_DEPTH; depth++) {
-    const utxos = await ctx.kaspa.getUtxos(address);
-    for (const live of utxos) {
-      return {
-        state: "alive",
-        liveOutpoint: {
-          transaction_id: live.outpoint.transactionId,
-          index: live.outpoint.index,
-        },
-        ...eventMeta(event),
-      };
-    }
-
-    const txs = await ctx.kaspa.getFullTransactions(address);
-    const spend = findSpend(txs, outpoint);
-    if (!spend) return { state: "unknown", cause: "unresolved-spend", ...eventMeta(event) };
-
-    const successor = findSuccessor(spend.tx, spend.input);
-    if (!successor || typeof successor.script_public_key !== "string") {
-      return { state: "unknown", cause: "no-successor", ...eventMeta(event) };
-    }
-
-    if (
-      event &&
-      successor.script_public_key.toLowerCase() ===
-        burnTemplateHash(event.eventId, BURN_ARTIFACT.code)
-    ) {
-      return { state: "gone", atTx: spend.tx.transaction_id, ...eventMeta(event) };
-    }
-
-    if (!event) {
-      // Cannot tell a burn successor from a ticket successor without the
-      // event's burn template — never guess (DEC-12).
-      return { state: "unknown", cause: "unknown-event", ...eventMeta(event) };
-    }
-
-    address = addressFromScriptHash(successor.script_public_key, ctx.network);
-    outpoint = { transactionId: spend.tx.transaction_id, index: successor.index };
+    const outcome = await advance(ctx, address, outpoint, event);
+    if (outcome.done) return outcome.result;
+    address = outcome.address;
+    outpoint = outcome.outpoint;
   }
 
   return { state: "unknown", cause: "depth-exceeded", ...eventMeta(event) };

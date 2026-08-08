@@ -2,20 +2,24 @@
 // transaction serialization (serialize.ts) and the covenant-id hashing
 // (covenant.ts).
 
+const U16_LENGTH = 2;
+const U32_LENGTH = 4;
+const U64_LENGTH = 8;
+
 function le16(value: number): Uint8Array {
-  const out = new Uint8Array(2);
+  const out = new Uint8Array(U16_LENGTH);
   new DataView(out.buffer).setUint16(0, value, true);
   return out;
 }
 
 function le32(value: number): Uint8Array {
-  const out = new Uint8Array(4);
+  const out = new Uint8Array(U32_LENGTH);
   new DataView(out.buffer).setUint32(0, value >>> 0, true);
   return out;
 }
 
 function le64(value: number): Uint8Array {
-  const out = new Uint8Array(8);
+  const out = new Uint8Array(U64_LENGTH);
   new DataView(out.buffer).setBigUint64(0, BigInt(value), true);
   return out;
 }

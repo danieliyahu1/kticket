@@ -22,7 +22,7 @@ import {
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
-import { findSpend } from "./lineage.js";
+import { findSpend, type OutpointRef } from "./lineage.js";
 import { MAX_LINEAGE_DEPTH } from "./reader.js";
 import { HEX64, hex, hex64, isRecord, str, uint } from "./validate.js";
 
@@ -101,6 +101,39 @@ function eventCovenantScriptHash(event: RegisteredEvent, remaining: number): str
   return spk.script;
 }
 
+type AvailabilityWalkOutcome =
+  | { done: true; left: number }
+  | { done: false; address: string; outpoint: OutpointRef; nextRemaining: number };
+
+async function advanceAvailabilityWalk(
+  kaspa: KaspaClientLike,
+  network: KaspaNetwork,
+  event: RegisteredEvent,
+  address: string,
+  outpoint: OutpointRef,
+  remaining: number,
+): Promise<AvailabilityWalkOutcome> {
+  const utxos = await kaspa.getUtxos(address);
+  if (utxos.length > 0) return { done: true, left: remaining };
+
+  const txs = await kaspa.getFullTransactions(address);
+  const spender = findSpend(txs, outpoint);
+  if (!spender) return { done: true, left: remaining };
+
+  const expected = eventCovenantScriptHash(event, remaining - 1);
+  const successor = (spender.tx.outputs ?? []).find(
+    (o) => o.script_public_key?.toLowerCase() === expected,
+  );
+  if (!successor) return { done: true, left: remaining };
+
+  return {
+    done: false,
+    address: addressFromScriptHash(successor.script_public_key as string, network),
+    outpoint: { transactionId: spender.tx.transaction_id, index: successor.index },
+    nextRemaining: remaining - 1,
+  };
+}
+
 /**
  * Live remaining tickets for an event, from the event covenant's `remaining`
  * state via the lineage walk (HLD §2.2): `left = remaining`,
@@ -126,27 +159,24 @@ export async function eventAvailability(
 
   let remaining = event.capacity;
   let address = addressFromScriptHash(spk, network);
-  let outpoint = { transactionId: event.genesisTxId, index: 0 };
+  let outpoint: OutpointRef = { transactionId: event.genesisTxId, index: 0 };
 
   for (let depth = 0; depth <= MAX_LINEAGE_DEPTH; depth++) {
-    const utxos = await kaspa.getUtxos(address);
-    if (utxos.length > 0) {
-      return { capacity: event.capacity, sold: event.capacity - remaining, left: remaining };
-    }
-
-    const txs = await kaspa.getFullTransactions(address);
-    const spender = findSpend(txs, outpoint);
-    if (!spender) break;
-
-    const expected = eventCovenantScriptHash(event, remaining - 1);
-    const successor = (spender.tx.outputs ?? []).find(
-      (o) => o.script_public_key?.toLowerCase() === expected,
+    const outcome = await advanceAvailabilityWalk(
+      kaspa,
+      network,
+      event,
+      address,
+      outpoint,
+      remaining,
     );
-    if (!successor) break;
-
-    remaining -= 1;
-    address = addressFromScriptHash(successor.script_public_key as string, network);
-    outpoint = { transactionId: spender.tx.transaction_id, index: successor.index };
+    if (outcome.done) {
+      remaining = outcome.left;
+      break;
+    }
+    remaining = outcome.nextRemaining;
+    address = outcome.address;
+    outpoint = outcome.outpoint;
   }
 
   return { capacity: event.capacity, sold: event.capacity - remaining, left: remaining };

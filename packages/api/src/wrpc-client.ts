@@ -38,6 +38,37 @@ async function loadWasm(): Promise<KaspaWasm> {
   return mod;
 }
 
+function toWasmInput(input: WireTransaction["inputs"][number], version: number) {
+  return {
+    previousOutpoint: {
+      transactionId: input.previous_outpoint.transaction_id,
+      index: input.previous_outpoint.index,
+    },
+    signatureScript: input.signature_script,
+    sequence: BigInt(input.sequence),
+    sigOpCount: version >= 1 ? 0 : input.sig_op_count,
+    computeBudget: version >= 1 ? input.sig_op_count : 0,
+  };
+}
+
+function toWasmOutput(output: WireTransaction["outputs"][number], version: number) {
+  return {
+    value: BigInt(output.value),
+    scriptPublicKey: {
+      version: output.script_public_key.version,
+      script: output.script_public_key.script,
+    },
+    ...(version >= 1 && output.covenant
+      ? {
+          covenant: {
+            authorizingInput: output.covenant.authorizing_input,
+            covenantId: output.covenant.covenant_id,
+          },
+        }
+      : {}),
+  };
+}
+
 /**
  * Submit a signed v1 transaction over wRPC, preserving covenant bindings.
  * Returns the transaction id, or throws with the node's rejection message.
@@ -52,31 +83,8 @@ export async function submitTransactionOverWrpc(
   const mod = await loadWasm();
   const wasmTx = new mod.Transaction({
     version: tx.version,
-    inputs: tx.inputs.map((input) => ({
-      previousOutpoint: {
-        transactionId: input.previous_outpoint.transaction_id,
-        index: input.previous_outpoint.index,
-      },
-      signatureScript: input.signature_script,
-      sequence: BigInt(input.sequence),
-      sigOpCount: tx.version >= 1 ? 0 : input.sig_op_count,
-      computeBudget: tx.version >= 1 ? input.sig_op_count : 0,
-    })),
-    outputs: tx.outputs.map((output) => ({
-      value: BigInt(output.value),
-      scriptPublicKey: {
-        version: output.script_public_key.version,
-        script: output.script_public_key.script,
-      },
-      ...(tx.version >= 1 && output.covenant
-        ? {
-            covenant: {
-              authorizingInput: output.covenant.authorizing_input,
-              covenantId: output.covenant.covenant_id,
-            },
-          }
-        : {}),
-    })),
+    inputs: tx.inputs.map((input) => toWasmInput(input, tx.version)),
+    outputs: tx.outputs.map((output) => toWasmOutput(output, tx.version)),
     lockTime: BigInt(tx.lock_time),
     subnetworkId: NATIVE_SUBNETWORK_ID,
     gas: 0n,

@@ -16,19 +16,31 @@ import { submitTransactionOverWrpc } from "./wrpc-client.js";
 
 const mockedSubmit = vi.mocked(submitTransactionOverWrpc);
 
-const EVENT_ID = "ab".repeat(32);
+const TXID_BYTE_LENGTH = 32;
+const SIGNATURE_SCRIPT_BYTE_LENGTH = 70;
+const TICKET_PRICE = 1_000;
+const UTXO_VALUE = 1_000_000_000;
+const BUY_OUTPUTS = 4;
+const EVENT_CAPACITY = 100;
+const INVALID_CAPACITY = 101;
+
+const EVENT_ID = "ab".repeat(TXID_BYTE_LENGTH);
 const ORG_SPK_HEX = "21020001";
 
 const CHANGE_SPK = { version: 0, script: "51" };
-const ORGANIZER_UTXO = { transaction_id: "cc".repeat(32), index: 0, value: 1_000_000_000 };
-const BUYER_UTXO = { transaction_id: "cc".repeat(32), index: 0, value: 1_000_000_000 };
-const HOLDER_UTXO = { transaction_id: "dd".repeat(32), index: 0, value: 1_000_000_000 };
+const ORGANIZER_UTXO = {
+  transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
+  index: 0,
+  value: UTXO_VALUE,
+};
+const BUYER_UTXO = { transaction_id: "cc".repeat(TXID_BYTE_LENGTH), index: 0, value: UTXO_VALUE };
+const HOLDER_UTXO = { transaction_id: "dd".repeat(TXID_BYTE_LENGTH), index: 0, value: UTXO_VALUE };
 
 const CONSTANTS = {
   event_id: EVENT_ID,
   price: 1_000,
   org_spk: ORG_SPK_HEX,
-  burn_template_hash: "77".repeat(32),
+  burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
 };
 
 const FEE_ESTIMATE: FeeEstimateResponse = {
@@ -39,7 +51,7 @@ const FEE_ESTIMATE: FeeEstimateResponse = {
 
 class FakeKaspa implements KaspaClientLike {
   feeEstimate: FeeEstimateResponse = FEE_ESTIMATE;
-  broadcastResponse: SubmitTransactionResponse = { transactionId: "dd".repeat(32) };
+  broadcastResponse: SubmitTransactionResponse = { transactionId: "dd".repeat(TXID_BYTE_LENGTH) };
   broadcastCalls = 0;
   lastBroadcast?: SubmitTxModel;
 
@@ -79,13 +91,65 @@ const ctx = (kaspa: KaspaClientLike): { kaspa: KaspaClientLike; networkId: strin
   networkId: "testnet-10",
 });
 
+const signedTx = {
+  version: 1,
+  inputs: [
+    {
+      previous_outpoint: { transaction_id: "aa".repeat(TXID_BYTE_LENGTH), index: 0 },
+      signature_script: "01".repeat(SIGNATURE_SCRIPT_BYTE_LENGTH),
+      sequence: 0,
+      sig_op_count: 1,
+    },
+  ],
+  outputs: [{ value: 49_000, script_public_key: { version: 0, script: "51" }, covenant: null }],
+  lock_time: 0,
+};
+
+function deployRequest(capacity: number) {
+  return {
+    type: "deploy",
+    capacity,
+    constants: CONSTANTS,
+    organizer: "01".repeat(TXID_BYTE_LENGTH),
+    authorizing_outpoint: ORGANIZER_UTXO,
+    organizer_utxos: [],
+    change_spk: CHANGE_SPK,
+  };
+}
+
+function transferRequest() {
+  return {
+    type: "transfer",
+    ticket_outpoint: { transaction_id: "bb".repeat(TXID_BYTE_LENGTH), index: 0 },
+    event_covenant_id: "77".repeat(TXID_BYTE_LENGTH),
+    constants: CONSTANTS,
+    new_owner: "99".repeat(TXID_BYTE_LENGTH),
+    holder_utxos: [HOLDER_UTXO],
+    change_spk: CHANGE_SPK,
+  };
+}
+
+function buyRequest(constants = CONSTANTS, buyerUtxos = [BUYER_UTXO]) {
+  return {
+    type: "buy",
+    event_outpoint: { transaction_id: "aa".repeat(TXID_BYTE_LENGTH), index: 0 },
+    event_covenant_id: "77".repeat(TXID_BYTE_LENGTH),
+    event_owner: "01".repeat(TXID_BYTE_LENGTH),
+    remaining: 100,
+    constants,
+    buyer: "42".repeat(TXID_BYTE_LENGTH),
+    buyer_utxos: buyerUtxos,
+    change_spk: CHANGE_SPK,
+  };
+}
+
 describe("toSubmitModel", () => {
   it("maps the wire template to the upstream SubmitTxModel shape", () => {
     const model = toSubmitModel({
       version: 1,
       inputs: [
         {
-          previous_outpoint: { transaction_id: "aa".repeat(32), index: 0 },
+          previous_outpoint: { transaction_id: "aa".repeat(TXID_BYTE_LENGTH), index: 0 },
           signature_script: "",
           sequence: 0,
           sig_op_count: 1,
@@ -95,7 +159,7 @@ describe("toSubmitModel", () => {
         {
           value: 0,
           script_public_key: { version: 0, script: "51" },
-          covenant: { authorizing_input: 0, covenant_id: "bb".repeat(32) },
+          covenant: { authorizing_input: 0, covenant_id: "bb".repeat(TXID_BYTE_LENGTH) },
         },
       ],
       lock_time: 0,
@@ -104,7 +168,7 @@ describe("toSubmitModel", () => {
       version: 1,
       inputs: [
         {
-          previousOutpoint: { transactionId: "aa".repeat(32), index: 0 },
+          previousOutpoint: { transactionId: "aa".repeat(TXID_BYTE_LENGTH), index: 0 },
           signatureScript: "",
           sequence: 0,
           sigOpCount: 1,
@@ -121,76 +185,63 @@ describe("toSubmitModel", () => {
   });
 });
 
-describe("buildTransaction (KTK-28)", () => {
+describe("buildTransaction (KTK-28) — deploy", () => {
   it("builds a fee-aware deploy template from a wallet request", async () => {
     const kaspa = new FakeKaspa();
-    const result = await buildTransaction(
-      {
-        type: "deploy",
-        capacity: 100,
-        constants: CONSTANTS,
-        organizer: "01".repeat(32),
-        authorizing_outpoint: ORGANIZER_UTXO,
-        organizer_utxos: [],
-        change_spk: CHANGE_SPK,
-      },
-      ctx(kaspa),
-    );
+    const result = await buildTransaction(deployRequest(EVENT_CAPACITY), ctx(kaspa));
 
     expect(result.template.version).toBe(1);
     expect(result.template.outputs).toHaveLength(2); // event covenant + change
     expect(result.event_covenant_id).toMatch(/^[0-9a-f]{64}$/);
     // a fee is charged: inputs exceed outputs
-    const inputTotal = 1_000_000_000;
+    const inputTotal = UTXO_VALUE;
     const outputTotal = result.template.outputs.reduce((acc, o) => acc + o.value, 0);
     expect(inputTotal - outputTotal).toBeGreaterThan(0);
   });
 
+  it("rejects an unknown type as invalid", async () => {
+    const kaspa = new FakeKaspa();
+    await expect(buildTransaction({ type: "burn" }, ctx(kaspa))).rejects.toMatchObject({
+      type: "invalid",
+    });
+  });
+});
+
+describe("buildTransaction (KTK-28) — buy", () => {
   it("builds a buy template where the event splits a ticket and the buyer pays price + dust + fee", async () => {
     const kaspa = new FakeKaspa();
-    const result = await buildTransaction(
-      {
-        type: "buy",
-        event_outpoint: { transaction_id: "aa".repeat(32), index: 0 },
-        event_covenant_id: "77".repeat(32),
-        event_owner: "01".repeat(32),
-        remaining: 100,
-        constants: CONSTANTS,
-        buyer: "42".repeat(32),
-        buyer_utxos: [BUYER_UTXO],
-        change_spk: CHANGE_SPK,
-      },
-      ctx(kaspa),
-    );
+    const result = await buildTransaction(buyRequest(), ctx(kaspa));
 
-    expect(result.template.outputs).toHaveLength(4); // ticket + remaining + payout + change
-    const payout = result.template.outputs.find((o) => o.value === 1_000);
+    expect(result.template.outputs).toHaveLength(BUY_OUTPUTS); // ticket + remaining + payout + change
+    const payout = result.template.outputs.find((o) => o.value === TICKET_PRICE);
     expect(payout).toBeDefined();
-    const change = result.template.outputs.find((o) => o.covenant === null && o.value !== 1_000);
+    const change = result.template.outputs.find(
+      (o) => o.covenant === null && o.value !== TICKET_PRICE,
+    );
     // buyer pays price + ticket dust + fee, so change is under what they supplied
     expect(change?.value).toBeGreaterThan(0);
-    expect(change?.value).toBeLessThan(1_000_000_000);
+    expect(change?.value).toBeLessThan(UTXO_VALUE);
   });
 
+  it("rejects invalid capacity as invalid", async () => {
+    const kaspa = new FakeKaspa();
+    await expect(
+      buildTransaction(deployRequest(INVALID_CAPACITY), ctx(kaspa)),
+    ).rejects.toMatchObject({
+      type: "invalid",
+    });
+  });
+});
+
+describe("buildTransaction (KTK-28) — transfer", () => {
   it("builds a transfer template with the holder paying the fee", async () => {
     const kaspa = new FakeKaspa();
-    const result = await buildTransaction(
-      {
-        type: "transfer",
-        ticket_outpoint: { transaction_id: "bb".repeat(32), index: 0 },
-        event_covenant_id: "77".repeat(32),
-        constants: CONSTANTS,
-        new_owner: "99".repeat(32),
-        holder_utxos: [HOLDER_UTXO],
-        change_spk: CHANGE_SPK,
-      },
-      ctx(kaspa),
-    );
+    const result = await buildTransaction(transferRequest(), ctx(kaspa));
 
     expect(result.template.outputs).toHaveLength(2);
     const change = result.template.outputs[1];
     // the holder pays the fee: change is less than the supplied input
-    expect(change?.value).toBeLessThan(1_000_000_000);
+    expect(change?.value).toBeLessThan(UTXO_VALUE);
   });
 
   it("lifts a 0-fee estimate to the relay floor (0-fee tx never relays)", async () => {
@@ -200,64 +251,22 @@ describe("buildTransaction (KTK-28)", () => {
       normalBuckets: [],
       lowBuckets: [],
     };
-    const result = await buildTransaction(
-      {
-        type: "transfer",
-        ticket_outpoint: { transaction_id: "bb".repeat(32), index: 0 },
-        event_covenant_id: "77".repeat(32),
-        constants: CONSTANTS,
-        new_owner: "99".repeat(32),
-        holder_utxos: [HOLDER_UTXO],
-        change_spk: CHANGE_SPK,
-      },
-      ctx(kaspa),
-    );
+    const result = await buildTransaction(transferRequest(), ctx(kaspa));
     // even a 0-feerate estimate is lifted to a positive fee (relay floor),
     // so the holder's change is less than the supplied input
     const change = result.template.outputs[1];
-    expect(change?.value).toBeLessThan(1_000_000_000);
+    expect(change?.value).toBeLessThan(UTXO_VALUE);
   });
+});
 
-  it("rejects invalid capacity as invalid", async () => {
-    const kaspa = new FakeKaspa();
-    await expect(
-      buildTransaction(
-        {
-          type: "deploy",
-          capacity: 101,
-          constants: CONSTANTS,
-          organizer: "01".repeat(32),
-          authorizing_outpoint: ORGANIZER_UTXO,
-          organizer_utxos: [],
-          change_spk: CHANGE_SPK,
-        },
-        ctx(kaspa),
-      ),
-    ).rejects.toMatchObject({ type: "invalid" });
-  });
-
-  it("rejects an unknown type as invalid", async () => {
-    const kaspa = new FakeKaspa();
-    await expect(buildTransaction({ type: "burn" }, ctx(kaspa))).rejects.toMatchObject({
-      type: "invalid",
-    });
-  });
-
+describe("buildTransaction (KTK-28) — failure paths", () => {
   it("maps inputs that cannot cover payouts + fee to policy", async () => {
     const kaspa = new FakeKaspa();
     await expect(
       buildTransaction(
-        {
-          type: "buy",
-          event_outpoint: { transaction_id: "aa".repeat(32), index: 0 },
-          event_covenant_id: "77".repeat(32),
-          event_owner: "01".repeat(32),
-          remaining: 100,
-          constants: { ...CONSTANTS, price: 100_000 },
-          buyer: "42".repeat(32),
-          buyer_utxos: [{ transaction_id: "cc".repeat(32), index: 0, value: 500 }],
-          change_spk: CHANGE_SPK,
-        },
+        buyRequest({ ...CONSTANTS, price: 100_000 }, [
+          { transaction_id: "cc".repeat(TXID_BYTE_LENGTH), index: 0, value: 500 },
+        ]),
         ctx(kaspa),
       ),
     ).rejects.toMatchObject({ type: "policy" });
@@ -268,59 +277,40 @@ describe("buildTransaction (KTK-28)", () => {
     kaspa.getFeeEstimate = async () => {
       throw Object.assign(new Error("up"), { type: "upstream", statusCode: 503 });
     };
-    await expect(
-      buildTransaction(
-        {
-          type: "deploy",
-          capacity: 1,
-          constants: CONSTANTS,
-          organizer: "01".repeat(32),
-          authorizing_outpoint: ORGANIZER_UTXO,
-          organizer_utxos: [],
-          change_spk: CHANGE_SPK,
-        },
-        ctx(kaspa),
-      ),
-    ).rejects.toMatchObject({ type: "upstream" });
+    await expect(buildTransaction(deployRequest(1), ctx(kaspa))).rejects.toMatchObject({
+      type: "upstream",
+    });
   });
 });
 
 describe("broadcastTransaction (KTK-29)", () => {
-  const signedTx = {
-    version: 1,
-    inputs: [
-      {
-        previous_outpoint: { transaction_id: "aa".repeat(32), index: 0 },
-        signature_script: "01".repeat(70),
-        sequence: 0,
-        sig_op_count: 1,
-      },
-    ],
-    outputs: [{ value: 49_000, script_public_key: { version: 0, script: "51" }, covenant: null }],
-    lock_time: 0,
-  };
-
   beforeEach(() => {
     mockedSubmit.mockReset();
   });
 
   it("relays the signed tx over wRPC and returns the txid", async () => {
-    mockedSubmit.mockResolvedValue("DD".repeat(32));
+    mockedSubmit.mockResolvedValue("DD".repeat(TXID_BYTE_LENGTH));
     const kaspa = new FakeKaspa();
     const result = await broadcastTransaction({ transaction: signedTx }, ctx(kaspa));
-    expect(result).toEqual({ txid: "dd".repeat(32) });
+    expect(result).toEqual({ txid: "dd".repeat(TXID_BYTE_LENGTH) });
     expect(mockedSubmit).toHaveBeenCalledTimes(1);
     expect(mockedSubmit.mock.calls[0]?.[0]).toBe("testnet-10");
     expect(mockedSubmit.mock.calls[0]?.[1].version).toBe(1);
   });
 
   it("is idempotent: re-broadcasting a known tx returns the same txid", async () => {
-    mockedSubmit.mockResolvedValue("dd".repeat(32));
+    mockedSubmit.mockResolvedValue("dd".repeat(TXID_BYTE_LENGTH));
     const kaspa = new FakeKaspa();
     const first = await broadcastTransaction({ transaction: signedTx }, ctx(kaspa));
     const second = await broadcastTransaction({ transaction: signedTx }, ctx(kaspa));
     expect(second).toEqual(first);
     expect(mockedSubmit).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("broadcastTransaction (KTK-29) — rejection mapping", () => {
+  beforeEach(() => {
+    mockedSubmit.mockReset();
   });
 
   it("maps a double-spend rejection to conflict", async () => {

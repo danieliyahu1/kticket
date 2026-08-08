@@ -56,9 +56,13 @@ export interface ContractArtifact {
 }
 
 const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_CHUNK_BITS = 6;
+const BYTE_BITS = 8;
+const BYTE_MASK = 0xff;
+const ALPHABET_INDEX_SIZE = 128;
 
 export function decodeBase64Wasm(wasmBase64: string): Uint8Array<ArrayBuffer> {
-  const alphabetIndex = new Uint8Array(128);
+  const alphabetIndex = new Uint8Array(ALPHABET_INDEX_SIZE);
   for (let i = 0; i < BASE64_ALPHABET.length; i++) {
     alphabetIndex[BASE64_ALPHABET.charCodeAt(i)] = i;
   }
@@ -73,11 +77,11 @@ export function decodeBase64Wasm(wasmBase64: string): Uint8Array<ArrayBuffer> {
     if (value === undefined) {
       throw new Error(`invalid base64 character at index ${i}`);
     }
-    buffer = (buffer << 6) | value;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes.push((buffer >> bits) & 0xff);
+    buffer = (buffer << BASE64_CHUNK_BITS) | value;
+    bits += BASE64_CHUNK_BITS;
+    if (bits >= BYTE_BITS) {
+      bits -= BYTE_BITS;
+      bytes.push((buffer >> bits) & BYTE_MASK);
     }
   }
   return new Uint8Array(bytes);

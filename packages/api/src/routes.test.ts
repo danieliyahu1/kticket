@@ -4,11 +4,13 @@ import {
   buildDeploy,
   type DecodedConstants,
   EVENT_ARTIFACT,
+  type UnsignedTransaction,
 } from "@kticket/kit";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app";
 import { loadConfig } from "./config";
+import { HTTP_BAD_REQUEST, HTTP_OK } from "./http-status.js";
 
 vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
@@ -29,16 +31,22 @@ import type {
   UtxoResponse,
 } from "./kaspa-types";
 
+const TXID_BYTE_LENGTH = 32;
+const SIGNATURE_SCRIPT_BYTE_LENGTH = 70;
+const UTXO_VALUE = 10_000_000_000;
+const BUYER_BYTE = 0x02;
+const BUYER_UTXO_BYTE = 0x03;
+
 const NETWORK = "testnet10";
-const G_ID = "aa".repeat(32);
-const B0_ID = "bb".repeat(32);
+const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
+const B0_ID = "bb".repeat(TXID_BYTE_LENGTH);
 
 const EVENT: RegisteredEvent = {
-  eventId: "ab".repeat(32),
+  eventId: "ab".repeat(TXID_BYTE_LENGTH),
   genesisTxId: G_ID,
-  orgPkh: "01".repeat(32),
+  orgPkh: "01".repeat(TXID_BYTE_LENGTH),
   orgSpk: "21020001",
-  burnTemplateHash: "77".repeat(32),
+  burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
   name: "Testnet Rave",
   date: "2026-12-31",
   price: 1_000,
@@ -55,7 +63,7 @@ class FakeKaspa implements KaspaClientLike {
     lowBuckets: [],
   };
   mass: TxMass = { mass: 1_000, storage_mass: 0, compute_mass: 1_000 };
-  broadcastResponse: SubmitTransactionResponse = { transactionId: "dd".repeat(32) };
+  broadcastResponse: SubmitTransactionResponse = { transactionId: "dd".repeat(TXID_BYTE_LENGTH) };
 
   async getUtxos(address: string): Promise<UtxoResponse[]> {
     return this.utxoMap.get(address) ?? [];
@@ -105,20 +113,26 @@ function config() {
   });
 }
 
-function deployTxWithCapacity(capacity: number): TxModel {
-  const constants: DecodedConstants = {
+function decodedConstants(): DecodedConstants {
+  return {
     eventId: Uint8Array.from(Buffer.from(EVENT.eventId, "hex")),
     price: EVENT.price,
     orgSpk: Uint8Array.from(Buffer.from(EVENT.orgSpk, "hex")),
     burnTemplateHash: Uint8Array.from(Buffer.from(EVENT.burnTemplateHash, "hex")),
   };
+}
+
+function deployTxWithCapacity(capacity: number): TxModel {
   const { tx } = buildDeploy({
-    authorizingOutpoint: { txId: Uint8Array.from(Buffer.from("11".repeat(32), "hex")), index: 0 },
+    authorizingOutpoint: {
+      txId: Uint8Array.from(Buffer.from("11".repeat(TXID_BYTE_LENGTH), "hex")),
+      index: 0,
+    },
     organizerUtxos: [],
-    organizerUtxoValues: [10_000_000_000],
+    organizerUtxoValues: [UTXO_VALUE],
     organizer: Uint8Array.from(Buffer.from(EVENT.orgPkh, "hex")),
     capacity,
-    constants,
+    constants: decodedConstants(),
     covenantCode: hexToBytes(EVENT_ARTIFACT.code),
     changeScript: { version: 0, script: "51" },
     fee: 1_000,
@@ -151,28 +165,7 @@ function deployScript(): string {
   return deployTx().outputs?.[0]?.script_public_key as string;
 }
 
-function buyTx(): TxModel {
-  const constants: DecodedConstants = {
-    eventId: Uint8Array.from(Buffer.from(EVENT.eventId, "hex")),
-    price: EVENT.price,
-    orgSpk: Uint8Array.from(Buffer.from(EVENT.orgSpk, "hex")),
-    burnTemplateHash: Uint8Array.from(Buffer.from(EVENT.burnTemplateHash, "hex")),
-  };
-  const tx = buildBuy({
-    eventOutpoint: { txId: Uint8Array.from(Buffer.from(G_ID, "hex")), index: 0 },
-    eventCovenantId: "77".repeat(32),
-    eventOwner: Uint8Array.from(Buffer.from(EVENT.orgPkh, "hex")),
-    constants,
-    buyer: new Uint8Array(32).fill(0x02),
-    buyerUtxos: [{ txId: new Uint8Array(32).fill(0x03), index: 0 }],
-    buyerUtxoValues: [10_000_000_000],
-    orgScript: { version: 0, script: EVENT.orgSpk },
-    changeScript: { version: 0, script: "51" },
-    covenantCode: hexToBytes(EVENT_ARTIFACT.code),
-    remaining: EVENT.capacity,
-    network: NETWORK,
-    fee: 400,
-  });
+function buyTxModelFrom(tx: UnsignedTransaction): TxModel {
   return {
     transaction_id: B0_ID,
     inputs: tx.inputs.map((input, index) => ({
@@ -192,20 +185,43 @@ function buyTx(): TxModel {
   };
 }
 
+function buyTx(): TxModel {
+  const tx = buildBuy({
+    eventOutpoint: { txId: Uint8Array.from(Buffer.from(G_ID, "hex")), index: 0 },
+    eventCovenantId: "77".repeat(TXID_BYTE_LENGTH),
+    eventOwner: Uint8Array.from(Buffer.from(EVENT.orgPkh, "hex")),
+    constants: decodedConstants(),
+    buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
+    buyerUtxos: [{ txId: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_UTXO_BYTE), index: 0 }],
+    buyerUtxoValues: [UTXO_VALUE],
+    orgScript: { version: 0, script: EVENT.orgSpk },
+    changeScript: { version: 0, script: "51" },
+    covenantCode: hexToBytes(EVENT_ARTIFACT.code),
+    remaining: EVENT.capacity,
+    network: NETWORK,
+    fee: 400,
+  });
+  return buyTxModelFrom(tx);
+}
+
 function buildBuyTx(): TxModel {
   return buyTx();
 }
 
+function readerApp(kaspa: KaspaClientLike, events: EventRegistry = new EventRegistry([EVENT])) {
+  return buildApp(config(), {
+    kaspa,
+    events,
+    network: NETWORK,
+    networkId: "testnet-10",
+  });
+}
+
 describe("reader routes (KTK-5)", () => {
   it("GET /v1/events lists the registered directory", async () => {
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await readerApp(new FakeKaspa());
     const res = await app.inject({ method: "GET", url: "/v1/events" });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual([
       {
         event_id: EVENT.eventId,
@@ -219,6 +235,19 @@ describe("reader routes (KTK-5)", () => {
     await app.close();
   });
 
+  it("GET /v1/events/{id} rejects unknown events (never fabricate)", async () => {
+    const app = await readerApp(new FakeKaspa());
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/events/${"ff".repeat(TXID_BYTE_LENGTH)}`,
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+});
+
+describe("reader routes (KTK-5) — event availability", () => {
   it("GET /v1/events/{id} returns event + availability", async () => {
     const kaspa = new FakeKaspa();
     const genesis = deployTx(); // event covenant at remaining = 2
@@ -245,49 +274,29 @@ describe("reader routes (KTK-5)", () => {
       },
     ]);
 
-    const app = await buildApp(config(), {
-      kaspa,
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await readerApp(kaspa);
     const res = await app.inject({ method: "GET", url: `/v1/events/${EVENT.eventId}` });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual({
       event: { event_id: EVENT.eventId, name: EVENT.name, date: EVENT.date, price: EVENT.price },
       availability: { capacity: 2, sold: 1, left: 1 },
     });
     await app.close();
   });
+});
 
-  it("GET /v1/events/{id} rejects unknown events (never fabricate)", async () => {
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
-    const res = await app.inject({ method: "GET", url: `/v1/events/${"ff".repeat(32)}` });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error.type).toBe("invalid");
-    await app.close();
-  });
-
+describe("reader routes (KTK-5) — event validation", () => {
   it("GET /v1/events/{id} treats a missing deploy tx as invalid (400)", async () => {
-    const kaspa = new FakeKaspa();
-    const app = await buildApp(config(), {
-      kaspa,
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await readerApp(new FakeKaspa());
     const res = await app.inject({ method: "GET", url: `/v1/events/${EVENT.eventId}` });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
     expect(res.json().error.retryable).toBe(false);
     await app.close();
   });
+});
 
+describe("reader routes (KTK-5) — tickets", () => {
   it("GET /v1/tickets/{id} returns alive for an unspent ticket", async () => {
     const kaspa = new FakeKaspa();
     const buy = buildBuyTx(); // minted ticket at output 0
@@ -308,32 +317,24 @@ describe("reader routes (KTK-5)", () => {
     ]);
 
     // register the event keyed by the ticket's creating tx (the buy)
-    const app = await buildApp(config(), {
-      kaspa,
-      events: new EventRegistry([{ ...EVENT, genesisTxId: B0_ID }]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await readerApp(kaspa, new EventRegistry([{ ...EVENT, genesisTxId: B0_ID }]));
     const res = await app.inject({ method: "GET", url: `/v1/tickets/${B0_ID}:0` });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json().state).toBe("alive");
     expect(res.json().event.event_id).toBe(EVENT.eventId);
-    expect(res.json().price).toBe(1_000);
+    expect(res.json().price).toBe(EVENT.price);
     await app.close();
   });
+});
 
+describe("reader routes (KTK-5) — unknown tickets", () => {
   it("GET /v1/tickets/{id} returns unknown with a cause (never guessed)", async () => {
     const kaspa = new FakeKaspa();
     kaspa.transactions.set(G_ID, deployTx());
     // spent but no spender visible -> unresolved-spend
-    const app = await buildApp(config(), {
-      kaspa,
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await readerApp(kaspa);
     const res = await app.inject({ method: "GET", url: `/v1/tickets/${G_ID}:0` });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual({
       state: "unknown",
       cause: "unresolved-spend",
@@ -344,61 +345,59 @@ describe("reader routes (KTK-5)", () => {
   });
 
   it("GET /v1/tickets/{id} rejects a malformed ticket id", async () => {
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await readerApp(new FakeKaspa());
     const res = await app.inject({ method: "GET", url: "/v1/tickets/not-a-ticket" });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
     await app.close();
   });
 
   it("GET /v1/tickets/{id} rejects a missing genesis tx", async () => {
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await readerApp(new FakeKaspa());
     const res = await app.inject({ method: "GET", url: `/v1/tickets/${B0_ID}:0` });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
     await app.close();
   });
 });
 
-describe("tx routes (KTK-6)", () => {
+const deployBody = {
+  type: "deploy",
+  capacity: 2,
+  constants: {
+    event_id: EVENT.eventId,
+    price: 1_000,
+    org_spk: "21020001",
+    burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
+  },
+  organizer: "01".repeat(TXID_BYTE_LENGTH),
+  authorizing_outpoint: {
+    transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
+    index: 0,
+    value: 1_000_000_000,
+  },
+  organizer_utxos: [],
+  change_spk: { version: 0, script: "51" },
+};
+
+function txApp() {
+  return buildApp(config(), {
+    kaspa: new FakeKaspa(),
+    events: new EventRegistry([EVENT]),
+    network: NETWORK,
+    networkId: "testnet-10",
+  });
+}
+
+describe("tx routes (KTK-6) — build", () => {
   beforeEach(() => {
     mockedSubmit.mockReset();
   });
 
-  const deployBody = {
-    type: "deploy",
-    capacity: 2,
-    constants: {
-      event_id: EVENT.eventId,
-      price: 1_000,
-      org_spk: "21020001",
-      burn_template_hash: "77".repeat(32),
-    },
-    organizer: "01".repeat(32),
-    authorizing_outpoint: { transaction_id: "cc".repeat(32), index: 0, value: 1_000_000_000 },
-    organizer_utxos: [],
-    change_spk: { version: 0, script: "51" },
-  };
-
   it("POST /v1/tx/build returns a fee-aware deploy template", async () => {
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await txApp();
     const res = await app.inject({ method: "POST", url: "/v1/tx/build", payload: deployBody });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(HTTP_OK);
     const body = res.json();
     expect(body.template.version).toBe(1);
     expect(body.template.outputs).toHaveLength(2); // event covenant + change
@@ -413,30 +412,26 @@ describe("tx routes (KTK-6)", () => {
   });
 
   it("POST /v1/tx/build rejects an unknown type as invalid", async () => {
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await txApp();
     const res = await app.inject({
       method: "POST",
       url: "/v1/tx/build",
       payload: { type: "nope" },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
     await app.close();
   });
+});
+
+describe("tx routes (KTK-6) — broadcast", () => {
+  beforeEach(() => {
+    mockedSubmit.mockReset();
+  });
 
   it("POST /v1/tx/broadcast relays a signed tx and returns the txid", async () => {
-    mockedSubmit.mockResolvedValue("dd".repeat(32));
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    mockedSubmit.mockResolvedValue("dd".repeat(TXID_BYTE_LENGTH));
+    const app = await txApp();
     const res = await app.inject({
       method: "POST",
       url: "/v1/tx/broadcast",
@@ -445,8 +440,8 @@ describe("tx routes (KTK-6)", () => {
           version: 1,
           inputs: [
             {
-              previous_outpoint: { transaction_id: "aa".repeat(32), index: 0 },
-              signature_script: "01".repeat(70),
+              previous_outpoint: { transaction_id: "aa".repeat(TXID_BYTE_LENGTH), index: 0 },
+              signature_script: "01".repeat(SIGNATURE_SCRIPT_BYTE_LENGTH),
               sequence: 0,
               sig_op_count: 1,
             },
@@ -458,24 +453,25 @@ describe("tx routes (KTK-6)", () => {
         },
       },
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ txid: "dd".repeat(32) });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual({ txid: "dd".repeat(TXID_BYTE_LENGTH) });
     await app.close();
+  });
+});
+
+describe("tx routes (KTK-6) — broadcast validation", () => {
+  beforeEach(() => {
+    mockedSubmit.mockReset();
   });
 
   it("POST /v1/tx/broadcast rejects a malformed tx as invalid", async () => {
-    const app = await buildApp(config(), {
-      kaspa: new FakeKaspa(),
-      events: new EventRegistry([EVENT]),
-      network: NETWORK,
-      networkId: "testnet-10",
-    });
+    const app = await txApp();
     const res = await app.inject({
       method: "POST",
       url: "/v1/tx/broadcast",
       payload: { transaction: { version: 0 } },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
     await app.close();
   });

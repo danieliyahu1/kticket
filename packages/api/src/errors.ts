@@ -1,3 +1,11 @@
+import {
+  HTTP_BAD_GATEWAY,
+  HTTP_BAD_REQUEST,
+  HTTP_CONFLICT,
+  HTTP_INTERNAL_SERVER_ERROR,
+  HTTP_SERVICE_UNAVAILABLE,
+  HTTP_UNPROCESSABLE_ENTITY,
+} from "./http-status.js";
 import type { ErrorEnvelope, ErrorType } from "./types.js";
 
 export const ERROR_TYPES = {
@@ -28,26 +36,31 @@ export class ApiError extends Error {
     super(input.message);
     this.type = input.type;
     this.statusCode = input.statusCode;
-    this.retryable = input.retryable ?? input.statusCode >= 500;
+    this.retryable = input.retryable ?? input.statusCode >= HTTP_INTERNAL_SERVER_ERROR;
     this.retryAfter = input.retryAfter;
     this.detail = input.detail;
   }
 }
 
 export function invalidError(message: string, detail?: unknown): ApiError {
-  return new ApiError({ type: "invalid", message, statusCode: 400, detail });
+  return new ApiError({ type: "invalid", message, statusCode: HTTP_BAD_REQUEST, detail });
 }
 
 export function conflictError(message: string, detail?: unknown): ApiError {
-  return new ApiError({ type: "conflict", message, statusCode: 409, detail });
+  return new ApiError({ type: "conflict", message, statusCode: HTTP_CONFLICT, detail });
 }
 
 export function policyError(message: string, detail?: unknown): ApiError {
-  return new ApiError({ type: "policy", message, statusCode: 422, detail });
+  return new ApiError({
+    type: "policy",
+    message,
+    statusCode: HTTP_UNPROCESSABLE_ENTITY,
+    detail,
+  });
 }
 
 export function networkError(message: string, detail?: unknown): ApiError {
-  return new ApiError({ type: "network", message, statusCode: 502, detail });
+  return new ApiError({ type: "network", message, statusCode: HTTP_BAD_GATEWAY, detail });
 }
 
 export function upstreamError(
@@ -57,7 +70,7 @@ export function upstreamError(
   return new ApiError({
     type: "upstream",
     message,
-    statusCode: 503,
+    statusCode: HTTP_SERVICE_UNAVAILABLE,
     retryable: true,
     retryAfter: input.retryAfter,
     detail: input.detail,
@@ -68,7 +81,7 @@ export function unknownError(cause: string, message: string, detail?: unknown): 
   return new ApiError({
     type: `unknown-${cause}`,
     message,
-    statusCode: 500,
+    statusCode: HTTP_INTERNAL_SERVER_ERROR,
     retryable: true,
     detail,
   });

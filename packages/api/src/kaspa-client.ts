@@ -9,6 +9,14 @@
 // same client, so one event directory scan does not hammer api-tn10.kaspa.org.
 
 import { networkError, upstreamError } from "./errors.js";
+import {
+  HTTP_BAD_REQUEST,
+  HTTP_INTERNAL_SERVER_ERROR,
+  HTTP_NOT_FOUND,
+  HTTP_OK,
+  HTTP_SERVICE_UNAVAILABLE,
+  HTTP_TOO_MANY_REQUESTS,
+} from "./http-status.js";
 import type {
   FeeEstimateResponse,
   SubmitTransactionResponse,
@@ -70,6 +78,26 @@ const DEFAULT_ADDRESS_TX_CACHE_MS = 5_000;
 const DEFAULT_TRANSACTION_CACHE_MS = 30_000;
 const DEFAULT_FEE_ESTIMATE_CACHE_MS = 5_000;
 const DEFAULT_MASS_CACHE_MS = 3_000;
+const MS_PER_SECOND = 1000;
+
+function requestDefaults(options: UpstreamOptions) {
+  return {
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    baseRetryMs: options.baseRetryMs ?? DEFAULT_BASE_RETRY_MS,
+    maxRetryMs: options.maxRetryMs ?? DEFAULT_MAX_RETRY_MS,
+  };
+}
+
+function cacheDefaults(options: UpstreamOptions) {
+  return {
+    utxoCacheMs: options.utxoCacheMs ?? DEFAULT_UTXO_CACHE_MS,
+    addressTxCacheMs: options.addressTxCacheMs ?? DEFAULT_ADDRESS_TX_CACHE_MS,
+    transactionCacheMs: options.transactionCacheMs ?? DEFAULT_TRANSACTION_CACHE_MS,
+    feeEstimateCacheMs: options.feeEstimateCacheMs ?? DEFAULT_FEE_ESTIMATE_CACHE_MS,
+    massCacheMs: options.massCacheMs ?? DEFAULT_MASS_CACHE_MS,
+  };
+}
 
 /** Non-retryable upstream response (e.g. 4xx) carrying the raw body. */
 export class UpstreamRequestError extends Error {
@@ -90,7 +118,9 @@ function parseRetryAfter(header: string | null): number | undefined {
   const seconds = Number(header);
   if (Number.isFinite(seconds) && seconds >= 0) return seconds;
   const date = Date.parse(header);
-  if (Number.isFinite(date)) return Math.max(0, Math.ceil((date - Date.now()) / 1000));
+  if (Number.isFinite(date)) {
+    return Math.max(0, Math.ceil((date - Date.now()) / MS_PER_SECOND));
+  }
   return undefined;
 }
 
@@ -101,6 +131,27 @@ function isAbortError(err: unknown): boolean {
     "name" in err &&
     (err as { name?: unknown }).name === "AbortError"
   );
+}
+
+/**
+ * The upstream rejects invalid / double-spend / low-fee txs with HTTP 400
+ * carrying `{ error: "RPC Server (remote error) -> ..." }`. The caller maps that
+ * text to the taxonomy (invalid / conflict / policy); it is not an upstream
+ * outage, so pass the response through instead of throwing.
+ */
+function submitErrorToResponse(err: unknown): SubmitTransactionResponse | undefined {
+  if (!(err instanceof UpstreamRequestError) || err.status !== HTTP_BAD_REQUEST) {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(err.body);
+    if (isRecord(parsed) && typeof parsed.error === "string") {
+      return { error: parsed.error };
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 export class KaspaClient implements KaspaClientLike {
@@ -120,16 +171,19 @@ export class KaspaClient implements KaspaClientLike {
   #cache = new Map<string, CacheEntry>();
 
   constructor(baseUrl: string, options: UpstreamOptions = {}) {
+    const http = requestDefaults(options);
+    const cache = cacheDefaults(options);
+
     this.#baseUrl = baseUrl.replace(/\/+$/, "");
-    this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.#maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-    this.#baseRetryMs = options.baseRetryMs ?? DEFAULT_BASE_RETRY_MS;
-    this.#maxRetryMs = options.maxRetryMs ?? DEFAULT_MAX_RETRY_MS;
-    this.#utxoCacheMs = options.utxoCacheMs ?? DEFAULT_UTXO_CACHE_MS;
-    this.#addressTxCacheMs = options.addressTxCacheMs ?? DEFAULT_ADDRESS_TX_CACHE_MS;
-    this.#transactionCacheMs = options.transactionCacheMs ?? DEFAULT_TRANSACTION_CACHE_MS;
-    this.#feeEstimateCacheMs = options.feeEstimateCacheMs ?? DEFAULT_FEE_ESTIMATE_CACHE_MS;
-    this.#massCacheMs = options.massCacheMs ?? DEFAULT_MASS_CACHE_MS;
+    this.#timeoutMs = http.timeoutMs;
+    this.#maxAttempts = http.maxAttempts;
+    this.#baseRetryMs = http.baseRetryMs;
+    this.#maxRetryMs = http.maxRetryMs;
+    this.#utxoCacheMs = cache.utxoCacheMs;
+    this.#addressTxCacheMs = cache.addressTxCacheMs;
+    this.#transactionCacheMs = cache.transactionCacheMs;
+    this.#feeEstimateCacheMs = cache.feeEstimateCacheMs;
+    this.#massCacheMs = cache.massCacheMs;
     this.#fetch = options.fetch ?? fetch;
     this.#sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.#now = options.now ?? Date.now;
@@ -162,7 +216,7 @@ export class KaspaClient implements KaspaClientLike {
         this.#transactionCacheMs,
       )) as TxModel;
     } catch (err) {
-      if (err instanceof UpstreamRequestError && err.status === 404) return null;
+      if (err instanceof UpstreamRequestError && err.status === HTTP_NOT_FOUND) return null;
       throw err;
     }
   }
@@ -185,20 +239,8 @@ export class KaspaClient implements KaspaClientLike {
         allowOrphan: false,
       })) as SubmitTransactionResponse;
     } catch (err) {
-      // The upstream rejects invalid / double-spend / low-fee txs with HTTP 400
-      // carrying `{ error: "RPC Server (remote error) -> ..." }`. The caller maps
-      // that text to the taxonomy (invalid / conflict / policy); it is not an
-      // upstream outage, so pass the response through instead of throwing.
-      if (err instanceof UpstreamRequestError && err.status === 400) {
-        try {
-          const parsed: unknown = JSON.parse(err.body);
-          if (isRecord(parsed) && typeof parsed.error === "string") {
-            return { error: parsed.error };
-          }
-        } catch {
-          // fall through to re-throw below
-        }
-      }
+      const mapped = submitErrorToResponse(err);
+      if (mapped) return mapped;
       throw err;
     }
   }
@@ -209,18 +251,29 @@ export class KaspaClient implements KaspaClientLike {
     method: "GET" | "POST" = "GET",
     body?: unknown,
   ): Promise<unknown> {
-    const key = `${method} ${path}${body === undefined ? "" : ` ${JSON.stringify(body)}`}`;
+    const key = this.#cacheKey(method, path, body);
     const cached = this.#cache.get(key);
     if (cached && cached.expiresAt > this.#now()) return cached.value;
 
     const payload = body === undefined ? undefined : JSON.stringify(body);
-    let lastRetryAfter: number | undefined;
+    const response = await this.#requestWithRetry(path, payload, method);
+    return this.#parseResponse(response, key, cacheTtlMs);
+  }
 
+  async #requestWithRetry(
+    path: string,
+    payload: string | undefined,
+    method: "GET" | "POST",
+  ): Promise<Response> {
+    let lastRetryAfter: number | undefined;
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt++) {
       const response = await this.#fetchWithTimeout(method, path, payload);
       const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
 
-      if (response.status === 429 || response.status === 503) {
+      if (
+        response.status === HTTP_TOO_MANY_REQUESTS ||
+        response.status === HTTP_SERVICE_UNAVAILABLE
+      ) {
         lastRetryAfter = retryAfter;
         if (attempt < this.#maxAttempts) {
           await this.#sleep(this.#backoffMs(attempt, retryAfter));
@@ -232,24 +285,32 @@ export class KaspaClient implements KaspaClientLike {
         });
       }
 
-      if (response.status >= 500) {
+      if (response.status >= HTTP_INTERNAL_SERVER_ERROR) {
         throw upstreamError(`${UPSTREAM_HOST} error (HTTP ${response.status})`, {
           detail: { status: response.status },
         });
       }
-      if (response.status !== 200) {
-        const text = await response.text().catch(() => "");
-        throw new UpstreamRequestError(response.status, text);
-      }
 
-      const json: unknown = await response.json();
-      this.#cache.set(key, { value: json, expiresAt: this.#now() + cacheTtlMs });
-      return json;
+      return response;
     }
 
     throw upstreamError(`${UPSTREAM_HOST} is unavailable or rate-limited`, {
       retryAfter: lastRetryAfter,
     });
+  }
+
+  #cacheKey(method: string, path: string, body: unknown): string {
+    return `${method} ${path}${body === undefined ? "" : ` ${JSON.stringify(body)}`}`;
+  }
+
+  async #parseResponse(response: Response, key: string, cacheTtlMs: number): Promise<unknown> {
+    if (response.status !== HTTP_OK) {
+      const text = await response.text().catch(() => "");
+      throw new UpstreamRequestError(response.status, text);
+    }
+    const json: unknown = await response.json();
+    this.#cache.set(key, { value: json, expiresAt: this.#now() + cacheTtlMs });
+    return json;
   }
 
   #fetchWithTimeout(
@@ -277,6 +338,6 @@ export class KaspaClient implements KaspaClientLike {
 
   #backoffMs(attempt: number, retryAfter: number | undefined): number {
     const exponential = Math.min(this.#maxRetryMs, this.#baseRetryMs * 2 ** (attempt - 1));
-    return (retryAfter ?? 0) * 1000 + exponential;
+    return (retryAfter ?? 0) * MS_PER_SECOND + exponential;
   }
 }

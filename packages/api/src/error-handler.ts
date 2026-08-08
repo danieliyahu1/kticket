@@ -1,5 +1,6 @@
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isApiError, toErrorEnvelope } from "./errors.js";
+import { HTTP_BAD_REQUEST, HTTP_INTERNAL_SERVER_ERROR, HTTP_NOT_FOUND } from "./http-status.js";
 import type { ErrorEnvelope } from "./types.js";
 
 const INTERNAL_ENVELOPE: ErrorEnvelope = {
@@ -24,7 +25,11 @@ function handleError(error: FastifyError, _request: FastifyRequest, reply: Fasti
     return;
   }
 
-  if (error.statusCode && error.statusCode >= 400 && error.statusCode < 500) {
+  if (
+    error.statusCode &&
+    error.statusCode >= HTTP_BAD_REQUEST &&
+    error.statusCode < HTTP_INTERNAL_SERVER_ERROR
+  ) {
     reply.code(error.statusCode).send({
       error: {
         type: "invalid",
@@ -35,7 +40,7 @@ function handleError(error: FastifyError, _request: FastifyRequest, reply: Fasti
     return;
   }
 
-  reply.code(500).send(INTERNAL_ENVELOPE);
+  reply.code(HTTP_INTERNAL_SERVER_ERROR).send(INTERNAL_ENVELOPE);
 }
 
 /**
@@ -45,6 +50,6 @@ function handleError(error: FastifyError, _request: FastifyRequest, reply: Fasti
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler(handleError);
   app.setNotFoundHandler((_request, reply) => {
-    reply.code(404).send(NOT_FOUND_ENVELOPE);
+    reply.code(HTTP_NOT_FOUND).send(NOT_FOUND_ENVELOPE);
   });
 }

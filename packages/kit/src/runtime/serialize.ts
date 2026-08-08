@@ -25,8 +25,13 @@ import { concat, le16, le32, le64 } from "./bytes.js";
 import type { UnsignedTransaction } from "./tx.js";
 
 const HASH_SIZE = 32;
+const U32_LENGTH = 4;
+const U64_LENGTH = 8;
 const SUBNETWORK_ID_SIZE = 20;
 const NATIVE_SUBNETWORK_ID = new Uint8Array(SUBNETWORK_ID_SIZE);
+
+const SIG_OP_DIRECT_MAX = 100;
+const SIG_OP_EXPANDED_STEP = 10;
 
 function keyOf(tag: string): Uint8Array {
   const key = new Uint8Array(HASH_SIZE);
@@ -47,7 +52,7 @@ function scriptBytes(scriptHex: string): Uint8Array {
 }
 
 function outpointSize(): number {
-  return HASH_SIZE + 4;
+  return HASH_SIZE + U32_LENGTH;
 }
 
 /**
@@ -58,25 +63,25 @@ function outpointSize(): number {
  */
 export function estimatedSerializedSize(tx: UnsignedTransaction): number {
   let size = 2; // version (u16)
-  size += 8; // number of inputs (u64)
+  size += U64_LENGTH; // number of inputs (u64)
   size += tx.inputs.reduce(
     (acc, input) =>
       acc +
       outpointSize() +
-      8 + // signature_script length (u64)
+      U64_LENGTH + // signature_script length (u64)
       inputScriptSize(input) +
-      8 + // sequence (u64)
+      U64_LENGTH + // sequence (u64)
       (tx.version >= 1 ? 2 : 0), // compute_budget (u16)
     0,
   );
 
-  size += 8; // number of outputs (u64)
+  size += U64_LENGTH; // number of outputs (u64)
   size += tx.outputs.reduce((acc, output) => {
     const script = scriptBytes(output.scriptPublicKey.script);
     let outputSize =
-      8 + // value (u64)
+      U64_LENGTH + // value (u64)
       2 + // spk version (u16)
-      8 + // script length (u64)
+      U64_LENGTH + // script length (u64)
       script.length;
     if (tx.version >= 1 && output.covenant) {
       outputSize += 2 + HASH_SIZE; // authorizing_input (u16) + covenant_id
@@ -84,11 +89,11 @@ export function estimatedSerializedSize(tx: UnsignedTransaction): number {
     return acc + outputSize;
   }, 0);
 
-  size += 8; // lock_time (u64)
+  size += U64_LENGTH; // lock_time (u64)
   size += SUBNETWORK_ID_SIZE;
-  size += 8; // gas (u64)
+  size += U64_LENGTH; // gas (u64)
   size += HASH_SIZE; // payload hash
-  size += 8; // payload length (u64)
+  size += U64_LENGTH; // payload length (u64)
   return size;
 }
 
@@ -165,8 +170,8 @@ const MASS_PER_SIG_OP = 1_000;
  * `100 + (n - 100) * 10` (max 1650).
  */
 export function decodeSigOpCount(txVersion: number, encoded: number): number {
-  if (txVersion === 0 || encoded <= 100) return encoded;
-  return 100 + (encoded - 100) * 10;
+  if (txVersion === 0 || encoded <= SIG_OP_DIRECT_MAX) return encoded;
+  return SIG_OP_DIRECT_MAX + (encoded - SIG_OP_DIRECT_MAX) * SIG_OP_EXPANDED_STEP;
 }
 
 export interface LocalMass {
@@ -183,25 +188,25 @@ export interface LocalMass {
  */
 function endpointTxSize(tx: UnsignedTransaction): number {
   let size = 2; // version (u16)
-  size += 8; // number of inputs (u64)
+  size += U64_LENGTH; // number of inputs (u64)
   for (const input of tx.inputs) {
-    size += 32 + 4; // outpoint (txid + index)
-    size += 8; // signature_script length (u64)
+    size += HASH_SIZE + U32_LENGTH; // outpoint (txid + index)
+    size += U64_LENGTH; // signature_script length (u64)
     size += input.signatureScript.length / 2;
-    size += 8; // sequence (u64)
+    size += U64_LENGTH; // sequence (u64)
   }
-  size += 8; // number of outputs (u64)
+  size += U64_LENGTH; // number of outputs (u64)
   for (const output of tx.outputs) {
-    size += 8; // value (u64)
+    size += U64_LENGTH; // value (u64)
     size += 2; // spk version (u16)
-    size += 8; // script length (u64)
+    size += U64_LENGTH; // script length (u64)
     size += output.scriptPublicKey.script.length / 2;
   }
-  size += 8; // lock_time (u64)
-  size += 20; // subnetwork id
-  size += 8; // gas (u64)
-  size += 32; // payload hash
-  size += 8; // payload length (u64)
+  size += U64_LENGTH; // lock_time (u64)
+  size += SUBNETWORK_ID_SIZE; // subnetwork id
+  size += U64_LENGTH; // gas (u64)
+  size += HASH_SIZE; // payload hash
+  size += U64_LENGTH; // payload length (u64)
   return size;
 }
 

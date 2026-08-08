@@ -153,61 +153,76 @@ function parseConstants(value: unknown): TicketConstantsJson {
   };
 }
 
+function parseDeploy(raw: Record<string, unknown>): BuildRequest {
+  const capacity = int(raw.capacity, "capacity");
+  if (capacity < 0 || capacity > MAX_EVENT_CAPACITY) {
+    throw invalidError(`capacity must be 0..${MAX_EVENT_CAPACITY}`);
+  }
+  const authorizingUtxo = isRecord(raw.authorizing_outpoint) ? raw.authorizing_outpoint : {};
+  return {
+    type: "deploy",
+    capacity,
+    constants: parseConstants(raw.constants),
+    organizer: hex64(raw.organizer, "organizer"),
+    authorizing_outpoint: {
+      ...outpoint(authorizingUtxo, "authorizing_outpoint"),
+      value: uint(authorizingUtxo.value, "authorizing_outpoint.value"),
+    },
+    organizer_utxos: utxos(raw.organizer_utxos, "organizer_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+  };
+}
+
+function parseBuy(raw: Record<string, unknown>): BuildRequest {
+  return {
+    type: "buy",
+    event_outpoint: outpoint(raw.event_outpoint, "event_outpoint"),
+    event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+    event_owner: hex64(raw.event_owner, "event_owner"),
+    remaining: uint(raw.remaining, "remaining"),
+    constants: parseConstants(raw.constants),
+    buyer: hex64(raw.buyer, "buyer"),
+    buyer_utxos: utxos(raw.buyer_utxos, "buyer_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+  };
+}
+
+function parseTransfer(raw: Record<string, unknown>): BuildRequest {
+  return {
+    type: "transfer",
+    ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
+    event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+    constants: parseConstants(raw.constants),
+    new_owner: hex64(raw.new_owner, "new_owner"),
+    holder_utxos: utxos(raw.holder_utxos, "holder_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+  };
+}
+
+function parseHandover(raw: Record<string, unknown>): BuildRequest {
+  return {
+    type: "handover",
+    ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
+    event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+    constants: parseConstants(raw.constants),
+    attendee_utxos: utxos(raw.attendee_utxos, "attendee_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+  };
+}
+
 /** Parse + validate the build request body into a typed `BuildRequest`. */
 export function parseBuildRequest(raw: unknown): BuildRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
   const type = str(raw.type, "type");
   switch (type) {
-    case "deploy": {
-      const capacity = int(raw.capacity, "capacity");
-      if (capacity < 0 || capacity > MAX_EVENT_CAPACITY) {
-        throw invalidError(`capacity must be 0..${MAX_EVENT_CAPACITY}`);
-      }
-      const authorizingUtxo = isRecord(raw.authorizing_outpoint) ? raw.authorizing_outpoint : {};
-      return {
-        type: "deploy",
-        capacity,
-        constants: parseConstants(raw.constants),
-        organizer: hex64(raw.organizer, "organizer"),
-        authorizing_outpoint: {
-          ...outpoint(authorizingUtxo, "authorizing_outpoint"),
-          value: uint(authorizingUtxo.value, "authorizing_outpoint.value"),
-        },
-        organizer_utxos: utxos(raw.organizer_utxos, "organizer_utxos"),
-        change_spk: scriptSpk(raw.change_spk, "change_spk"),
-      };
-    }
+    case "deploy":
+      return parseDeploy(raw);
     case "buy":
-      return {
-        type: "buy",
-        event_outpoint: outpoint(raw.event_outpoint, "event_outpoint"),
-        event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
-        event_owner: hex64(raw.event_owner, "event_owner"),
-        remaining: uint(raw.remaining, "remaining"),
-        constants: parseConstants(raw.constants),
-        buyer: hex64(raw.buyer, "buyer"),
-        buyer_utxos: utxos(raw.buyer_utxos, "buyer_utxos"),
-        change_spk: scriptSpk(raw.change_spk, "change_spk"),
-      };
+      return parseBuy(raw);
     case "transfer":
-      return {
-        type: "transfer",
-        ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
-        event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
-        constants: parseConstants(raw.constants),
-        new_owner: hex64(raw.new_owner, "new_owner"),
-        holder_utxos: utxos(raw.holder_utxos, "holder_utxos"),
-        change_spk: scriptSpk(raw.change_spk, "change_spk"),
-      };
+      return parseTransfer(raw);
     case "handover":
-      return {
-        type: "handover",
-        ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
-        event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
-        constants: parseConstants(raw.constants),
-        attendee_utxos: utxos(raw.attendee_utxos, "attendee_utxos"),
-        change_spk: scriptSpk(raw.change_spk, "change_spk"),
-      };
+      return parseHandover(raw);
     default:
       throw invalidError(`type must be deploy|buy|transfer|handover, got ${type}`);
   }

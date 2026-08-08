@@ -17,6 +17,32 @@ import { encodeConstants, encodeState, PreimageError } from "./preimage.js";
 
 export const P2SH_ADDRESS_VERSION = 8; // AddressVersion.ScriptHash
 
+const HASH_LENGTH = 32;
+
+const OP_PUSHDATA1 = 0x4c;
+const OP_PUSHDATA2 = 0x4d;
+const MAX_PUSHDATA1_LENGTH = 0xff;
+const MAX_PUSHDATA2_LENGTH = 0xffff;
+const PUSHDATA2_OFFSET = 3;
+const U64_LENGTH = 8;
+
+const CHUNK_BITS = 5;
+const CHUNK_MASK = 31;
+const BYTE_BITS = 8;
+const BYTE_MASK = 0xffff;
+
+const POLYMOD_SHIFT = 35;
+const POLYMOD_MASK = 0x07ffffffffn;
+const POLYMOD_XOR_CONST = 1n;
+const POLYMOD_GEN0 = 0x98f2bc8e61n;
+const POLYMOD_GEN1 = 0x79b76d99e2n;
+const POLYMOD_GEN2 = 0xf33e5fb3c4n;
+const POLYMOD_GEN3 = 0xae2eabe2a8n;
+const POLYMOD_GEN4 = 0x1e4f43e470n;
+const POLYMOD_GENERATORS = [POLYMOD_GEN0, POLYMOD_GEN1, POLYMOD_GEN2, POLYMOD_GEN3, POLYMOD_GEN4];
+
+const CHECKSUM_OFFSET = 3;
+
 export const NETWORK_PREFIXES = {
   testnet10: "kaspatest",
 } as const;
@@ -33,24 +59,24 @@ export interface RedeemScript {
 
 /** Bitcoin/Kaspa pushdata opcode encoding: `<0x01..0x4b> len byte | 0x4c len8 | 0x4d len16`. */
 export function pushData(bytes: Uint8Array): Uint8Array {
-  if (bytes.length < 0x4c) {
+  if (bytes.length < OP_PUSHDATA1) {
     const out = new Uint8Array(1 + bytes.length);
     out[0] = bytes.length;
     out.set(bytes, 1);
     return out;
   }
-  if (bytes.length <= 0xff) {
+  if (bytes.length <= MAX_PUSHDATA1_LENGTH) {
     const out = new Uint8Array(2 + bytes.length);
-    out[0] = 0x4c;
+    out[0] = OP_PUSHDATA1;
     out[1] = bytes.length;
     out.set(bytes, 2);
     return out;
   }
-  if (bytes.length <= 0xffff) {
-    const out = new Uint8Array(3 + bytes.length);
-    out[0] = 0x4d;
+  if (bytes.length <= MAX_PUSHDATA2_LENGTH) {
+    const out = new Uint8Array(PUSHDATA2_OFFSET + bytes.length);
+    out[0] = OP_PUSHDATA2;
     new DataView(out.buffer).setUint16(1, bytes.length, true);
-    out.set(bytes, 3);
+    out.set(bytes, PUSHDATA2_OFFSET);
     return out;
   }
   throw new PreimageError(`push data too large: ${bytes.length} bytes`);
@@ -90,11 +116,11 @@ export function buildRedeemScript(
  * price, org_spk, or template hash (see burn.silverscript).
  */
 export function buildBurnRedeemScript(eventId: Uint8Array, code: Uint8Array): Uint8Array {
-  if (eventId.length !== 32) {
+  if (eventId.length !== HASH_LENGTH) {
     throw new PreimageError(`eventId must be 32 bytes, got ${eventId.length}`);
   }
   const countBytes = new Uint8Array([1]);
-  const constantsBytes = new Uint8Array(32);
+  const constantsBytes = new Uint8Array(HASH_LENGTH);
   constantsBytes.set(eventId);
   return assembleRedeemScript(countBytes, constantsBytes, code);
 }
@@ -111,18 +137,17 @@ export function scriptHash(redeemScript: Uint8Array): Uint8Array {
 const CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
 function polymod(values: number[]): bigint {
-  const GENERATORS = [0x98f2bc8e61n, 0x79b76d99e2n, 0xf33e5fb3c4n, 0xae2eabe2a8n, 0x1e4f43e470n];
   let c = 1n;
   for (const d of values) {
-    const c0 = c >> 35n;
-    c = ((c & 0x07ffffffffn) << 5n) ^ BigInt(d);
-    for (let g = 0; g < GENERATORS.length; g++) {
+    const c0 = c >> BigInt(POLYMOD_SHIFT);
+    c = ((c & POLYMOD_MASK) << 5n) ^ BigInt(d);
+    for (let g = 0; g < POLYMOD_GENERATORS.length; g++) {
       if ((c0 & (1n << BigInt(g))) !== 0n) {
-        c ^= GENERATORS[g] ?? 0n;
+        c ^= POLYMOD_GENERATORS[g] ?? 0n;
       }
     }
   }
-  return c ^ 1n;
+  return c ^ POLYMOD_XOR_CONST;
 }
 
 function checksum(payload: number[], prefixChars: number[]): bigint {
@@ -130,23 +155,25 @@ function checksum(payload: number[], prefixChars: number[]): bigint {
 }
 
 function conv8to5(payload: Uint8Array): number[] {
-  const pad = payload.length % 5 === 0 ? 0 : 1;
-  const fiveBit: number[] = new Array<number>(Math.floor((payload.length * 8) / 5) + pad);
+  const pad = payload.length % CHUNK_BITS === 0 ? 0 : 1;
+  const fiveBit: number[] = new Array<number>(
+    Math.floor((payload.length * BYTE_BITS) / CHUNK_BITS) + pad,
+  );
   let current = 0;
   let buffer = 0;
   let bits = 0;
   for (const byte of payload) {
-    buffer = ((buffer << 8) | byte) & 0xffff;
-    bits += 8;
-    while (bits >= 5) {
-      bits -= 5;
-      fiveBit[current] = (buffer >> bits) & 31;
+    buffer = ((buffer << BYTE_BITS) | byte) & BYTE_MASK;
+    bits += BYTE_BITS;
+    while (bits >= CHUNK_BITS) {
+      bits -= CHUNK_BITS;
+      fiveBit[current] = (buffer >> bits) & CHUNK_MASK;
       buffer &= (1 << bits) - 1;
       current += 1;
     }
   }
   if (bits > 0) {
-    fiveBit[current] = (buffer << (5 - bits)) & 31;
+    fiveBit[current] = (buffer << (CHUNK_BITS - bits)) & CHUNK_MASK;
   }
   return fiveBit;
 }
@@ -156,13 +183,13 @@ function conv8to5(payload: Uint8Array): number[] {
  * Byte-for-byte compatible with `crypto/addresses/src/bech32.rs`.
  */
 export function encodeAddress(prefix: string, payload: Uint8Array): string {
-  const prefixChars = [...prefix].map((c) => c.charCodeAt(0) & 0x1f);
+  const prefixChars = [...prefix].map((c) => c.charCodeAt(0) & CHUNK_MASK);
   const fiveBit = conv8to5(payload);
   const checksumValue = checksum(fiveBit, prefixChars);
   // Rust takes `checksum.to_be_bytes()[3..]` — the low 5 bytes of the u64.
-  const be = new Uint8Array(8);
+  const be = new Uint8Array(U64_LENGTH);
   new DataView(be.buffer).setBigUint64(0, checksumValue, false);
-  const cs5 = conv8to5(be.subarray(3));
+  const cs5 = conv8to5(be.subarray(CHECKSUM_OFFSET));
   const out: number[] = [];
   for (const b of [...fiveBit, ...cs5]) {
     const ch = CHARSET[b];
@@ -220,7 +247,7 @@ export function availableTicketAddress(
   options: AddressOptions = {},
 ): string {
   return addressFor(
-    { owner: new Uint8Array(32), identifierType: 0, amount: capacity, isMinter: false },
+    { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: capacity, isMinter: false },
     constants,
     code,
     network,
@@ -236,7 +263,7 @@ export function availableTicketAddress(
  */
 export function addressFromScriptHash(scriptHashHex: string, network: AddressNetwork): string {
   const hash = hexToBytes(scriptHashHex);
-  if (hash.length !== 32) {
+  if (hash.length !== HASH_LENGTH) {
     throw new PreimageError(`script hash must be 32 bytes, got ${hash.length}`);
   }
   return encodeAddress(NETWORK_PREFIXES[network], p2shPayload(hash));

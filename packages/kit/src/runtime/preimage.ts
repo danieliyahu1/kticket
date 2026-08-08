@@ -45,6 +45,19 @@ export class PreimageError extends Error {
   override readonly name = "PreimageError";
 }
 
+const HASH_LENGTH = 32;
+const U64_LENGTH = 8;
+const IDENTIFIER_TYPE_OFFSET = HASH_LENGTH;
+const AMOUNT_OFFSET = IDENTIFIER_TYPE_OFFSET + 1;
+const IS_MINTER_OFFSET = AMOUNT_OFFSET + U64_LENGTH;
+const PRICE_OFFSET = HASH_LENGTH;
+const VARBYTES_START = PRICE_OFFSET + U64_LENGTH;
+
+const VARINT_LOW7_MASK = 0x7f;
+const VARINT_CONTINUE_MASK = 0x80;
+const VARINT_SHIFT = 7;
+const VARINT_MAX_SHIFT = 53;
+
 function assertSafeAmount(amount: number): void {
   if (!Number.isSafeInteger(amount) || amount < 0) {
     throw new PreimageError(`amount ${amount} is not a non-negative safe integer`);
@@ -59,7 +72,7 @@ function assertSafePrice(price: number): void {
 
 // --- state_bytes -----------------------------------------------------------
 
-const STATE_BYTES_LEN = 32 + 1 + 8 + 1;
+const STATE_BYTES_LEN = HASH_LENGTH + 1 + U64_LENGTH + 1;
 
 export function encodeState(
   owner: Uint8Array,
@@ -67,15 +80,15 @@ export function encodeState(
   amount: number,
   isMinter = false,
 ): Uint8Array {
-  if (owner.length !== 32) {
+  if (owner.length !== HASH_LENGTH) {
     throw new PreimageError(`owner must be 32 bytes, got ${owner.length}`);
   }
   assertSafeAmount(amount);
   const out = new Uint8Array(STATE_BYTES_LEN);
   out.set(owner, 0);
-  out[32] = identifierType;
-  new DataView(out.buffer).setBigUint64(33, BigInt(amount), true);
-  out[41] = isMinter ? 1 : 0;
+  out[IDENTIFIER_TYPE_OFFSET] = identifierType;
+  new DataView(out.buffer).setBigUint64(AMOUNT_OFFSET, BigInt(amount), true);
+  out[IS_MINTER_OFFSET] = isMinter ? 1 : 0;
   return out;
 }
 
@@ -85,16 +98,16 @@ export function decodeState(bytes: Uint8Array): DecodedState {
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return {
-    owner: bytes.slice(0, 32),
-    identifierType: bytes[32] as IdentifierType,
-    amount: Number(view.getBigUint64(33, true)),
-    isMinter: bytes[41] === 1,
+    owner: bytes.slice(0, HASH_LENGTH),
+    identifierType: bytes[IDENTIFIER_TYPE_OFFSET] as IdentifierType,
+    amount: Number(view.getBigUint64(AMOUNT_OFFSET, true)),
+    isMinter: bytes[IS_MINTER_OFFSET] === 1,
   };
 }
 
 // --- constants_bytes -------------------------------------------------------
 
-const CONSTANTS_FIXED_LEN = 32 + 8 + 32; // event_id + price + burn_template_hash
+const CONSTANTS_FIXED_LEN = HASH_LENGTH + U64_LENGTH + HASH_LENGTH; // event_id + price + burn_template_hash
 
 /**
  * Encode a LEB128 (unsigned, base-128 varint) length prefix. Used for
@@ -107,9 +120,9 @@ export function encodeVarint(value: number): Uint8Array {
   const out: number[] = [];
   let v = value;
   do {
-    let byte = v & 0x7f;
+    let byte = v & VARINT_LOW7_MASK;
     v >>>= 7;
-    if (v !== 0) byte |= 0x80;
+    if (v !== 0) byte |= VARINT_CONTINUE_MASK;
     out.push(byte);
   } while (v !== 0);
   return Uint8Array.from(out);
@@ -132,10 +145,10 @@ export function decodeVarint(
       throw new PreimageError("truncated varint");
     }
     i += 1;
-    value |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) break;
-    shift += 7;
-    if (shift > 53) {
+    value |= (byte & VARINT_LOW7_MASK) << shift;
+    if ((byte & VARINT_CONTINUE_MASK) === 0) break;
+    shift += VARINT_SHIFT;
+    if (shift > VARINT_MAX_SHIFT) {
       throw new PreimageError("varint exceeds safe integer range");
     }
   }
@@ -143,10 +156,10 @@ export function decodeVarint(
 }
 
 export function encodeConstants(constants: DecodedConstants): Uint8Array {
-  if (constants.eventId.length !== 32) {
+  if (constants.eventId.length !== HASH_LENGTH) {
     throw new PreimageError(`eventId must be 32 bytes, got ${constants.eventId.length}`);
   }
-  if (constants.burnTemplateHash.length !== 32) {
+  if (constants.burnTemplateHash.length !== HASH_LENGTH) {
     throw new PreimageError(
       `burnTemplateHash must be 32 bytes, got ${constants.burnTemplateHash.length}`,
     );
@@ -159,8 +172,8 @@ export function encodeConstants(constants: DecodedConstants): Uint8Array {
   const view = new DataView(out.buffer);
 
   out.set(constants.eventId, 0);
-  view.setBigUint64(32, BigInt(constants.price), true);
-  let offset = 40;
+  view.setBigUint64(PRICE_OFFSET, BigInt(constants.price), true);
+  let offset = VARBYTES_START;
   const prefix = encodeVarint(orgLen);
   out.set(prefix, offset);
   offset += prefix.length;
@@ -177,9 +190,9 @@ export function decodeConstants(bytes: Uint8Array): DecodedConstants {
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
-  const eventId = bytes.slice(0, 32);
-  const price = Number(view.getBigUint64(32, true));
-  let offset = 40;
+  const eventId = bytes.slice(0, HASH_LENGTH);
+  const price = Number(view.getBigUint64(PRICE_OFFSET, true));
+  let offset = VARBYTES_START;
   const len = decodeVarint(bytes, offset);
   offset += len.bytesRead;
   if (offset + len.value > bytes.length) {
@@ -187,10 +200,10 @@ export function decodeConstants(bytes: Uint8Array): DecodedConstants {
   }
   const orgSpk = bytes.slice(offset, offset + len.value);
   offset += len.value;
-  if (offset + 32 > bytes.length) {
+  if (offset + HASH_LENGTH > bytes.length) {
     throw new PreimageError("constants_bytes missing burn_template_hash");
   }
-  const burnTemplateHash = bytes.slice(offset, offset + 32);
+  const burnTemplateHash = bytes.slice(offset, offset + HASH_LENGTH);
 
   return { eventId, price, orgSpk, burnTemplateHash };
 }
