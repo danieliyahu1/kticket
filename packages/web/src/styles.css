@@ -101,6 +101,7 @@ button {
 .header-inner {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-5);
   height: 60px;
 }
@@ -111,36 +112,10 @@ button {
   letter-spacing: -0.02em;
 }
 
-.nav {
+.header-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
-  margin-right: auto;
-}
-
-.nav-link {
-  color: var(--ink-secondary);
-  font-weight: 500;
-  font-size: 0.9375rem;
-  padding-block: var(--space-2);
-  transition: color var(--ease);
-}
-
-.nav-link:hover {
-  color: var(--ink);
-}
-
-.nav-link-active {
-  color: var(--ink);
-}
-
-.nav-link-active::after {
-  content: "";
-  display: block;
-  height: 2px;
-  margin-top: 2px;
-  border-radius: 2px;
-  background: var(--accent);
+  gap: var(--space-3);
 }
 
 /* ── Footer ─────────────────────────────────────────────── */
@@ -289,6 +264,44 @@ button {
   border-radius: var(--radius-card);
   padding: var(--space-6);
   box-shadow: var(--shadow-card);
+}
+
+/* ── Event list / cards ─────────────────────────────────── */
+
+.event-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+
+.event-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.event-card-name {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.event-card-line {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 0.9375rem;
+}
+
+.event-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  color: var(--ink-tertiary);
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
 /* ── Forms ──────────────────────────────────────────────── */
@@ -544,6 +557,41 @@ button {
   color: var(--danger);
 }
 
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: var(--space-6);
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.segment {
+  border: none;
+  background: none;
+  padding: 0.4375rem 1rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    color var(--ease),
+    box-shadow var(--ease);
+}
+
+.segment:hover {
+  color: var(--ink);
+}
+
+.segment-active {
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
 /* ── Empty states ───────────────────────────────────────── */
 
 .empty {
@@ -608,10 +656,6 @@ button {
 
 @media (max-width: 560px) {
   .header-inner {
-    gap: var(--space-3);
-  }
-
-  .nav {
     gap: var(--space-3);
   }
 

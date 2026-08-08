@@ -1,9 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { network } from "../network";
-import { WalletButton } from "./wallet-button";
-
-const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  isActive ? "nav-link nav-link-active" : "nav-link";
+import { HeaderActions } from "./header-actions";
 
 export function Layout() {
   return (
@@ -13,15 +10,7 @@ export function Layout() {
           <NavLink to="/" className="wordmark">
             kticket
           </NavLink>
-          <nav className="nav">
-            <NavLink to="/events" className={navLinkClass}>
-              Events
-            </NavLink>
-            <NavLink to="/create" className={navLinkClass}>
-              Create
-            </NavLink>
-          </nav>
-          <WalletButton />
+          <HeaderActions />
         </div>
       </header>
       <main className="page">

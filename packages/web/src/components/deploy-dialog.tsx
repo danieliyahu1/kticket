@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { network } from "../network";
 
 export interface DeployDialogProps {
@@ -64,6 +65,11 @@ function Success({ txid }: { txid?: string }) {
           {shortTxid(txid)}
         </p>
       )}
+      <div className="ticket-actions">
+        <Link to="/" className="btn btn-primary">
+          View events
+        </Link>
+      </div>
     </div>
   );
 }

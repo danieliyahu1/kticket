@@ -1,17 +1,18 @@
+import { Link } from "react-router-dom";
 import { useWallet } from "../hooks/use-wallet";
 
 const INSTALL_URL = "https://kasware.xyz";
 const ADDR_PREFIX_LEN = 6;
 const ADDR_SUFFIX_LEN = 4;
 
-export function WalletButton() {
+export function HeaderActions() {
   const { state, connect, disconnect } = useWallet();
 
   if (state.status === "not-installed") {
     return (
       <a
         href={INSTALL_URL}
-        className="btn btn-secondary btn-sm"
+        className="btn btn-primary btn-sm"
         target="_blank"
         rel="noopener noreferrer"
       >
@@ -32,10 +33,20 @@ export function WalletButton() {
   if (state.status === "connected") {
     const address = state.accounts[0];
     return (
-      <button type="button" className="connected-chip" onClick={disconnect} title="Disconnect">
-        <span className="dot" aria-hidden="true" />
-        {address ? shortAddress(address) : "Connected"}
-      </button>
+      <div className="header-actions">
+        <Link to="/create" className="btn btn-primary btn-sm">
+          Create event
+        </Link>
+        <button
+          type="button"
+          className="connected-chip"
+          onClick={disconnect}
+          title="Disconnect"
+        >
+          <span className="dot" aria-hidden="true" />
+          {address ? shortAddress(address) : "Connected"}
+        </button>
+      </div>
     );
   }
 

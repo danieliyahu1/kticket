@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
+import { organizerPkh, randomEventId } from "../api/crypto";
+import { saveEvent } from "../api/event-store";
 import { DeployDialog, DeployStatus } from "../components/deploy-dialog";
 import { EventForm, type EventFormData } from "../components/event-form";
 import { validate } from "../components/event-validate";
@@ -25,6 +26,7 @@ export default function CreateEventPage() {
 }
 
 function RequireWallet() {
+  const { connect } = useWallet();
   return (
     <section>
       <PageHeader caption="Step 1 of 3 · Details" title="Create an event" />
@@ -32,9 +34,9 @@ function RequireWallet() {
         <p className="empty-title">Connect your wallet to create an event.</p>
         <p className="empty-sub">Events are put on Kaspa from your own wallet.</p>
         <div className="empty-actions">
-          <Link to="/" className="btn btn-primary">
+          <button type="button" className="btn btn-primary" onClick={connect}>
             Connect wallet
-          </Link>
+          </button>
         </div>
       </div>
     </section>
@@ -55,8 +57,26 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
   const [form, setForm] = useState<EventFormData>(EMPTY_FORM);
   const [deploy, setDeploy] = useState<DeployState>({ phase: "idle" });
   const [errors, setErrors] = useState<Partial<Record<keyof EventFormData, string>>>({});
+  const [eventId] = useState(() => randomEventId());
+  const savedRef = useRef(false);
 
-  const startDeploy = () => deployEvent(wallet, form, setDeploy);
+  const startDeploy = () => deployEvent(wallet, form, eventId, setDeploy);
+
+  useEffect(() => {
+    if (deploy.phase !== "success" || !deploy.txid || savedRef.current) return;
+    savedRef.current = true;
+    saveEvent({
+      eventId,
+      genesisTxId: deploy.txid,
+      orgPkh: organizerPkh(wallet.publicKey),
+      name: form.name,
+      date: form.date,
+      time: form.time,
+      capacity: form.capacity,
+      price: form.price,
+      createdAt: Date.now(),
+    });
+  }, [deploy, eventId, form, wallet]);
 
   if (deploy.phase !== "idle") {
     return <DeployResult deploy={deploy} onRetry={startDeploy} />;
@@ -97,6 +117,7 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
 function deployEvent(
   wallet: ConnectedWallet,
   form: EventFormData,
+  eventId: string,
   setDeploy: (s: DeployState) => void,
 ) {
   const params: DeployParams = {
@@ -104,6 +125,7 @@ function deployEvent(
     priceKas: form.price,
     publicKey: wallet.publicKey,
     address: wallet.accounts[0] ?? "",
+    eventId,
   };
   executeDeploy(setDeploy, params);
 }

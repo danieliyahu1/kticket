@@ -1,6 +1,6 @@
 import { BURN_ARTIFACT, burnTemplateHash } from "@kticket/kit";
 import { broadcastTx, buildDeployTx } from "./client";
-import { organizerPkh, orgSpkFromPublicKey, randomEventId } from "./crypto";
+import { organizerPkh, orgSpkFromPublicKey } from "./crypto";
 import type { KaspaUtxoEntry } from "./kaspa";
 import { changeScriptFromPublicKey, fetchUtxos, toWireUtxo, toWireUtxoMeta } from "./kaspa";
 import type { BuildResult, WireTransaction } from "./types";
@@ -20,6 +20,7 @@ export interface DeployParams {
   priceKas: number;
   publicKey: string;
   address: string;
+  eventId: string;
 }
 
 function errorMsg(err: unknown): string {
@@ -87,7 +88,7 @@ export async function executeDeploy(
   setState({ phase: "building" });
   logStep("start", params);
 
-  const eventId = randomEventId();
+  const eventId = params.eventId;
   logStep("event-id", eventId);
 
   let utxos: KaspaUtxoEntry[];

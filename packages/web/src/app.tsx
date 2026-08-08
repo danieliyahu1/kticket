@@ -2,7 +2,6 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/layout";
 import CreateEventPage from "./pages/create-event";
 import EventsPage from "./pages/events";
-import HomePage from "./pages/home";
 import { WalletProvider } from "./wallet/provider";
 
 export default function App() {
@@ -11,8 +10,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<HomePage />} />
-            <Route path="events" element={<EventsPage />} />
+            <Route index element={<EventsPage />} />
             <Route path="create" element={<CreateEventPage />} />
           </Route>
         </Routes>
