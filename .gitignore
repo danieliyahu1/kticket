@@ -14,3 +14,6 @@ coverage/
 opencode.json
 
 .DS_Store
+
+# Local wallet credentials (never commit private keys)
+wallet*.json
