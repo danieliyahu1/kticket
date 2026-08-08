@@ -60,11 +60,6 @@ function asInput(outpoint: Outpoint): TxInput {
   };
 }
 
-function txInputs(ticketOutpoint: Outpoint | null, utxos: Outpoint[]): TxInput[] {
-  const payer = utxos.map(asInput);
-  return ticketOutpoint ? [asInput(ticketOutpoint), ...payer] : payer;
-}
-
 function changeOutput(script: ScriptPublicKey, change: number): TxOutput {
   return { value: change, scriptPublicKey: script, covenant: null };
 }
@@ -73,11 +68,45 @@ function totalOf(values: readonly number[]): number {
   return values.reduce((a, b) => a + b, 0);
 }
 
+/** Maximum event capacity (the event covenant's `remaining` cannot exceed it). */
+export const MAX_EVENT_CAPACITY = 100;
+
+/** Default covenant dust locked in an output (~0.5 KAS). */
+export const DUST = 50_000_000;
+
 /** Default covenant dust for a ticket output (~0.5 KAS). */
-export const TICKET_DUST = 50_000_000;
+export const TICKET_DUST = DUST;
 
 /** Default covenant dust for the event covenant (~0.5 KAS). */
-export const EVENT_DUST = 50_000_000;
+export const EVENT_DUST = DUST;
+
+function validatePairedValues(
+  values: readonly number[],
+  outpoints: readonly Outpoint[],
+  label: string,
+): void {
+  if (values.length !== outpoints.length) {
+    throw new Error(`${label} values must match the ${label} input count`);
+  }
+}
+
+/** Covenant binding every continuation output carries (input 0, pinned family id). */
+function covenantBinding(covenantId: string): CovenantBinding {
+  return { authorizingInput: 0, covenantId };
+}
+
+/** Dust carried by a ticket-style output (defaults to the standard ticket dust). */
+function ticketDustOf(ticketDust: number | undefined): number {
+  return ticketDust ?? TICKET_DUST;
+}
+
+function payerInputs(utxos: readonly Outpoint[]): TxInput[] {
+  return utxos.map(asInput);
+}
+
+function inputsWithTicket(ticketOutpoint: Outpoint, payers: readonly Outpoint[]): TxInput[] {
+  return [asInput(ticketOutpoint), ...payerInputs(payers)];
+}
 
 // --- deploy (one event covenant) -------------------------------------------
 
@@ -112,17 +141,19 @@ export interface DeployResult {
 }
 
 export function buildDeploy(input: DeployInput): DeployResult {
-  if (!Number.isInteger(input.capacity) || input.capacity < 0 || input.capacity > 100) {
-    throw new Error(`capacity must be 0..100, got ${input.capacity}`);
+  if (
+    !Number.isInteger(input.capacity) ||
+    input.capacity < 0 ||
+    input.capacity > MAX_EVENT_CAPACITY
+  ) {
+    throw new Error(`capacity must be 0..${MAX_EVENT_CAPACITY}, got ${input.capacity}`);
   }
   if (!Number.isSafeInteger(input.fee) || input.fee < 0) {
     throw new Error(`fee ${input.fee} is invalid`);
   }
 
   const allUtxos = [input.authorizingOutpoint, ...input.organizerUtxos];
-  if (input.organizerUtxoValues.length !== allUtxos.length) {
-    throw new Error("organizerUtxoValues must match the organizer input count");
-  }
+  validatePairedValues(input.organizerUtxoValues, allUtxos, "organizer");
   const inputTotal = totalOf(input.organizerUtxoValues);
   const change = inputTotal - input.fee - EVENT_DUST;
   if (change < 0) {
@@ -148,14 +179,17 @@ export function buildDeploy(input: DeployInput): DeployResult {
     },
   ];
   const eventCovenantId = bytesToHex(covenantId(input.authorizingOutpoint, authOutputs));
-  const binding: CovenantBinding = { authorizingInput: 0, covenantId: eventCovenantId };
 
   return {
     tx: {
       version: TX_VERSION_V1,
-      inputs: txInputs(null, allUtxos),
+      inputs: payerInputs(allUtxos),
       outputs: [
-        { value: EVENT_DUST, scriptPublicKey: eventScript, covenant: binding },
+        {
+          value: EVENT_DUST,
+          scriptPublicKey: eventScript,
+          covenant: covenantBinding(eventCovenantId),
+        },
         changeOutput(input.changeScript, change),
       ],
       lockTime: 0,
@@ -199,13 +233,11 @@ export interface BuyInput {
 
 export function buildBuy(input: BuyInput): UnsignedTransaction {
   const price = input.constants.price;
-  if (input.buyerUtxoValues.length !== input.buyerUtxos.length) {
-    throw new Error("buyerUtxoValues must match the buyer input count");
-  }
+  validatePairedValues(input.buyerUtxoValues, input.buyerUtxos, "buyer");
   if (!Number.isInteger(input.remaining) || input.remaining <= 0) {
     throw new Error(`cannot mint from an event with remaining ${input.remaining}`);
   }
-  const ticketDust = input.ticketDust ?? TICKET_DUST;
+  const ticketDust = ticketDustOf(input.ticketDust);
   const buyerTotal = totalOf(input.buyerUtxoValues);
   const change = buyerTotal - price - ticketDust - input.fee;
   if (change < 0) {
@@ -214,7 +246,7 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
     );
   }
 
-  const binding: CovenantBinding = { authorizingInput: 0, covenantId: input.eventCovenantId };
+  const binding = covenantBinding(input.eventCovenantId);
   const ticket = covenantScript(
     { owner: input.buyer, identifierType: 0, amount: 1, isMinter: false },
     input.constants,
@@ -237,7 +269,7 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
 
   return {
     version: TX_VERSION_V1,
-    inputs: txInputs(input.eventOutpoint, input.buyerUtxos),
+    inputs: inputsWithTicket(input.eventOutpoint, input.buyerUtxos),
     outputs,
     lockTime: 0,
   };
@@ -263,21 +295,19 @@ export interface TransferInput {
 }
 
 export function buildTransfer(input: TransferInput): UnsignedTransaction {
-  if (input.holderUtxoValues.length !== input.holderUtxos.length) {
-    throw new Error("holderUtxoValues must match the holder input count");
-  }
+  validatePairedValues(input.holderUtxoValues, input.holderUtxos, "holder");
   const change = totalOf(input.holderUtxoValues) - input.fee;
   if (change < 0) {
     throw new Error(`holder inputs cannot cover fee ${input.fee}`);
   }
 
-  const binding: CovenantBinding = { authorizingInput: 0, covenantId: input.eventCovenantId };
+  const binding = covenantBinding(input.eventCovenantId);
   return {
     version: TX_VERSION_V1,
-    inputs: txInputs(input.ticketOutpoint, input.holderUtxos),
+    inputs: inputsWithTicket(input.ticketOutpoint, input.holderUtxos),
     outputs: [
       {
-        value: input.ticketDust ?? TICKET_DUST,
+        value: ticketDustOf(input.ticketDust),
         scriptPublicKey: covenantScript(
           { owner: input.newOwner, identifierType: 0, amount: 1, isMinter: false },
           input.constants,
@@ -330,21 +360,19 @@ export function burnTemplateHash(eventIdHex: string, burnCodeHex: string): strin
 }
 
 export function buildHandover(input: HandoverInput): UnsignedTransaction {
-  if (input.attendeeUtxoValues.length !== input.attendeeUtxos.length) {
-    throw new Error("attendeeUtxoValues must match the attendee input count");
-  }
+  validatePairedValues(input.attendeeUtxoValues, input.attendeeUtxos, "attendee");
   const change = totalOf(input.attendeeUtxoValues) - input.fee;
   if (change < 0) {
     throw new Error(`attendee inputs cannot cover fee ${input.fee}`);
   }
 
-  const binding: CovenantBinding = { authorizingInput: 0, covenantId: input.eventCovenantId };
+  const binding = covenantBinding(input.eventCovenantId);
   return {
     version: TX_VERSION_V1,
-    inputs: txInputs(input.ticketOutpoint, input.attendeeUtxos),
+    inputs: inputsWithTicket(input.ticketOutpoint, input.attendeeUtxos),
     outputs: [
       {
-        value: input.ticketDust ?? TICKET_DUST,
+        value: ticketDustOf(input.ticketDust),
         scriptPublicKey: burnScript(input.constants, input.burnCode),
         covenant: binding,
       },

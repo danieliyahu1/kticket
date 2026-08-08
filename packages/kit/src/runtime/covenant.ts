@@ -20,6 +20,7 @@
 // Reference: `consensus/core/src/hashing/covenant_id.rs` + `crypto/hashes`.
 
 import { blake2b } from "@noble/hashes/blake2.js";
+import { le16, le32, le64 } from "./bytes.js";
 import { encodeVarint } from "./preimage.js";
 
 const DOMAIN_TAG = "CovenantID";
@@ -42,20 +43,6 @@ export interface AuthorizedOutput {
 
 export class CovenantIdError extends Error {
   override readonly name = "CovenantIdError";
-}
-
-function le16(v: number): Uint8Array {
-  return Uint8Array.from([v & 0xff, (v >> 8) & 0xff]);
-}
-
-function le32(v: number): Uint8Array {
-  return Uint8Array.from([v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff]);
-}
-
-function le64(v: number): Uint8Array {
-  const out = new Uint8Array(8);
-  new DataView(out.buffer).setBigUint64(0, BigInt(v), true);
-  return out;
 }
 
 /** Compute the KIP-20 genesis covenant id for an outpoint + ordered auth outputs. */

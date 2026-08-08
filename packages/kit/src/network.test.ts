@@ -1,26 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { getNetworkConfig, isKaspiaNet, KASPANETS, NETWORKS, resolveNetwork } from "./network";
+import {
+  getNetworkConfig,
+  isKaspaNetwork,
+  KASPA_NETWORK_IDS,
+  NETWORKS,
+  resolveNetwork,
+} from "./network";
 
 describe("network selection (KASPANET)", () => {
   it("supports only testnet10", () => {
-    expect(KASPANETS).toEqual(["testnet10"]);
+    expect(KASPA_NETWORK_IDS).toEqual(["testnet10"]);
   });
 
   it("defines a config for every supported network", () => {
-    for (const net of KASPANETS) {
+    for (const net of KASPA_NETWORK_IDS) {
       expect(NETWORKS[net].net).toBe(net);
     }
   });
 
   it("recognises valid KASPANET values", () => {
-    expect(isKaspiaNet("testnet10")).toBe(true);
+    expect(isKaspaNetwork("testnet10")).toBe(true);
   });
 
   it("rejects invalid KASPANET values (incl. mainnet)", () => {
-    expect(isKaspiaNet("mainnet")).toBe(false);
-    expect(isKaspiaNet("banana")).toBe(false);
-    expect(isKaspiaNet("")).toBe(false);
-    expect(isKaspiaNet(undefined)).toBe(false);
+    expect(isKaspaNetwork("mainnet")).toBe(false);
+    expect(isKaspaNetwork("banana")).toBe(false);
+    expect(isKaspaNetwork("")).toBe(false);
+    expect(isKaspaNetwork(undefined)).toBe(false);
   });
 
   it("resolves valid values as-is", () => {

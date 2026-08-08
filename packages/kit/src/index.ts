@@ -1,8 +1,14 @@
 import { BURN_ARTIFACT, EVENT_ARTIFACT, TICKET_ARTIFACT } from "./contracts/artifacts.js";
 import { Covenant, eventCovenant, ticketCovenant } from "./contracts/covenant.js";
 import { RESULT_CODES } from "./contracts/types.js";
-import type { KaspiaNet, NetworkConfig } from "./network.js";
-import { getNetworkConfig, isKaspiaNet, KASPANETS, NETWORKS, resolveNetwork } from "./network.js";
+import type { KaspaNetwork, NetworkConfig } from "./network.js";
+import {
+  getNetworkConfig,
+  isKaspaNetwork,
+  KASPA_NETWORK_IDS,
+  NETWORKS,
+  resolveNetwork,
+} from "./network.js";
 import {
   addressFor,
   addressFromScriptHash,
@@ -17,6 +23,8 @@ import {
   buildHandover,
   buildTransfer,
   burnTemplateHash,
+  DUST,
+  MAX_EVENT_CAPACITY,
   p2shScript,
 } from "./runtime/builder.js";
 import { covenantId } from "./runtime/covenant.js";
@@ -79,7 +87,7 @@ export type {
   TxOutput,
   UnsignedTransaction,
 } from "./runtime/tx.js";
-export type { KaspiaNet, NetworkConfig };
+export type { KaspaNetwork, NetworkConfig };
 export {
   addressFor,
   addressFromScriptHash,
@@ -95,6 +103,7 @@ export {
   computeFee,
   computeMassLocal,
   covenantId,
+  DUST,
   decodeConstants,
   decodePreimage,
   decodeSigOpCount,
@@ -107,8 +116,9 @@ export {
   estimatedSerializedSize,
   eventCovenant,
   getNetworkConfig,
-  isKaspiaNet,
-  KASPANETS,
+  isKaspaNetwork,
+  KASPA_NETWORK_IDS,
+  MAX_EVENT_CAPACITY,
   NETWORKS,
   p2shScript,
   payloadDigest,

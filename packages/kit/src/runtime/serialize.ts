@@ -7,9 +7,9 @@
 //   - `estimatedSerializedSize(tx)` — the consensus `transaction_estimated_serialized_size`
 //     (KIP-9), used for the relay floor `100 sompi × max(compute grams, 2 × tx bytes)`.
 //   - `txIdV1(tx)` — the KIP-20 v1 transaction id: `TransactionV1Id(payload_digest ||
-//     rest_digest)`, each a keyed BLAKE3 with the domain tag as 32-byte key. The
-//     broadcast relay uses it for idempotency (re-broadcasting a known tx
-//     succeeds even when the node rejects it as a duplicate).
+//     rest_digest)`, each a keyed BLAKE3 with the domain tag as 32-byte key. Its
+//     purpose is broadcast-relay idempotency (re-broadcasting a known tx succeeds
+//     even when the node rejects it as a duplicate).
 //
 // The layout mirrors `consensus/core/src/hashing/tx.rs` + `crypto/hashes`:
 //   - u16 version LE
@@ -21,6 +21,7 @@
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { concat, le16, le32, le64 } from "./bytes.js";
 import type { UnsignedTransaction } from "./tx.js";
 
 const HASH_SIZE = 32;
@@ -35,36 +36,6 @@ function keyOf(tag: string): Uint8Array {
 
 function blake3Keyed(tag: string, data: Uint8Array): Uint8Array {
   return blake3(data, { key: keyOf(tag) });
-}
-
-function le16(value: number): Uint8Array {
-  const out = new Uint8Array(2);
-  new DataView(out.buffer).setUint16(0, value, true);
-  return out;
-}
-
-function le32(value: number): Uint8Array {
-  const out = new Uint8Array(4);
-  new DataView(out.buffer).setUint32(0, value >>> 0, true);
-  return out;
-}
-
-function le64(value: number): Uint8Array {
-  const out = new Uint8Array(8);
-  new DataView(out.buffer).setBigUint64(0, BigInt(value), true);
-  return out;
-}
-
-function concat(parts: readonly Uint8Array[]): Uint8Array {
-  let length = 0;
-  for (const part of parts) length += part.length;
-  const out = new Uint8Array(length);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
 }
 
 function inputScriptSize(input: UnsignedTransaction["inputs"][number]): number {

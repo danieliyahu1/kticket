@@ -181,6 +181,17 @@ export interface AddressOptions {
 }
 
 /**
+ * P2SH address payload: the ScriptHash version byte followed by the hash
+ * bytes (`kaspatest:<base32check(version || hash)>`).
+ */
+function p2shPayload(hash: Uint8Array): Uint8Array {
+  const payload = new Uint8Array(1 + hash.length);
+  payload[0] = P2SH_ADDRESS_VERSION;
+  payload.set(hash, 1);
+  return payload;
+}
+
+/**
  * Derive the P2SH address for a covenant output. By default the payload is
  * `blake3(redeem_script)` (32 bytes) under the given network prefix.
  */
@@ -193,10 +204,7 @@ export function addressFor(
 ): string {
   const redeem = buildRedeemScript(state, constants, code);
   const hash = (options.hash ?? scriptHash)(redeem);
-  const payload = new Uint8Array(1 + hash.length);
-  payload[0] = P2SH_ADDRESS_VERSION;
-  payload.set(hash, 1);
-  return encodeAddress(options.prefix ?? NETWORK_PREFIXES[network], payload);
+  return encodeAddress(options.prefix ?? NETWORK_PREFIXES[network], p2shPayload(hash));
 }
 
 /**
@@ -231,8 +239,5 @@ export function addressFromScriptHash(scriptHashHex: string, network: AddressNet
   if (hash.length !== 32) {
     throw new PreimageError(`script hash must be 32 bytes, got ${hash.length}`);
   }
-  const payload = new Uint8Array(1 + hash.length);
-  payload[0] = P2SH_ADDRESS_VERSION;
-  payload.set(hash, 1);
-  return encodeAddress(NETWORK_PREFIXES[network], payload);
+  return encodeAddress(NETWORK_PREFIXES[network], p2shPayload(hash));
 }
