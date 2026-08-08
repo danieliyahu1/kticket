@@ -8,6 +8,7 @@ export function Layout() {
         <nav>
           <Link to="/">kticket</Link>
           <Link to="/events">Events</Link>
+          <Link to="/create">Create Event</Link>
           <WalletButton />
         </nav>
       </header>
