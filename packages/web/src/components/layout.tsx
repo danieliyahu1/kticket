@@ -1,20 +1,40 @@
-import { Link, Outlet } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
+import { network } from "../network";
 import { WalletButton } from "./wallet-button";
+
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  isActive ? "nav-link nav-link-active" : "nav-link";
 
 export function Layout() {
   return (
-    <div>
-      <header>
-        <nav>
-          <Link to="/">kticket</Link>
-          <Link to="/events">Events</Link>
-          <Link to="/create">Create Event</Link>
+    <div className="app">
+      <header className="header">
+        <div className="container header-inner">
+          <NavLink to="/" className="wordmark">
+            kticket
+          </NavLink>
+          <nav className="nav">
+            <NavLink to="/events" className={navLinkClass}>
+              Events
+            </NavLink>
+            <NavLink to="/create" className={navLinkClass}>
+              Create
+            </NavLink>
+          </nav>
           <WalletButton />
-        </nav>
+        </div>
       </header>
-      <main>
-        <Outlet />
+      <main className="page">
+        <div className="container">
+          <Outlet />
+        </div>
       </main>
+      <footer className="footer">
+        <div className="container footer-inner">
+          <span>Tickets on the chain.</span>
+          <span>On {network.label}</span>
+        </div>
+      </footer>
     </div>
   );
 }

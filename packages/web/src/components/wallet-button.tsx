@@ -9,7 +9,12 @@ export function WalletButton() {
 
   if (state.status === "not-installed") {
     return (
-      <a href={INSTALL_URL} target="_blank" rel="noopener noreferrer">
+      <a
+        href={INSTALL_URL}
+        className="btn btn-secondary btn-sm"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         Install Kasware
       </a>
     );
@@ -17,8 +22,9 @@ export function WalletButton() {
 
   if (state.status === "connecting") {
     return (
-      <button type="button" disabled>
-        Connecting...
+      <button type="button" className="btn btn-secondary btn-sm" disabled>
+        <span className="spinner" aria-hidden="true" />
+        Connecting
       </button>
     );
   }
@@ -26,15 +32,16 @@ export function WalletButton() {
   if (state.status === "connected") {
     const address = state.accounts[0];
     return (
-      <button type="button" onClick={disconnect}>
+      <button type="button" className="connected-chip" onClick={disconnect} title="Disconnect">
+        <span className="dot" aria-hidden="true" />
         {address ? shortAddress(address) : "Connected"}
       </button>
     );
   }
 
   return (
-    <button type="button" onClick={connect}>
-      Connect Wallet
+    <button type="button" className="btn btn-primary btn-sm" onClick={connect}>
+      Connect wallet
     </button>
   );
 }
