@@ -1,12 +1,20 @@
-import { network } from "./network";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Layout } from "./components/layout";
+import EventsPage from "./pages/events";
+import HomePage from "./pages/home";
+import { WalletProvider } from "./wallet/provider";
 
 export default function App() {
   return (
-    <main>
-      <h1>kticket</h1>
-      <p>
-        Web SPA shell — active network: {network.net} ({network.label})
-      </p>
-    </main>
+    <WalletProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<HomePage />} />
+            <Route path="events" element={<EventsPage />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </WalletProvider>
   );
 }
