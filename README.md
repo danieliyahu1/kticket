@@ -36,8 +36,6 @@ npm run dev:api   # or dev:web / dev:door
 | `npm test` | Runs the test suite (Vitest). |
 | `npm run dev:*` | Dev servers for the api / web / door apps. |
 
-CI runs build, lint, typecheck and tests (`.github/workflows/ci.yml`).
-
 ## Network selection (`KASPANET`)
 
 Only **testnet-10** is supported (HLD v0.23: mainnet is out of scope). The REST
