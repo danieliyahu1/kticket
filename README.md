@@ -1,16 +1,15 @@
 # kticket
 
-On-chain event ticketing on Kaspa: tickets are covenant-bound assets, and entry is
-controlled by a guard-side "Door" client. This repository is the monorepo.
+On-chain event ticketing on Kaspa: tickets are covenant-bound assets, deployed
+by event organisers and bought / held by attendees — all on chain.
 
 ## Packages
 
 | Package | Path | Stack | Responsibility |
 | --- | --- | --- | --- |
-| `@kticket/kit` | `packages/kit` | TypeScript (over `kaspa-wasm` + SilverScript artifacts) | Covenant WASM kit — on-chain ticket rules, tx building, covenant state decoding. Shared by api / web / door. |
+| `@kticket/kit` | `packages/kit` | TypeScript (over `kaspa-wasm` + SilverScript artifacts) | Covenant WASM kit — on-chain ticket rules, tx building, covenant state decoding. Shared by api / web. |
 | `@kticket/api` | `packages/api` | Node.js + TypeScript (Fastify) | Stateless API — reads / build / broadcast via `api-tn10.kaspa.org`. |
-| `@kticket/web` | `packages/web` | React + Vite + TypeScript | Web SPA (buyer / organiser flows). |
-| `@kticket/door` | `packages/door` | React + Vite + TypeScript (PWA) | Door client — the guard's device app (access gate). |
+| `@kticket/web` | `packages/web` | React + Vite + TypeScript | Monolith SPA — buyer, organiser, and door scanner flows. |
 
 ## Prerequisites
 
@@ -21,7 +20,8 @@ controlled by a guard-side "Door" client. This repository is the monorepo.
 
 ```sh
 npm install
-npm run dev:api   # or dev:web / dev:door
+npm run dev:api   # start the API
+npm run dev       # start the web app (in another terminal)
 ```
 
 ## Scripts
@@ -30,7 +30,8 @@ npm run dev:api   # or dev:web / dev:door
 | --- | --- |
 | `npm run build` | Builds every package (`build` script in each workspace). |
 | `npm test` | Runs the test suite (Vitest). |
-| `npm run dev:*` | Dev servers for the api / web / door apps. |
+| `npm run dev:api` | Dev server for the API. |
+| `npm run dev` | Dev server for the web SPA. |
 
 ## Network selection (`KASPANET`)
 
@@ -43,6 +44,6 @@ invalid, every host falls back to `testnet10`.
 - **API** reads `KASPANET` (and `PORT`, `HOST`, `TLS_KEY`, `TLS_CERT`) from
   `packages/api/.env` at boot (`packages/api/src/env.ts`), or from the
   environment directly. Real shell/CI env always wins over the file.
-- **Web / Door** read `VITE_KASPANET` from `packages/web/.env` / `packages/door/.env`
+- **Web** reads `VITE_KASPANET` from `packages/web/.env`
   (Vite convention, exposed via `import.meta.env`).
 - **Kit** exposes the shared resolver (`getNetworkConfig`) used by all hosts.
