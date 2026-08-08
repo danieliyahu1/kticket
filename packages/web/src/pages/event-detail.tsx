@@ -4,27 +4,7 @@ import { fetchEvent, type EventDetail } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
 import { useWallet } from "../hooks/use-wallet";
 import { saveTicket } from "../api/ticket-store";
-
-const WHEN_FORMAT = {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-} as const;
-
-function whenLabel(date: string): string {
-  if (!date) return "";
-  return new Intl.DateTimeFormat("en", WHEN_FORMAT).format(new Date(date));
-}
-
-function priceLabel(price: number): string {
-  return price === 0 ? "Free" : `${price} KAS`;
-}
-
-function capacityLabel(capacity: number): string {
-  return `${capacity} ${capacity === 1 ? "ticket" : "tickets"}`;
-}
+import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -93,7 +73,7 @@ export default function EventDetailPage() {
     return (
       <section>
         <p className="empty-title">{error ?? "Event not found."}</p>
-        <div className="empty-actions" style={{ justifyContent: "flex-start" }}>
+        <div className="empty-actions empty-actions-start">
           <Link to="/" className="btn btn-secondary btn-sm">
             Back to events
           </Link>
@@ -107,30 +87,30 @@ export default function EventDetailPage() {
 
   return (
     <section>
-      <Link to="/" className="btn btn-link btn-sm" style={{ paddingLeft: 0 }}>
+      <Link to="/" className="btn btn-link btn-sm btn-link-clean">
         &larr; All events
       </Link>
 
       <h2 className="page-heading">{event.event.name}</h2>
       <p className="page-sub">{whenLabel(event.event.date)}</p>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-4)", marginTop: "var(--space-5)" }}>
-        <div className="card" style={{ flex: 1, minWidth: 0 }}>
+      <div className="stat-cards">
+        <div className="card stat-card">
           <p className="stub-label">Price</p>
           <p className="stub-value">{priceLabel(event.event.price)}</p>
         </div>
-        <div className="card" style={{ flex: 1, minWidth: 0 }}>
+        <div className="card stat-card">
           <p className="stub-label">Capacity</p>
           <p className="stub-value">{capacityLabel(event.event.capacity)}</p>
         </div>
-        <div className="card" style={{ flex: 1, minWidth: 0 }}>
+        <div className="card stat-card">
           <p className="stub-label">Available</p>
           <p className="stub-value">{event.availability.left} left</p>
         </div>
       </div>
 
       {buy.phase === "success" ? (
-        <div className="status" style={{ marginTop: "var(--space-6)" }}>
+        <div className="status section-gap">
           <div className="status-icon status-icon-ok">
             <span>&#10003;</span>
           </div>
@@ -147,7 +127,7 @@ export default function EventDetailPage() {
           </div>
         </div>
       ) : buy.phase === "error" ? (
-        <div className="status" style={{ marginTop: "var(--space-6)" }}>
+        <div className="status section-gap">
           <div className="status-icon status-icon-error">
             <span>&#10007;</span>
           </div>
@@ -155,21 +135,21 @@ export default function EventDetailPage() {
           <p className="status-copy">No ticket was issued.</p>
         </div>
       ) : buy.phase === "building" ? (
-        <div className="status" style={{ marginTop: "var(--space-6)" }}>
+        <div className="status section-gap">
           <div className="spinner" />
           <p className="status-copy">Building transaction...</p>
         </div>
       ) : buy.phase === "broadcasting" ? (
-        <div className="status" style={{ marginTop: "var(--space-6)" }}>
+        <div className="status section-gap">
           <div className="spinner" />
           <p className="status-copy">Sending to Kaspa...</p>
         </div>
       ) : soldOut ? (
-        <div style={{ marginTop: "var(--space-6)" }}>
+        <div className="section-gap">
           <p className="status-title">Sold out.</p>
         </div>
       ) : connected ? (
-        <div style={{ marginTop: "var(--space-6)" }}>
+        <div className="section-gap">
           <button
             type="button"
             className="btn btn-primary btn-lg"
@@ -184,7 +164,7 @@ export default function EventDetailPage() {
           )}
         </div>
       ) : (
-        <div style={{ marginTop: "var(--space-6)" }}>
+        <div className="section-gap">
           <button
             type="button"
             className="btn btn-primary btn-lg"

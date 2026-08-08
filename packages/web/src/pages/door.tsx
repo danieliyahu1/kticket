@@ -1,8 +1,8 @@
-import { network } from "./network";
+import { network } from "../network";
 
-export default function App() {
+export default function DoorPage() {
   return (
-    <div className="door">
+    <div data-theme="dark" className="door">
       <header className="door-header">
         <span className="door-wordmark">kticket</span>
         <span className="door-badge">Door</span>

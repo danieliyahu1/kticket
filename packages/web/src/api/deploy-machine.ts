@@ -3,9 +3,8 @@ import { broadcastTx, buildDeployTx } from "./client";
 import { organizerPkh, orgSpkFromPublicKey } from "./crypto";
 import type { KaspaUtxoEntry } from "./kaspa";
 import { changeScriptFromPublicKey, fetchUtxos, toWireUtxo, toWireUtxoMeta } from "./kaspa";
-import type { BuildResult, WireTransaction } from "./types";
-
-const SOMPI_PER_KAS = 100_000_000;
+import type { BuildResult } from "./types";
+import { mergeSignatures, signTemplate, SOMPI_PER_KAS } from "../lib/signing";
 const LOG_SAMPLE_LEN = 400;
 
 export type DeployState =
@@ -129,9 +128,9 @@ async function signAndBroadcast(
   buildResult: BuildResult,
   setState: (s: DeployState) => void,
 ): Promise<void> {
-  let signedTx: WireTransaction;
+  let signedTx;
   try {
-    const signed = await signTemplate(buildResult);
+    const signed = await signTemplate(buildResult.signing_template);
     logStep("signed", {
       type: typeof signed,
       sample: JSON.stringify(signed).slice(0, LOG_SAMPLE_LEN),
@@ -154,35 +153,4 @@ async function signAndBroadcast(
   }
 }
 
-async function signTemplate(buildResult: BuildResult): Promise<unknown> {
-  const kasware = window.kasware;
-  if (!(kasware && "signPskt" in kasware)) return buildResult.template;
 
-  const signingJson = buildResult.signing_template;
-  if (!signingJson) {
-    throw new Error("No signing template from build");
-  }
-  logStep("safe-json", signingJson.slice(0, LOG_SAMPLE_LEN));
-  return kasware.signPskt({ txJsonString: signingJson });
-}
-
-function mergeSignatures(template: WireTransaction, signed: unknown): WireTransaction {
-  const json = typeof signed === "string" ? signed : String(signed);
-  const parsed = JSON.parse(json) as {
-    inputs?: Array<{ transactionId: string; index: number; signatureScript?: string }>;
-  };
-  const byInput = new Map(
-    (parsed.inputs ?? []).map((input) => [`${input.transactionId}:${input.index}`, input]),
-  );
-  return {
-    ...template,
-    inputs: template.inputs.map((input) => {
-      const key = `${input.previous_outpoint.transaction_id}:${input.previous_outpoint.index}`;
-      const signedInput = byInput.get(key);
-      return {
-        ...input,
-        signature_script: signedInput?.signatureScript ?? input.signature_script,
-      };
-    }),
-  };
-}

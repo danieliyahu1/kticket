@@ -56,7 +56,7 @@ function Success({ txid }: { txid?: string }) {
   return (
     <div className="status">
       <div className="status-icon status-icon-ok" aria-hidden="true">
-        ✓
+        <span>&#10003;</span>
       </div>
       <p className="status-title">Your event is live.</p>
       <p className="status-copy">Anyone with a ticket can get in.</p>
@@ -78,7 +78,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry?: () => voi
   return (
     <div className="status">
       <div className="status-icon status-icon-error" aria-hidden="true">
-        !
+        <span>&#10007;</span>
       </div>
       <p className="status-title">It didn't go through.</p>
       <p className="status-copy">{message}</p>

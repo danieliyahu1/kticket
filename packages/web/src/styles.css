@@ -620,6 +620,10 @@ button {
   margin-top: var(--space-5);
 }
 
+.empty-actions-start {
+  justify-content: flex-start;
+}
+
 /* ── Misc ───────────────────────────────────────────────── */
 
 .mono {
@@ -700,6 +704,220 @@ button {
     gap: var(--space-5);
   }
 }
+
+/* ── Overlay / Modal ────────────────────────────────────── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.overlay-card {
+  max-width: 420px;
+  width: 100%;
+  margin: var(--space-5);
+}
+
+.modal-heading {
+  font-weight: 700;
+  margin: 0;
+}
+
+.modal-sub {
+  color: var(--ink-secondary);
+  font-size: 0.875rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* ── Status rows ────────────────────────────────────────── */
+
+.status-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.status-copy {
+  margin: 0;
+}
+
+/* ── Ticket groups ──────────────────────────────────────── */
+
+.ticket-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.ticket-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ticket-group-heading {
+  margin: 0 0 var(--space-3);
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.ticket-line-price {
+  color: var(--ink-tertiary);
+  font-size: 0.8125rem;
+}
+
+.stub-value-sm {
+  font-size: 0.6875rem;
+}
+
+.btn-link-clean {
+  padding: 0;
+}
+
+/* ── Detail / Stats ─────────────────────────────────────── */
+
+.stat-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.stat-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.section-gap {
+  margin-top: var(--space-6);
+}
+
+/* ── Door ───────────────────────────────────────────────── */
+
+.door {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.door-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-6);
+}
+
+.door-wordmark {
+  font-weight: 700;
+  font-size: 1.0625rem;
+  letter-spacing: -0.02em;
+}
+
+.door-badge {
+  color: var(--ink-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.door-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.door-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--canvas-raise);
+  color: var(--ink-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.door-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.door-title {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.door-sub {
+  margin: 0;
+  max-width: 420px;
+  color: var(--ink-secondary);
+  font-size: 1.0625rem;
+}
+
+.door-frame {
+  width: min(360px, 80vw);
+  aspect-ratio: 1.35;
+  margin-top: var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  color: var(--ink-tertiary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.door-foot {
+  padding: var(--space-5) var(--space-6);
+  color: var(--ink-tertiary);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* ── Dark theme ─────────────────────────────────────────── */
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ink: #f5f5f7;
+  --ink-secondary: #a1a1a6;
+  --ink-tertiary: #6e6e73;
+
+  --canvas: #0b0b0d;
+  --canvas-subtle: #101012;
+  --canvas-soft: #101012;
+  --canvas-raise: #161618;
+
+  --accent: #19a95f;
+  --accent-soft: rgba(25, 169, 95, 0.14);
+
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+}
+
+/* ── A11y + motion ──────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
   *,

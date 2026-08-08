@@ -3,6 +3,7 @@ import { type DeployParams, type DeployState, executeDeploy } from "../api/deplo
 import { organizerPkh, randomEventId } from "../api/crypto";
 import { saveEvent } from "../api/event-store";
 import { DeployDialog, DeployStatus } from "../components/deploy-dialog";
+import { Empty } from "../components/empty";
 import { EventForm, type EventFormData } from "../components/event-form";
 import { validate } from "../components/event-validate";
 import { Review } from "../components/review";
@@ -30,15 +31,12 @@ function RequireWallet() {
   return (
     <section>
       <PageHeader caption="Step 1 of 3 · Details" title="Create an event" />
-      <div className="empty">
-        <p className="empty-title">Connect your wallet to create an event.</p>
-        <p className="empty-sub">Events are put on Kaspa from your own wallet.</p>
-        <div className="empty-actions">
-          <button type="button" className="btn btn-primary" onClick={connect}>
-            Connect wallet
-          </button>
-        </div>
-      </div>
+      <Empty
+        title="Connect your wallet to create an event."
+        sub="Events are put on Kaspa from your own wallet."
+        actionLabel="Connect wallet"
+        onAction={connect}
+      />
     </section>
   );
 }

@@ -1,30 +1,10 @@
 import type { EventFormData } from "./event-form";
+import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
 
 export interface ReviewProps {
   data: EventFormData;
   onDeploy: () => void;
   onEdit: () => void;
-}
-
-const WHEN_FORMAT = {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-} as const;
-
-function whenLabel(date: string, time: string): string {
-  if (!(date && time)) return "";
-  return new Intl.DateTimeFormat("en", WHEN_FORMAT).format(new Date(`${date}T${time}`));
-}
-
-function priceLabel(price: number): string {
-  return price === 0 ? "Free" : `${price} KAS`;
-}
-
-function capacityLabel(capacity: number): string {
-  return `${capacity} ${capacity === 1 ? "ticket" : "tickets"}`;
 }
 
 export function Review({ data, onDeploy, onEdit }: ReviewProps) {

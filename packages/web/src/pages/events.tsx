@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { isMine, loadEvents, type StoredEvent } from "../api/event-store";
+import { Empty } from "../components/empty";
 import { useWallet } from "../hooks/use-wallet";
+import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
 
 type Segment = "all" | "mine";
 
@@ -9,33 +11,6 @@ const SEGMENTS: Array<{ id: Segment; label: string }> = [
   { id: "all", label: "All events" },
   { id: "mine", label: "My events" },
 ];
-
-interface EmptyProps {
-  title: string;
-  sub: string;
-  actionLabel: string;
-  actionTo?: string;
-  onAction?: () => void;
-}
-
-function Empty({ title, sub, actionLabel, actionTo, onAction }: EmptyProps) {
-  const action = actionTo ? (
-    <Link to={actionTo} className="btn btn-primary">
-      {actionLabel}
-    </Link>
-  ) : (
-    <button type="button" className="btn btn-primary" onClick={onAction}>
-      {actionLabel}
-    </button>
-  );
-  return (
-    <div className="empty">
-      <p className="empty-title">{title}</p>
-      <p className="empty-sub">{sub}</p>
-      <div className="empty-actions">{action}</div>
-    </div>
-  );
-}
 
 function AllEmpty() {
   return (
@@ -84,30 +59,9 @@ function Segmented({ current, onChange }: { current: Segment; onChange: (s: Segm
   );
 }
 
-const WHEN_FORMAT = {
-  weekday: "long",
-  month: "long",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-} as const;
-
-function whenLabel(date: string, time: string): string {
-  if (!(date && time)) return "";
-  return new Intl.DateTimeFormat("en", WHEN_FORMAT).format(new Date(`${date}T${time}`));
-}
-
-function priceLabel(price: number): string {
-  return price === 0 ? "Free" : `${price} KAS`;
-}
-
-function capacityLabel(capacity: number): string {
-  return `${capacity} ${capacity === 1 ? "ticket" : "tickets"}`;
-}
-
 function EventCard({ event }: { event: StoredEvent }) {
   return (
-    <Link to={`/events/${event.eventId}`} className="card event-card" style={{ textDecoration: "none", color: "inherit" }}>
+    <Link to={`/events/${event.eventId}`} className="card event-card">
       <h3 className="event-card-name">{event.name}</h3>
       <p className="event-card-line">{whenLabel(event.date, event.time)}</p>
       <div className="event-card-meta">

@@ -16,8 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:api": "npm run dev --workspace @kticket/api",
-    "dev:web": "npm run dev --workspace @kticket/web",
-    "dev:door": "npm run dev --workspace @kticket/door"
+    "dev": "npm run dev --workspace @kticket/web"
   },
   "devDependencies": {
     "playwright": "^1.62.1",
