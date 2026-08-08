@@ -26,6 +26,8 @@ jobs:
         run: npm ci
 
       - name: Lint
+        # biome check enforces lint + formatting + the Uncle Bob craft ruleset
+        # (function size/complexity, magic numbers, naming) configured in biome.json.
         run: npm run lint
 
       - name: Typecheck
