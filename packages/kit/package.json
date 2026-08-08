@@ -17,8 +17,7 @@
   ],
   "scripts": {
     "build": "node scripts/silverc.mjs",
-    "check:contracts": "node scripts/silverc.mjs --check",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "check:contracts": "node scripts/silverc.mjs --check"
   },
   "dependencies": {
     "@noble/hashes": "^2.3.0"

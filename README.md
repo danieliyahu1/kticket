@@ -29,10 +29,6 @@ npm run dev:api   # or dev:web / dev:door
 | Script | What it does |
 | --- | --- |
 | `npm run build` | Builds every package (`build` script in each workspace). |
-| `npm run lint` | Lints + formats + organizes imports (Biome). |
-| `npm run lint:fix` | Applies lint/format fixes. |
-| `npm run format` | Formats the whole repo. |
-| `npm run typecheck` | Type-checks every workspace. |
 | `npm test` | Runs the test suite (Vitest). |
 | `npm run dev:*` | Dev servers for the api / web / door apps. |
 

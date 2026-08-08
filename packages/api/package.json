@@ -8,8 +8,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
-    "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "@kticket/kit": "*",

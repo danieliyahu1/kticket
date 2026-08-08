@@ -99,7 +99,6 @@ function covenantGroups(tx: WireTransaction): { authorizingInput: number; output
 }
 
 function serializeSafe(wasmTx: unknown): string {
-  // biome-ignore lint/style/useNamingConvention: wasm method name is fixed upstream
   const serialize = (wasmTx as { serializeToSafeJSON: () => string }).serializeToSafeJSON;
   return serialize.call(wasmTx);
 }
