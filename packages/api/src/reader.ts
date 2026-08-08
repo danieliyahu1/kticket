@@ -51,6 +51,8 @@ export interface ReaderContext {
 
 const TICKET_ID_RE = /^([0-9a-fA-F]{64}):([0-9]{1,3})$/;
 const HEX64 = /^[0-9a-fA-F]{64}$/;
+/** Standard Kaspa P2SH output script: `aa20 <32-byte hash> 87`. */
+const P2SH_SCRIPT = /^aa20[0-9a-fA-F]{64}87$/;
 
 /** Parse a `ticket_id` of the form `<64-hex deploy txid>:<index>`. */
 export function parseTicketId(raw: string): { txId: string; index: number } {
@@ -69,7 +71,7 @@ async function loadGenesis(ctx: ReaderContext, txId: string, index: number) {
   if (!output) throw invalidError(`genesis transaction ${txId} has no output index ${index}`);
 
   const spk = output.script_public_key;
-  if (typeof spk !== "string" || !HEX64.test(spk)) {
+  if (typeof spk !== "string" || !(HEX64.test(spk) || P2SH_SCRIPT.test(spk))) {
     throw invalidError("output is not a kticket covenant output");
   }
   return spk;
@@ -92,10 +94,10 @@ function liveResult(
 }
 
 function isBurnSuccessor(event: RegisteredEvent | undefined, scriptPublicKey: string): boolean {
-  return (
-    event !== undefined &&
-    scriptPublicKey.toLowerCase() === burnTemplateHash(event.eventId, BURN_ARTIFACT.code)
-  );
+  if (event === undefined) return false;
+  const hash = burnTemplateHash(event.eventId, BURN_ARTIFACT.code);
+  // On-chain the burn output is the standard P2SH script `aa20 <hash> 87`.
+  return scriptPublicKey.toLowerCase() === `aa20${hash}87`;
 }
 
 type AdvanceOutcome =

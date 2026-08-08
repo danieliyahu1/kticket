@@ -24,6 +24,7 @@ import { parseBroadcastRequest, throwRejectionError } from "./broadcast.js";
 import { type BuiltTransaction, type PreparedBuild, preparedBuildFor } from "./builders.js";
 import { policyError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import { signingTemplate } from "./signing.js";
 import {
   type BroadcastResult,
   type BuildResult,
@@ -103,13 +104,40 @@ export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<Bu
 
   const built = await buildFeeAware(prepared, ctx.kaspa);
 
-  const result: BuildResult = { template: toWireTx(built.tx) };
+  const wire = toWireTx(built.tx);
+  const result: BuildResult = { template: wire };
 
   if (built.eventCovenantId) {
     result.event_covenant_id = built.eventCovenantId;
   }
 
+  if (hasCompleteUtxoMetas(prepared.inputUtxoMetas)) {
+    const { signingJson, covenantIds } = await signingTemplate(wire, prepared.inputUtxoMetas);
+    result.signing_template = signingJson;
+    applyWasmCovenantIds(result, covenantIds);
+  }
+
   return result;
+}
+
+/** Patch the template's covenant ids to the consensus (wasm) values. */
+function applyWasmCovenantIds(result: BuildResult, ids: Record<number, string>): void {
+  for (const [index, id] of Object.entries(ids)) {
+    const output = result.template.outputs[Number(index)];
+    if (output?.covenant) {
+      output.covenant.covenant_id = id;
+    }
+  }
+  if (result.event_covenant_id) {
+    result.event_covenant_id = ids[0] ?? result.event_covenant_id;
+  }
+}
+
+/** Only signable when every input has a real previous-output script (empty = wallet didn't supply). */
+function hasCompleteUtxoMetas(
+  metas: readonly { script_public_key: { script: string } }[],
+): boolean {
+  return metas.length > 0 && metas.every((m) => m.script_public_key.script.length > 0);
 }
 
 export async function broadcastTransaction(raw: unknown, ctx: TxContext): Promise<BroadcastResult> {

@@ -411,6 +411,10 @@ describe("tx routes (KTK-6) — build", () => {
     await app.close();
   });
 
+  it("POST /v1/tx/build returns a signing_template (safe-JSON) when UTXO metadata is supplied", async () => {
+    await expectSigningTemplate();
+  });
+
   it("POST /v1/tx/build rejects an unknown type as invalid", async () => {
     const app = await txApp();
     const res = await app.inject({
@@ -423,6 +427,32 @@ describe("tx routes (KTK-6) — build", () => {
     await app.close();
   });
 });
+
+async function expectSigningTemplate(): Promise<void> {
+  const app = await txApp();
+  const body = {
+    ...deployBody,
+    input_utxo_metas: [
+      {
+        transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
+        index: 0,
+        value: 1_000_000_000,
+        script_public_key: { version: 0, script: `2071${"11".repeat(TXID_BYTE_LENGTH)}ac` },
+        block_daa_score: 536_453_032,
+        is_coinbase: false,
+      },
+    ],
+  };
+  const res = await app.inject({ method: "POST", url: "/v1/tx/build", payload: body });
+  expect(res.statusCode).toBe(HTTP_OK);
+  const result = res.json();
+  expect(typeof result.signing_template).toBe("string");
+  const parsed = JSON.parse(result.signing_template);
+  expect(parsed.version).toBe(1);
+  expect(parsed.inputs).toHaveLength(1);
+  expect(parsed.inputs[0].utxo.scriptPublicKey).toContain("ac");
+  await app.close();
+}
 
 describe("tx routes (KTK-6) — broadcast", () => {
   beforeEach(() => {

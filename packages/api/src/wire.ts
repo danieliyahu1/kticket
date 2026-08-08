@@ -23,6 +23,21 @@ export interface WireUtxo extends WireOutpoint {
   value: number;
 }
 
+/**
+ * A funding UTXO with the full prev-output metadata the wallet needs to sign
+ * (`signPskt` safe-JSON carries `utxo.scriptPublicKey` etc. per input). The
+ * wallet supplies these from its own lookup; the API forwards them into the
+ * wasm-built signing template.
+ */
+export interface WireUtxoMeta extends WireUtxo {
+  /** `{version, script}` public key of the previous output (v0 P2PK for kasware). */
+  script_public_key: WireScriptPublicKey;
+  block_daa_score: number;
+  is_coinbase: boolean;
+  /** Optional human-readable address for the previous output. */
+  address?: string;
+}
+
 export interface WireScriptPublicKey {
   version: number;
   script: string;
@@ -70,6 +85,8 @@ export type BuildRequest =
       authorizing_outpoint: WireUtxo;
       organizer_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
+      /** Full prev-output metadata for every spending input, in input order (needed to sign). */
+      input_utxo_metas?: WireUtxoMeta[];
     }
   | {
       type: "buy";
@@ -102,6 +119,12 @@ export type BuildRequest =
 
 export interface BuildResult {
   template: WireTransaction;
+  /**
+   * The unsigned transaction in the kaspa-wasm safe-JSON shape Kasware's
+   * `signPskt` expects (`serializeToSafeJSON()`), built on-chain-style so the
+   * wallet can produce signatures (HLD §2.2 / forge reference).
+   */
+  signing_template?: string;
   /** Set for deploy — the event's covenant family id (HLD §2.1). */
   event_covenant_id?: string;
 }
@@ -143,6 +166,26 @@ function utxos(value: unknown, label: string): WireUtxo[] {
   });
 }
 
+function utxoMetas(value: unknown, label: string): WireUtxoMeta[] {
+  if (!Array.isArray(value)) throw invalidError(`${label} must be an array`);
+  return value.map((entry, i) => {
+    if (!isRecord(entry)) throw invalidError(`${label}[${i}] must be an object`);
+    const item = `${label}[${i}]`;
+    const address = entry.address;
+    if (address !== undefined && typeof address !== "string") {
+      throw invalidError(`${item}.address must be a string`);
+    }
+    return {
+      ...outpoint(entry, item),
+      value: uint(entry.value, `${item}.value`),
+      script_public_key: scriptSpk(entry.script_public_key, `${item}.script_public_key`),
+      block_daa_score: uint(entry.block_daa_score, `${item}.block_daa_score`),
+      is_coinbase: entry.is_coinbase === true,
+      ...(typeof address === "string" ? { address } : {}),
+    };
+  });
+}
+
 function parseConstants(value: unknown): TicketConstantsJson {
   if (!isRecord(value)) throw invalidError("constants must be an object");
   return {
@@ -170,6 +213,9 @@ function parseDeploy(raw: Record<string, unknown>): BuildRequest {
     },
     organizer_utxos: utxos(raw.organizer_utxos, "organizer_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...(raw.input_utxo_metas !== undefined
+      ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
+      : {}),
   };
 }
 

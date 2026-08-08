@@ -24,7 +24,7 @@ import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { findSpend, type OutpointRef } from "./lineage.js";
 import { MAX_LINEAGE_DEPTH } from "./reader.js";
-import { HEX64, hex, hex64, isRecord, str, uint } from "./validate.js";
+import { HEX64, hex, hex64, isRecord, P2SH_SCRIPT, str, uint } from "./validate.js";
 
 export interface RegisteredEvent {
   /** Event id as a 64-hex string (the deploy constants' `event_id`). */
@@ -153,7 +153,7 @@ export async function eventAvailability(
 
   const output = deploy.outputs?.[0];
   const spk = output?.script_public_key;
-  if (typeof spk !== "string" || !HEX64.test(spk)) {
+  if (typeof spk !== "string" || !(HEX64.test(spk) || P2SH_SCRIPT.test(spk))) {
     throw invalidError(`deploy transaction ${event.genesisTxId} has no covenant output`);
   }
 

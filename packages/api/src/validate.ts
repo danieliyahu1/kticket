@@ -6,6 +6,8 @@ import { invalidError } from "./errors.js";
 
 export const HEX64 = /^[0-9a-fA-F]{64}$/;
 export const HEX = /^[0-9a-fA-F]+$/;
+/** Standard Kaspa P2SH output script: `aa20 <32-byte hash> 87`. */
+export const P2SH_SCRIPT = /^aa20[0-9a-fA-F]{64}87$/;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
