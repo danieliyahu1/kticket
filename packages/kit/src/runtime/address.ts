@@ -255,16 +255,41 @@ export function availableTicketAddress(
   );
 }
 
+/** OP_HASH256 (Kaspa P2SH) — the standard script form the node accepts. */
+const OP_HASH256 = 0xaa;
+/** OP_EQUAL — closes the P2SH script. */
+const OP_EQUAL = 0x87;
+/** P2SH push length opcode for a 32-byte script hash. */
+const PUSH32 = 0x20;
+
 /**
  * P2SH address for an on-chain covenant output script. The chain stores the
- * script hash only (`p2shScript` → `blake3(redeem_script)`), so the address is
- * just that hash under the ScriptHash version byte — the reader (HLD §2.2)
- * derives addresses this way without needing the redeem script.
+ * standard `aa20 <hash> 87` script form (`p2shScript`), so the address is the
+ * embedded 32-byte hash under the ScriptHash version byte — the reader (HLD
+ * §2.2) derives addresses this way without needing the redeem script. A bare
+ * 32-byte hash is also accepted for callers holding only the digest.
  */
 export function addressFromScriptHash(scriptHashHex: string, network: AddressNetwork): string {
-  const hash = hexToBytes(scriptHashHex);
+  const bytes = hexToBytes(scriptHashHex);
+  const hash = unwrapP2sh(bytes);
   if (hash.length !== HASH_LENGTH) {
     throw new PreimageError(`script hash must be 32 bytes, got ${hash.length}`);
   }
   return encodeAddress(NETWORK_PREFIXES[network], p2shPayload(hash));
+}
+
+/** P2SH script length: `aa` + `20` + 32-byte hash + `87`. */
+const P2SH_SCRIPT_LENGTH = 35;
+
+function unwrapP2sh(bytes: Uint8Array): Uint8Array {
+  const len = bytes.length;
+  if (
+    len === P2SH_SCRIPT_LENGTH &&
+    bytes[0] === OP_HASH256 &&
+    bytes[1] === PUSH32 &&
+    bytes[len - 1] === OP_EQUAL
+  ) {
+    return bytes.slice(2, len - 1);
+  }
+  return bytes;
 }

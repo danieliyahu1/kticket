@@ -246,8 +246,11 @@ describe("buildHandover", () => {
 describe("burnTemplateHash (reader's GONE check)", () => {
   it("equals the on-chain burn output script hash from the handover builder", () => {
     const eventIdHex = bytesToHex(EVENT_ID);
+    const burnScriptHash = burnScript(CONSTANTS, BURN_CODE).script;
+    const p2shPrefixHexLen = 4;
+    const p2shSuffixHexLen = 2;
     expect(burnTemplateHash(eventIdHex, bytesToHex(BURN_CODE))).toBe(
-      burnScript(CONSTANTS, BURN_CODE).script,
+      burnScriptHash.slice(p2shPrefixHexLen, burnScriptHash.length - p2shSuffixHexLen),
     );
   });
 

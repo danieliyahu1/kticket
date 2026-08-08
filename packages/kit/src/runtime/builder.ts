@@ -34,9 +34,27 @@ import { TX_VERSION_V1 } from "./tx.js";
 
 export { FEE_PAYER } from "./tx.js";
 
-/** P2SH script public key for a redeem script (blake3-32 script hash). */
+/** OP_HASH256 (Kaspa P2SH) — the standard script form the node accepts. */
+const OP_HASH256 = 0xaa;
+/** OP_EQUAL — closes the P2SH script. */
+const OP_EQUAL = 0x87;
+/** P2SH push length opcode for a 32-byte script hash. */
+const PUSH32 = 0x20;
+
+/**
+ * P2SH script public key for a redeem script (blake3-32 script hash) in the
+ * standard Kaspa form `aa20 <hash> 87` — the shape `payToScriptHashScript`
+ * produces on-chain (forge reference). A bare 32-byte hash is not a standard
+ * script and the node rejects it.
+ */
 export function p2shScript(redeemScript: Uint8Array): ScriptPublicKey {
-  return { version: 0, script: bytesToHex(scriptHash(redeemScript)) };
+  const hash = scriptHash(redeemScript);
+  const script = new Uint8Array(1 + 1 + hash.length + 1);
+  script[0] = OP_HASH256;
+  script[1] = PUSH32;
+  script.set(hash, 2);
+  script[2 + hash.length] = OP_EQUAL;
+  return { version: 0, script: bytesToHex(script) };
 }
 
 function covenantScript(
@@ -56,7 +74,7 @@ function asInput(outpoint: Outpoint): TxInput {
     previousOutpoint: { txId: bytesToHex(outpoint.txId), index: outpoint.index },
     signatureScript: "",
     sequence: 0,
-    sigOpCount: 1,
+    sigOpCount: COMPUTE_BUDGET,
   };
 }
 
@@ -70,6 +88,13 @@ function totalOf(values: readonly number[]): number {
 
 /** Maximum event capacity (the event covenant's `remaining` cannot exceed it). */
 export const MAX_EVENT_CAPACITY = 100;
+
+/**
+ * Compute budget committed on each v1 input (v1 wire `sig_op_count` shim). Each
+ * unit grants 10,000 script units; a covenant transition check needs ~100,000
+ * units, so 10 is the floor — forge uses 50 for headroom.
+ */
+export const COMPUTE_BUDGET = 50;
 
 /** Default covenant dust locked in an output (~0.5 KAS). */
 export const DUST = 50_000_000;
