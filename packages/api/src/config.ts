@@ -1,4 +1,4 @@
-import { getNetworkConfig, type KaspiaNet } from "@kticket/kit";
+import { getNetworkConfig, type KaspaNetwork } from "@kticket/kit";
 import { parseRegisteredEvents, type RegisteredEvent } from "./events.js";
 
 export interface TlsConfig {
@@ -16,7 +16,7 @@ export interface UpstreamConfig {
 export interface ApiConfig {
   port: number;
   host: string;
-  kaspaNet: KaspiaNet;
+  kaspaNet: KaspaNetwork;
   /** wRPC network id for broadcast ("testnet-10"). */
   networkId: string;
   /** Kaspa public REST API base URL for the selected network. */

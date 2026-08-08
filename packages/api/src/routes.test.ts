@@ -273,7 +273,7 @@ describe("reader routes (KTK-5)", () => {
     await app.close();
   });
 
-  it("GET /v1/events/{id} maps upstream failure to 503 upstream", async () => {
+  it("GET /v1/events/{id} treats a missing deploy tx as invalid (400)", async () => {
     const kaspa = new FakeKaspa();
     const app = await buildApp(config(), {
       kaspa,
@@ -282,9 +282,9 @@ describe("reader routes (KTK-5)", () => {
       networkId: "testnet-10",
     });
     const res = await app.inject({ method: "GET", url: `/v1/events/${EVENT.eventId}` });
-    expect(res.statusCode).toBe(503);
-    expect(res.json().error.type).toBe("upstream");
-    expect(res.json().error.retryable).toBe(true);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.type).toBe("invalid");
+    expect(res.json().error.retryable).toBe(false);
     await app.close();
   });
 
@@ -402,7 +402,12 @@ describe("tx routes (KTK-6)", () => {
     const body = res.json();
     expect(body.template.version).toBe(1);
     expect(body.template.outputs).toHaveLength(2); // event covenant + change
-    expect(body.fee.fee).toBeGreaterThan(0);
+    const inputTotal = 1_000_000_000;
+    const outputTotal = body.template.outputs.reduce(
+      (acc: number, o: { value: number }) => acc + o.value,
+      0,
+    );
+    expect(inputTotal - outputTotal).toBeGreaterThan(0); // a fee is charged
     expect(body.event_covenant_id).toMatch(/^[0-9a-f]{64}$/);
     await app.close();
   });

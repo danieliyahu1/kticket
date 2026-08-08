@@ -293,11 +293,11 @@ describe("eventAvailability (GET /v1/events/{id})", () => {
     expect(availability).toEqual({ capacity: 0, sold: 0, left: 0 });
   });
 
-  it("surfaces an upstream error when the deploy tx is missing", async () => {
+  it("treats a missing deploy tx as an invalid event, not an upstream outage", async () => {
     const kaspa = new FakeKaspa({ transaction_id: "ff".repeat(32), inputs: [], outputs: [] });
     await expect(eventAvailability(EVENT, kaspa, NETWORK)).rejects.toMatchObject({
-      type: "upstream",
-      statusCode: 503,
+      type: "invalid",
+      statusCode: 400,
     });
   });
 });

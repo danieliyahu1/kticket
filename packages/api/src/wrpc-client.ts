@@ -10,6 +10,9 @@
 
 import type { WireTransaction } from "./tx.js";
 
+/** The zero 20-byte subnetwork id (the native subnetwork — all kticket txs use it). */
+const NATIVE_SUBNETWORK_ID = "0000000000000000000000000000000000000000";
+
 /** The vendored kaspa-wasm module surface used by the relay. */
 export interface KaspaWasm {
   Transaction: new (init: unknown) => { [key: string]: unknown };
@@ -35,22 +38,12 @@ async function loadWasm(): Promise<KaspaWasm> {
   return mod;
 }
 
-function toBigInt(value: unknown): bigint {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number") return BigInt(value);
-  if (typeof value === "string") return BigInt(value);
-  return 0n;
-}
-
-function toNumber(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value);
-  return 0;
-}
-
 /**
  * Submit a signed v1 transaction over wRPC, preserving covenant bindings.
  * Returns the transaction id, or throws with the node's rejection message.
+ *
+ * v1 shim: the wire field `sig_op_count` means compute-budget in v1 templates,
+ * so it is mapped into `computeBudget` (with `sigOpCount` left 0).
  */
 export async function submitTransactionOverWrpc(
   networkId: string,
@@ -65,27 +58,27 @@ export async function submitTransactionOverWrpc(
         index: input.previous_outpoint.index,
       },
       signatureScript: input.signature_script,
-      sequence: toBigInt(input.sequence),
+      sequence: BigInt(input.sequence),
       sigOpCount: tx.version >= 1 ? 0 : input.sig_op_count,
       computeBudget: tx.version >= 1 ? input.sig_op_count : 0,
     })),
     outputs: tx.outputs.map((output) => ({
-      value: toBigInt(output.value),
+      value: BigInt(output.value),
       scriptPublicKey: {
-        version: toNumber(output.script_public_key.version),
+        version: output.script_public_key.version,
         script: output.script_public_key.script,
       },
       ...(tx.version >= 1 && output.covenant
         ? {
             covenant: {
-              authorizingInput: toNumber(output.covenant.authorizing_input),
+              authorizingInput: output.covenant.authorizing_input,
               covenantId: output.covenant.covenant_id,
             },
           }
         : {}),
     })),
-    lockTime: toBigInt(tx.lock_time),
-    subnetworkId: "0000000000000000000000000000000000000000",
+    lockTime: BigInt(tx.lock_time),
+    subnetworkId: NATIVE_SUBNETWORK_ID,
     gas: 0n,
     payload: "",
   });

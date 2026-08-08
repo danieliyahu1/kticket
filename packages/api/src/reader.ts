@@ -21,12 +21,12 @@ import {
   addressFromScriptHash,
   BURN_ARTIFACT,
   burnTemplateHash,
-  type KaspiaNet,
+  type KaspaNetwork,
 } from "@kticket/kit";
 import { invalidError } from "./errors.js";
 import type { RegisteredEvent } from "./events.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
-import type { TxInput, TxModel, TxOutput } from "./kaspa-types.js";
+import { findSpend, findSuccessor } from "./lineage.js";
 
 export const MAX_LINEAGE_DEPTH = 16;
 
@@ -46,7 +46,7 @@ export interface VerifyResult {
 export interface ReaderContext {
   kaspa: KaspaClientLike;
   events: { byGenesisTxId(txId: string): RegisteredEvent | undefined };
-  network: KaspiaNet;
+  network: KaspaNetwork;
 }
 
 const TICKET_ID_RE = /^([0-9a-fA-F]{64}):([0-9]{1,3})$/;
@@ -81,9 +81,7 @@ export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<Ver
 
   for (let depth = 0; depth <= MAX_LINEAGE_DEPTH; depth++) {
     const utxos = await ctx.kaspa.getUtxos(address);
-    if (utxos.length > 0) {
-      const live = utxos[0];
-      if (!live) throw invalidError("unexpected empty utxo result");
+    for (const live of utxos) {
       return {
         state: "alive",
         liveOutpoint: {
@@ -122,38 +120,6 @@ export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<Ver
   }
 
   return { state: "unknown", cause: "depth-exceeded", ...eventMeta(event) };
-}
-
-function findSpend(
-  txs: TxModel[],
-  outpoint: { transactionId: string; index: number },
-): { tx: TxModel; input: TxInput } | undefined {
-  for (const tx of txs) {
-    for (const input of tx.inputs ?? []) {
-      if (references(input, outpoint)) return { tx, input };
-    }
-  }
-  return undefined;
-}
-
-function references(input: TxInput, outpoint: { transactionId: string; index: number }): boolean {
-  return (
-    input.previous_outpoint_hash?.toLowerCase() === outpoint.transactionId.toLowerCase() &&
-    Number(input.previous_outpoint_index) === outpoint.index
-  );
-}
-
-/**
- * The covenant continuation output a spend authorizes: the output bound to the
- * same authorizing input. Buy/transfer/handover each produce exactly one such
- * output (the ticket or burn successor); the change output is not a covenant.
- */
-function findSuccessor(tx: TxModel, spent: TxInput): TxOutput | undefined {
-  const covenants = (tx.outputs ?? []).filter((o) => o.covenant_authorizing_input != null);
-  if (covenants.length === 0) return undefined;
-  const byInput = covenants.find((o) => o.covenant_authorizing_input === spent.index);
-  if (byInput) return byInput;
-  return covenants.length === 1 ? covenants[0] : undefined;
 }
 
 function eventMeta(event: RegisteredEvent | undefined) {

@@ -1,8 +1,8 @@
-﻿// Typed HTTP client for the Kaspa public REST API (HLD v0.23 Â§2.2 â€” "reads via
+﻿// Typed HTTP client for the Kaspa public REST API (HLD v0.23 §2.2 — "reads via
 // api-tn10.kaspa.org"). Upstream handling per KTK-5:
-//   - 503 / 429  â†’ retry with exponential backoff (honouring `Retry-After`),
+//   - 503 / 429  → retry with exponential backoff (honouring `Retry-After`),
 //     then 503 `upstream` error (retryable).
-//   - timeout / connection errors â†’ 502 `network` error (no retry).
+//   - timeout / connection errors → 502 `network` error (no retry).
 //   - a short-TTL in-process cache is used only as a rate-limit valve.
 //
 // All 200 responses are cached; the reader and availability path reuse the
@@ -17,8 +17,11 @@ import type {
   TxModel,
   UtxoResponse,
 } from "./kaspa-types.js";
+import { isRecord } from "./validate.js";
 
-/** Public surface used by the reader / routes â€” makes clients injectable in tests. */
+const UPSTREAM_HOST = "api-tn10.kaspa.org";
+
+/** Public surface used by the reader / routes — makes clients injectable in tests. */
 export interface KaspaClientLike {
   getUtxos(address: string): Promise<UtxoResponse[]>;
   getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]>;
@@ -76,7 +79,7 @@ export class UpstreamRequestError extends Error {
   readonly body: string;
 
   constructor(status: number, body: string) {
-    super(`api-tn10.kaspa.org responded HTTP ${status}`);
+    super(`${UPSTREAM_HOST} responded HTTP ${status}`);
     this.status = status;
     this.body = body;
   }
@@ -98,10 +101,6 @@ function isAbortError(err: unknown): boolean {
     "name" in err &&
     (err as { name?: unknown }).name === "AbortError"
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 export class KaspaClient implements KaspaClientLike {
@@ -218,57 +217,66 @@ export class KaspaClient implements KaspaClientLike {
     let lastRetryAfter: number | undefined;
 
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt++) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+      const response = await this.#fetchWithTimeout(method, path, payload);
+      const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
 
-      let res: Response;
-      try {
-        res = await this.#fetch(`${this.#baseUrl}${path}`, {
-          method,
-          signal: controller.signal,
-          headers: payload === undefined ? undefined : { "content-type": "application/json" },
-          body: payload,
-        });
-      } catch (err) {
-        if (isAbortError(err)) {
-          throw networkError(`api-tn10.kaspa.org timed out after ${this.#timeoutMs}ms`);
-        }
-        throw networkError("api-tn10.kaspa.org unreachable", { detail: String(err) });
-      } finally {
-        clearTimeout(timer);
-      }
-
-      if (res.status === 429 || res.status === 503) {
-        const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
+      if (response.status === 429 || response.status === 503) {
         lastRetryAfter = retryAfter;
         if (attempt < this.#maxAttempts) {
-          const backoff = Math.min(this.#maxRetryMs, this.#baseRetryMs * 2 ** (attempt - 1));
-          await this.#sleep((retryAfter ?? 0) * 1000 + backoff);
+          await this.#sleep(this.#backoffMs(attempt, retryAfter));
           continue;
         }
-        throw upstreamError("api-tn10.kaspa.org is unavailable or rate-limited", {
+        throw upstreamError(`${UPSTREAM_HOST} is unavailable or rate-limited`, {
           retryAfter: lastRetryAfter,
-          detail: { status: res.status },
+          detail: { status: response.status },
         });
       }
 
-      if (res.status >= 500) {
-        throw upstreamError(`api-tn10.kaspa.org error (HTTP ${res.status})`, {
-          detail: { status: res.status },
+      if (response.status >= 500) {
+        throw upstreamError(`${UPSTREAM_HOST} error (HTTP ${response.status})`, {
+          detail: { status: response.status },
         });
       }
-      if (res.status !== 200) {
-        const text = await res.text().catch(() => "");
-        throw new UpstreamRequestError(res.status, text);
+      if (response.status !== 200) {
+        const text = await response.text().catch(() => "");
+        throw new UpstreamRequestError(response.status, text);
       }
 
-      const json: unknown = await res.json();
+      const json: unknown = await response.json();
       this.#cache.set(key, { value: json, expiresAt: this.#now() + cacheTtlMs });
       return json;
     }
 
-    throw upstreamError("api-tn10.kaspa.org is unavailable or rate-limited", {
+    throw upstreamError(`${UPSTREAM_HOST} is unavailable or rate-limited`, {
       retryAfter: lastRetryAfter,
     });
+  }
+
+  #fetchWithTimeout(
+    method: "GET" | "POST",
+    path: string,
+    payload: string | undefined,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+
+    return this.#fetch(`${this.#baseUrl}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: payload === undefined ? undefined : { "content-type": "application/json" },
+      body: payload,
+    })
+      .catch((err: unknown) => {
+        if (isAbortError(err)) {
+          throw networkError(`${UPSTREAM_HOST} timed out after ${this.#timeoutMs}ms`);
+        }
+        throw networkError(`${UPSTREAM_HOST} unreachable`, { detail: String(err) });
+      })
+      .finally(() => clearTimeout(timer));
+  }
+
+  #backoffMs(attempt: number, retryAfter: number | undefined): number {
+    const exponential = Math.min(this.#maxRetryMs, this.#baseRetryMs * 2 ** (attempt - 1));
+    return (retryAfter ?? 0) * 1000 + exponential;
   }
 }

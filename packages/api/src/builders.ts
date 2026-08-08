@@ -1,0 +1,138 @@
+// Per-type transaction build strategies (HLD v0.22 §2.1). Each strategy knows
+// how to turn its `BuildRequest` variant into a kit builder invocation given a
+// fee, plus the input total / payouts the fee computation needs.
+
+import {
+  BURN_ARTIFACT,
+  buildBuy,
+  buildDeploy,
+  buildHandover,
+  buildTransfer,
+  EVENT_ARTIFACT,
+  type UnsignedTransaction,
+} from "@kticket/kit";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import type { BuildRequest } from "./wire.js";
+import { codeBytes, orgPayoutSpk, toDecodedConstants, toOutpoint, toSpk } from "./wire.js";
+
+const TESTNET10 = "testnet10";
+
+export type BuiltTransaction = {
+  tx: UnsignedTransaction;
+  eventCovenantId?: string;
+};
+
+export type PreparedBuild = {
+  build: (fee: number) => BuiltTransaction;
+  inputTotal: number;
+  payouts: readonly number[];
+};
+
+function sum(values: readonly number[]): number {
+  return values.reduce((a, b) => a + b, 0);
+}
+
+function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
+  const constants = toDecodedConstants(req.constants);
+  const values = [req.authorizing_outpoint.value, ...req.organizer_utxos.map((u) => u.value)];
+  return {
+    inputTotal: sum(values),
+    payouts: [],
+    build: (fee) => {
+      const deploy = buildDeploy({
+        authorizingOutpoint: toOutpoint(req.authorizing_outpoint),
+        organizerUtxos: req.organizer_utxos.map((u) => toOutpoint(u)),
+        organizerUtxoValues: values,
+        organizer: hexToBytes(req.organizer),
+        capacity: req.capacity,
+        constants,
+        covenantCode: codeBytes(EVENT_ARTIFACT.code),
+        changeScript: toSpk(req.change_spk),
+        fee,
+        network: TESTNET10,
+      });
+      return { tx: deploy.tx, eventCovenantId: deploy.eventCovenantId };
+    },
+  };
+}
+
+function buyBuild(req: BuildRequest & { type: "buy" }): PreparedBuild {
+  const constants = toDecodedConstants(req.constants);
+  return {
+    inputTotal: req.buyer_utxos.reduce((a, u) => a + u.value, 0),
+    payouts: req.constants.price > 0 ? [req.constants.price] : [],
+    build: (fee) => ({
+      tx: buildBuy({
+        eventOutpoint: toOutpoint(req.event_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        eventOwner: hexToBytes(req.event_owner),
+        constants,
+        buyer: hexToBytes(req.buyer),
+        buyerUtxos: req.buyer_utxos.map((u) => toOutpoint(u)),
+        buyerUtxoValues: req.buyer_utxos.map((u) => u.value),
+        orgScript: orgPayoutSpk(req.constants.org_spk),
+        changeScript: toSpk(req.change_spk),
+        covenantCode: codeBytes(EVENT_ARTIFACT.code),
+        remaining: req.remaining,
+        network: TESTNET10,
+        fee,
+      }),
+    }),
+  };
+}
+
+function transferBuild(req: BuildRequest & { type: "transfer" }): PreparedBuild {
+  const constants = toDecodedConstants(req.constants);
+  return {
+    inputTotal: req.holder_utxos.reduce((a, u) => a + u.value, 0),
+    payouts: [],
+    build: (fee) => ({
+      tx: buildTransfer({
+        ticketOutpoint: toOutpoint(req.ticket_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        constants,
+        newOwner: hexToBytes(req.new_owner),
+        holderUtxos: req.holder_utxos.map((u) => toOutpoint(u)),
+        holderUtxoValues: req.holder_utxos.map((u) => u.value),
+        changeScript: toSpk(req.change_spk),
+        covenantCode: codeBytes(EVENT_ARTIFACT.code),
+        network: TESTNET10,
+        fee,
+      }),
+    }),
+  };
+}
+
+function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild {
+  const constants = toDecodedConstants(req.constants);
+  return {
+    inputTotal: req.attendee_utxos.reduce((a, u) => a + u.value, 0),
+    payouts: [],
+    build: (fee) => ({
+      tx: buildHandover({
+        ticketOutpoint: toOutpoint(req.ticket_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        constants,
+        burnCode: codeBytes(BURN_ARTIFACT.code),
+        attendeeUtxos: req.attendee_utxos.map((u) => toOutpoint(u)),
+        attendeeUtxoValues: req.attendee_utxos.map((u) => u.value),
+        changeScript: toSpk(req.change_spk),
+        network: TESTNET10,
+        fee,
+      }),
+    }),
+  };
+}
+
+export function preparedBuildFor(request: BuildRequest): PreparedBuild {
+  switch (request.type) {
+    case "deploy":
+      return deployBuild(request);
+    case "buy":
+      return buyBuild(request);
+    case "transfer":
+      return transferBuild(request);
+    case "handover":
+      return handoverBuild(request);
+  }
+}

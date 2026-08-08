@@ -5,7 +5,7 @@
 //   POST /v1/tx/build          — unsigned v1 template (fee-aware)
 //   POST /v1/tx/broadcast      — relay signed tx -> {txid}
 
-import type { KaspiaNet } from "@kticket/kit";
+import type { KaspaNetwork } from "@kticket/kit";
 import type { FastifyInstance } from "fastify";
 import { invalidError } from "./errors.js";
 import { type EventRegistry, eventAvailability } from "./events.js";
@@ -16,9 +16,18 @@ import { broadcastTransaction, buildTransaction } from "./tx.js";
 export interface AppContext {
   kaspa: KaspaClientLike;
   events: EventRegistry;
-  network: KaspiaNet;
+  network: KaspaNetwork;
   /** wRPC network id for broadcast ("testnet-10"). */
   networkId: string;
+}
+
+function toEventJson(event: { eventId: string; name: string; date: string; price: number }) {
+  return {
+    event_id: event.eventId,
+    name: event.name,
+    date: event.date,
+    price: event.price,
+  };
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -39,12 +48,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!event) throw invalidError(`unknown event ${eventId}`);
     const availability = await eventAvailability(event, ctx.kaspa, ctx.network);
     return {
-      event: {
-        event_id: event.eventId,
-        name: event.name,
-        date: event.date,
-        price: event.price,
-      },
+      event: toEventJson(event),
       availability,
     };
   });

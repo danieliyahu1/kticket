@@ -1,0 +1,296 @@
+// Wire shapes for the tx build endpoint (HLD v0.22 §2.2) and the mapping
+// between the kit's camelCase `UnsignedTransaction` and the snake_case JSON the
+// wallet sends/receives over HTTP.
+
+import {
+  type DecodedConstants,
+  MAX_EVENT_CAPACITY,
+  type ScriptPublicKey,
+  type UnsignedTransaction,
+} from "@kticket/kit";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import { invalidError } from "./errors.js";
+import type { KaspaClientLike } from "./kaspa-client.js";
+import type { SubmitTxModel } from "./kaspa-types.js";
+import { hex, hex64, int, isRecord, str, uint } from "./validate.js";
+
+export interface WireOutpoint {
+  transaction_id: string;
+  index: number;
+}
+
+export interface WireUtxo extends WireOutpoint {
+  value: number;
+}
+
+export interface WireScriptPublicKey {
+  version: number;
+  script: string;
+}
+
+export interface WireCovenant {
+  authorizing_input: number;
+  covenant_id: string;
+}
+
+export interface WireInput {
+  previous_outpoint: WireOutpoint;
+  signature_script: string;
+  sequence: number;
+  sig_op_count: number;
+}
+
+export interface WireOutput {
+  value: number;
+  script_public_key: WireScriptPublicKey;
+  covenant: WireCovenant | null;
+}
+
+/** The unsigned template handed to the wallet — the kit's tx shape, snake_case on the wire. */
+export interface WireTransaction {
+  version: number;
+  inputs: WireInput[];
+  outputs: WireOutput[];
+  lock_time: number;
+}
+
+export interface TicketConstantsJson {
+  event_id: string;
+  price: number;
+  org_spk: string;
+  burn_template_hash: string;
+}
+
+export type BuildRequest =
+  | {
+      type: "deploy";
+      capacity: number;
+      constants: TicketConstantsJson;
+      organizer: string;
+      authorizing_outpoint: WireUtxo;
+      organizer_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+    }
+  | {
+      type: "buy";
+      event_outpoint: WireOutpoint;
+      event_covenant_id: string;
+      event_owner: string;
+      remaining: number;
+      constants: TicketConstantsJson;
+      buyer: string;
+      buyer_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+    }
+  | {
+      type: "transfer";
+      ticket_outpoint: WireOutpoint;
+      event_covenant_id: string;
+      constants: TicketConstantsJson;
+      new_owner: string;
+      holder_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+    }
+  | {
+      type: "handover";
+      ticket_outpoint: WireOutpoint;
+      event_covenant_id: string;
+      constants: TicketConstantsJson;
+      attendee_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+    };
+
+export interface BuildResult {
+  template: WireTransaction;
+  /** Set for deploy — the event's covenant family id (HLD §2.1). */
+  event_covenant_id?: string;
+}
+
+export interface BroadcastResult {
+  txid: string;
+}
+
+export interface TxContext {
+  kaspa: KaspaClientLike;
+  /** wRPC network id ("testnet-10") for the broadcast relay. */
+  networkId: string;
+}
+
+function scriptSpk(value: unknown, label: string): WireScriptPublicKey {
+  if (!isRecord(value)) throw invalidError(`${label} must be { version, script }`);
+  return {
+    version: int(value.version, `${label}.version`),
+    script: hex(value.script, `${label}.script`),
+  };
+}
+
+function outpoint(value: unknown, label: string): WireOutpoint {
+  if (!isRecord(value)) throw invalidError(`${label} must be { transaction_id, index }`);
+  return {
+    transaction_id: hex64(value.transaction_id, `${label}.transaction_id`),
+    index: uint(value.index, `${label}.index`),
+  };
+}
+
+function utxos(value: unknown, label: string): WireUtxo[] {
+  if (!Array.isArray(value)) throw invalidError(`${label} must be an array`);
+  return value.map((entry, i) => {
+    if (!isRecord(entry)) throw invalidError(`${label}[${i}] must be an object`);
+    return {
+      ...outpoint(entry, `${label}[${i}]`),
+      value: uint(entry.value, `${label}[${i}].value`),
+    };
+  });
+}
+
+function parseConstants(value: unknown): TicketConstantsJson {
+  if (!isRecord(value)) throw invalidError("constants must be an object");
+  return {
+    event_id: hex64(value.event_id, "constants.event_id"),
+    price: uint(value.price, "constants.price"),
+    org_spk: hex(value.org_spk, "constants.org_spk"),
+    burn_template_hash: hex64(value.burn_template_hash, "constants.burn_template_hash"),
+  };
+}
+
+/** Parse + validate the build request body into a typed `BuildRequest`. */
+export function parseBuildRequest(raw: unknown): BuildRequest {
+  if (!isRecord(raw)) throw invalidError("request body must be an object");
+  const type = str(raw.type, "type");
+  switch (type) {
+    case "deploy": {
+      const capacity = int(raw.capacity, "capacity");
+      if (capacity < 0 || capacity > MAX_EVENT_CAPACITY) {
+        throw invalidError(`capacity must be 0..${MAX_EVENT_CAPACITY}`);
+      }
+      const authorizingUtxo = isRecord(raw.authorizing_outpoint) ? raw.authorizing_outpoint : {};
+      return {
+        type: "deploy",
+        capacity,
+        constants: parseConstants(raw.constants),
+        organizer: hex64(raw.organizer, "organizer"),
+        authorizing_outpoint: {
+          ...outpoint(authorizingUtxo, "authorizing_outpoint"),
+          value: uint(authorizingUtxo.value, "authorizing_outpoint.value"),
+        },
+        organizer_utxos: utxos(raw.organizer_utxos, "organizer_utxos"),
+        change_spk: scriptSpk(raw.change_spk, "change_spk"),
+      };
+    }
+    case "buy":
+      return {
+        type: "buy",
+        event_outpoint: outpoint(raw.event_outpoint, "event_outpoint"),
+        event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+        event_owner: hex64(raw.event_owner, "event_owner"),
+        remaining: uint(raw.remaining, "remaining"),
+        constants: parseConstants(raw.constants),
+        buyer: hex64(raw.buyer, "buyer"),
+        buyer_utxos: utxos(raw.buyer_utxos, "buyer_utxos"),
+        change_spk: scriptSpk(raw.change_spk, "change_spk"),
+      };
+    case "transfer":
+      return {
+        type: "transfer",
+        ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
+        event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+        constants: parseConstants(raw.constants),
+        new_owner: hex64(raw.new_owner, "new_owner"),
+        holder_utxos: utxos(raw.holder_utxos, "holder_utxos"),
+        change_spk: scriptSpk(raw.change_spk, "change_spk"),
+      };
+    case "handover":
+      return {
+        type: "handover",
+        ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
+        event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+        constants: parseConstants(raw.constants),
+        attendee_utxos: utxos(raw.attendee_utxos, "attendee_utxos"),
+        change_spk: scriptSpk(raw.change_spk, "change_spk"),
+      };
+    default:
+      throw invalidError(`type must be deploy|buy|transfer|handover, got ${type}`);
+  }
+}
+
+// --- kit -> wire mapping ----------------------------------------------------
+
+export function toOutpoint(o: WireOutpoint): { txId: Uint8Array; index: number } {
+  return { txId: hexToBytes(o.transaction_id), index: o.index };
+}
+
+/** Artifact `code` is a hex string; the kit builders want bytes. */
+export function codeBytes(hexCode: string): Uint8Array {
+  return hexToBytes(hexCode);
+}
+
+export function toSpk(spk: WireScriptPublicKey): ScriptPublicKey {
+  return { version: spk.version, script: spk.script };
+}
+
+export function toDecodedConstants(c: TicketConstantsJson): DecodedConstants {
+  return {
+    eventId: hexToBytes(c.event_id),
+    price: c.price,
+    orgSpk: hexToBytes(c.org_spk),
+    burnTemplateHash: hexToBytes(c.burn_template_hash),
+  };
+}
+
+/** The `org_spk` constant is the organizer payout script (HLD §2.1). */
+export function orgPayoutSpk(orgSpkHex: string): ScriptPublicKey {
+  return { version: 0, script: orgSpkHex };
+}
+
+export function toWireTx(tx: UnsignedTransaction): WireTransaction {
+  return {
+    version: tx.version,
+    inputs: tx.inputs.map((input) => ({
+      previous_outpoint: {
+        transaction_id: input.previousOutpoint.txId.toLowerCase(),
+        index: input.previousOutpoint.index,
+      },
+      signature_script: input.signatureScript,
+      sequence: input.sequence,
+      sig_op_count: input.sigOpCount,
+    })),
+    outputs: tx.outputs.map((output) => ({
+      value: output.value,
+      script_public_key: {
+        version: output.scriptPublicKey.version,
+        script: output.scriptPublicKey.script,
+      },
+      covenant: output.covenant
+        ? {
+            authorizing_input: output.covenant.authorizingInput,
+            covenant_id: output.covenant.covenantId,
+          }
+        : null,
+    })),
+    lock_time: tx.lockTime,
+  };
+}
+
+/** `WireTransaction` → upstream `SubmitTxModel` (mass / broadcast relay). */
+export function toSubmitModel(tx: WireTransaction): SubmitTxModel {
+  return {
+    version: tx.version,
+    inputs: tx.inputs.map((input) => ({
+      previousOutpoint: {
+        transactionId: input.previous_outpoint.transaction_id,
+        index: input.previous_outpoint.index,
+      },
+      signatureScript: input.signature_script,
+      sequence: input.sequence,
+      sigOpCount: input.sig_op_count,
+    })),
+    outputs: tx.outputs.map((output) => ({
+      amount: output.value,
+      scriptPublicKey: {
+        version: output.script_public_key.version,
+        scriptPublicKey: output.script_public_key.script,
+      },
+    })),
+    lockTime: tx.lock_time,
+  };
+}

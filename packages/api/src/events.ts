@@ -15,12 +15,16 @@ import {
   buildRedeemScript,
   type DecodedConstants,
   EVENT_ARTIFACT,
-  type KaspiaNet,
+  type KaspaNetwork,
+  MAX_EVENT_CAPACITY,
   p2shScript,
 } from "@kticket/kit";
-import { upstreamError } from "./errors.js";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import { findSpend } from "./lineage.js";
 import { MAX_LINEAGE_DEPTH } from "./reader.js";
+import { HEX64, hex, hex64, isRecord, str, uint } from "./validate.js";
 
 export interface RegisteredEvent {
   /** Event id as a 64-hex string (the deploy constants' `event_id`). */
@@ -38,8 +42,6 @@ export interface RegisteredEvent {
   price: number;
   capacity: number;
 }
-
-const HEX64 = /^[0-9a-fA-F]{64}$/;
 
 /** Normalize and index a list of registered events. Throws on invalid input. */
 export class EventRegistry {
@@ -82,17 +84,16 @@ export interface Availability {
 
 /** The event covenant's redeem-script hash for a given `remaining`. */
 function eventCovenantScriptHash(event: RegisteredEvent, remaining: number): string {
-  const orgBytes = Uint8Array.from(Buffer.from(event.orgPkh, "hex"));
   const constants: DecodedConstants = {
-    eventId: Uint8Array.from(Buffer.from(event.eventId, "hex")),
+    eventId: hexToBytes(event.eventId),
     price: event.price,
-    orgSpk: Uint8Array.from(Buffer.from(event.orgSpk, "hex")),
-    burnTemplateHash: Uint8Array.from(Buffer.from(event.burnTemplateHash, "hex")),
+    orgSpk: hexToBytes(event.orgSpk),
+    burnTemplateHash: hexToBytes(event.burnTemplateHash),
   };
-  const code = Uint8Array.from(Buffer.from(EVENT_ARTIFACT.code, "hex"));
+  const code = hexToBytes(EVENT_ARTIFACT.code);
   const spk = p2shScript(
     buildRedeemScript(
-      { owner: orgBytes, identifierType: 0, amount: remaining, isMinter: false },
+      { owner: hexToBytes(event.orgPkh), identifierType: 0, amount: remaining, isMinter: false },
       constants,
       code,
     ),
@@ -110,17 +111,17 @@ function eventCovenantScriptHash(event: RegisteredEvent, remaining: number): str
 export async function eventAvailability(
   event: RegisteredEvent,
   kaspa: KaspaClientLike,
-  network: KaspiaNet,
+  network: KaspaNetwork,
 ): Promise<Availability> {
   const deploy = await kaspa.getTransaction(event.genesisTxId);
   if (!deploy) {
-    throw upstreamError(`deploy transaction ${event.genesisTxId} not found on chain`);
+    throw invalidError(`deploy transaction ${event.genesisTxId} not found on chain`);
   }
 
   const output = deploy.outputs?.[0];
   const spk = output?.script_public_key;
   if (typeof spk !== "string" || !HEX64.test(spk)) {
-    throw upstreamError(`deploy transaction ${event.genesisTxId} has no covenant output`);
+    throw invalidError(`deploy transaction ${event.genesisTxId} has no covenant output`);
   }
 
   let remaining = event.capacity;
@@ -134,24 +135,18 @@ export async function eventAvailability(
     }
 
     const txs = await kaspa.getFullTransactions(address);
-    const spender = txs.find((tx) =>
-      (tx.inputs ?? []).some(
-        (input) =>
-          input.previous_outpoint_hash?.toLowerCase() === outpoint.transactionId &&
-          Number(input.previous_outpoint_index) === outpoint.index,
-      ),
-    );
+    const spender = findSpend(txs, outpoint);
     if (!spender) break;
 
     const expected = eventCovenantScriptHash(event, remaining - 1);
-    const successor = (spender.outputs ?? []).find(
+    const successor = (spender.tx.outputs ?? []).find(
       (o) => o.script_public_key?.toLowerCase() === expected,
     );
     if (!successor) break;
 
     remaining -= 1;
     address = addressFromScriptHash(successor.script_public_key as string, network);
-    outpoint = { transactionId: spender.transaction_id, index: successor.index };
+    outpoint = { transactionId: spender.tx.transaction_id, index: successor.index };
   }
 
   return { capacity: event.capacity, sold: event.capacity - remaining, left: remaining };
@@ -176,41 +171,23 @@ export function parseRegisteredEvents(raw: string | undefined): RegisteredEvent[
 
 function validateEvent(value: unknown, i: number): RegisteredEvent {
   const label = `KTICKET_EVENTS[${i}]`;
-  if (typeof value !== "object" || value === null) {
+  if (!isRecord(value)) {
     throw new Error(`${label} must be an object`);
   }
-  const raw = value as Record<string, unknown>;
-  const eventId = str(raw.event_id, `${label}.event_id`);
-  const genesisTxId = str(raw.genesis_txid, `${label}.genesis_txid`);
-  const orgPkh = str(raw.org_pkh, `${label}.org_pkh`);
-  const orgSpk = str(raw.org_spk, `${label}.org_spk`);
-  const burnTemplateHash = str(raw.burn_template_hash, `${label}.burn_template_hash`);
-  const name = str(raw.name, `${label}.name`);
-  const date = str(raw.date, `${label}.date`);
-  const price = num(raw.price, `${label}.price`);
-  const capacity = num(raw.capacity, `${label}.capacity`);
-
-  if (!HEX64.test(eventId)) throw new Error(`${label}.event_id must be 64 hex chars`);
-  if (!HEX64.test(genesisTxId)) throw new Error(`${label}.genesis_txid must be 64 hex chars`);
-  if (!HEX64.test(orgPkh)) throw new Error(`${label}.org_pkh must be 64 hex chars`);
-  if (!/^[0-9a-fA-F]+$/.test(orgSpk) || orgSpk.length === 0) {
-    throw new Error(`${label}.org_spk must be hex`);
-  }
-  if (!HEX64.test(burnTemplateHash)) {
-    throw new Error(`${label}.burn_template_hash must be 64 hex chars`);
-  }
-  if (!Number.isInteger(capacity) || capacity < 0 || capacity > 100) {
-    throw new Error(`${label}.capacity must be an integer 0..100`);
+  const eventId = hex64(value.event_id, `${label}.event_id`);
+  const genesisTxId = hex64(value.genesis_txid, `${label}.genesis_txid`);
+  const orgPkh = hex64(value.org_pkh, `${label}.org_pkh`);
+  const orgSpk = hex(value.org_spk, `${label}.org_spk`);
+  const burnTemplateHash = hex64(value.burn_template_hash, `${label}.burn_template_hash`);
+  const name = str(value.name, `${label}.name`);
+  const date = str(value.date, `${label}.date`);
+  const price = num(value.price, `${label}.price`);
+  const capacity = uint(value.capacity, `${label}.capacity`);
+  if (capacity > MAX_EVENT_CAPACITY) {
+    throw new Error(`${label}.capacity must be an integer 0..${MAX_EVENT_CAPACITY}`);
   }
 
   return { eventId, genesisTxId, orgPkh, orgSpk, burnTemplateHash, name, date, price, capacity };
-}
-
-function str(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`${label} must be a non-empty string`);
-  }
-  return value.trim();
 }
 
 function num(value: unknown, label: string): number {
