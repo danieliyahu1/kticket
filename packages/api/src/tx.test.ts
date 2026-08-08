@@ -5,6 +5,7 @@ import type {
   SubmitTransactionResponse,
   SubmitTxModel,
   TxMass,
+  TxModel,
 } from "./kaspa-types";
 import { broadcastTransaction, buildTransaction, throwRejectionError, toSubmitModel } from "./tx";
 
@@ -54,6 +55,7 @@ class FakeKaspa implements KaspaClientLike {
   broadcastResponse: SubmitTransactionResponse = { transactionId: "dd".repeat(TXID_BYTE_LENGTH) };
   broadcastCalls = 0;
   lastBroadcast?: SubmitTxModel;
+  transaction: TxModel | null = null;
 
   async getUtxos(): Promise<never> {
     throw new Error("not used");
@@ -67,8 +69,8 @@ class FakeKaspa implements KaspaClientLike {
     throw new Error("not used");
   }
 
-  async getTransaction(): Promise<never> {
-    throw new Error("not used");
+  async getTransaction(_txId: string): Promise<TxModel | null> {
+    return this.transaction;
   }
 
   async getFeeEstimate(): Promise<FeeEstimateResponse> {
@@ -230,6 +232,96 @@ describe("buildTransaction (KTK-28) — buy", () => {
     ).rejects.toMatchObject({
       type: "invalid",
     });
+  });
+});
+
+describe("buildTransaction (KTK-55) — buy signing template alignment", () => {
+  const EVENT_TXID = "aa".repeat(TXID_BYTE_LENGTH);
+  const EVENT_SPK = "21020001";
+  const EVENT_VALUE = 500_000_000;
+
+  const BUYER_META = {
+    transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
+    index: 0,
+    value: UTXO_VALUE,
+    script_public_key: { version: 0, script: "2102310201" },
+    block_daa_score: 100,
+    is_coinbase: false,
+  };
+
+  function eventTx(): TxModel {
+    return {
+      transaction_id: EVENT_TXID,
+      accepting_block_blue_score: 50,
+      inputs: [],
+      outputs: [
+        {
+          transaction_id: EVENT_TXID,
+          index: 0,
+          amount: EVENT_VALUE,
+          script_public_key: EVENT_SPK,
+        },
+      ],
+    };
+  }
+
+  it("prepends the event covenant UTXO metadata to inputUtxoMetas at index 0", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTx();
+
+    const req = buyRequest();
+    const result = await buildTransaction(
+      { ...req, input_utxo_metas: [BUYER_META] },
+      ctx(kaspa),
+    );
+
+    // The signing template should be generated since all UTXOs have script_public_key
+    expect(result.signing_template).toBeDefined();
+
+    const signing = JSON.parse(result.signing_template!);
+    const inputs = signing.inputs as Array<{ utxo: Record<string, unknown> }>;
+
+    // The tx has 2 inputs: event covenant + buyer
+    // The signing template should have 2 inputs with utxo metadata
+    expect(inputs).toHaveLength(2);
+    expect(inputs[0]?.utxo).toBeDefined();
+    expect(inputs[1]?.utxo).toBeDefined();
+
+    // Input 0 (event covenant) should have the event's UTXO value and script
+    expect(inputs[0]?.utxo?.amount).toBe(String(EVENT_VALUE));
+  });
+
+  it("generates signing template only when buyer UTXO metas have script_public_key", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTx();
+
+    const result = await buildTransaction(
+      { ...buyRequest(), input_utxo_metas: [BUYER_META] },
+      ctx(kaspa),
+    );
+    expect(result.signing_template).toBeDefined();
+  });
+
+  it("does not generate signing template when buyer UTXO metas lack script_public_key", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTx();
+
+    // No input_utxo_metas → buyer UTXOs get empty script from utxoMetaOf
+    const result = await buildTransaction(buyRequest(), ctx(kaspa));
+    expect(result.signing_template).toBeUndefined();
+  });
+
+  it("inputTotal includes both event covenant and buyer UTXO values", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTx();
+
+    const result = await buildTransaction(buyRequest(), ctx(kaspa));
+    // Outputs include: ticket + remaining event + payout + change
+    expect(result.template.outputs).toHaveLength(BUY_OUTPUTS);
+
+    // All outputs should be covered by event value + buyer value - fee
+    const outputTotal = result.template.outputs.reduce((a, o) => a + o.value, 0);
+    expect(outputTotal).toBeLessThan(EVENT_VALUE + UTXO_VALUE);
   });
 });
 

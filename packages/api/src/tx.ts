@@ -100,7 +100,7 @@ async function buildFeeAware(
 
 export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<BuildResult> {
   const request = parseBuildRequest(raw);
-  const prepared = preparedBuildFor(request);
+  const prepared = await preparedBuildFor(request, ctx.kaspa);
 
   const built = await buildFeeAware(prepared, ctx.kaspa);
 

@@ -12,6 +12,7 @@ import {
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { hexToBytes } from "@noble/hashes/utils.js";
+import type { KaspaClientLike } from "./kaspa-client.js";
 import type { BuildRequest, WireUtxo, WireUtxoMeta } from "./wire.js";
 import { codeBytes, orgPayoutSpk, toDecodedConstants, toOutpoint, toSpk } from "./wire.js";
 
@@ -75,11 +76,30 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
   };
 }
 
-function buyBuild(req: BuildRequest & { type: "buy" }): PreparedBuild {
+async function buyBuild(
+  req: BuildRequest & { type: "buy" },
+  kaspa: KaspaClientLike,
+): Promise<PreparedBuild> {
   const constants = toDecodedConstants(req.constants);
-  const metas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
+
+  const eventTx = await kaspa.getTransaction(req.event_outpoint.transaction_id);
+  const eventOutput = eventTx?.outputs[req.event_outpoint.index];
+  const eventMeta: WireUtxoMeta = {
+    transaction_id: req.event_outpoint.transaction_id,
+    index: req.event_outpoint.index,
+    value: eventOutput?.amount ?? 0,
+    script_public_key: eventOutput?.script_public_key
+      ? { version: 0, script: eventOutput.script_public_key }
+      : { version: 0, script: "" },
+    block_daa_score: eventTx?.accepting_block_blue_score ?? 0,
+    is_coinbase: false,
+  };
+
+  const buyerMetas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
+  const metas = [eventMeta, ...buyerMetas];
+
   return {
-    inputTotal: req.buyer_utxos.reduce((a, u) => a + u.value, 0),
+    inputTotal: eventMeta.value + req.buyer_utxos.reduce((a, u) => a + u.value, 0),
     payouts: req.constants.price > 0 ? [req.constants.price] : [],
     inputUtxoMetas: metas,
     build: (fee) => ({
@@ -147,12 +167,15 @@ function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild 
   };
 }
 
-export function preparedBuildFor(request: BuildRequest): PreparedBuild {
+export async function preparedBuildFor(
+  request: BuildRequest,
+  kaspa: KaspaClientLike,
+): Promise<PreparedBuild> {
   switch (request.type) {
     case "deploy":
       return deployBuild(request);
     case "buy":
-      return buyBuild(request);
+      return buyBuild(request, kaspa);
     case "transfer":
       return transferBuild(request);
     case "handover":
