@@ -107,14 +107,14 @@ function capacityLabel(capacity: number): string {
 
 function EventCard({ event }: { event: StoredEvent }) {
   return (
-    <article className="card event-card">
+    <Link to={`/events/${event.eventId}`} className="card event-card" style={{ textDecoration: "none", color: "inherit" }}>
       <h3 className="event-card-name">{event.name}</h3>
       <p className="event-card-line">{whenLabel(event.date, event.time)}</p>
       <div className="event-card-meta">
         <span>{priceLabel(event.price)}</span>
         <span>{capacityLabel(event.capacity)}</span>
       </div>
-    </article>
+    </Link>
   );
 }
 

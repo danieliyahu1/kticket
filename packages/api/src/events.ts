@@ -13,13 +13,14 @@
 import {
   addressFromScriptHash,
   buildRedeemScript,
+  covenantId,
   type DecodedConstants,
   EVENT_ARTIFACT,
   type KaspaNetwork,
   MAX_EVENT_CAPACITY,
   p2shScript,
 } from "@kticket/kit";
-import { hexToBytes } from "@noble/hashes/utils.js";
+import { hexToBytes, bytesToHex } from "@noble/hashes/utils.js";
 import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { findSpend, type OutpointRef } from "./lineage.js";
@@ -80,6 +81,14 @@ export interface Availability {
   capacity: number;
   sold: number;
   left: number;
+  /** Current event covenant outpoint txid (64-hex). */
+  event_txid: string;
+  /** Current event covenant output index. */
+  event_index: number;
+  /** Current event covenant address. */
+  event_address: string;
+  /** Event covenant family id (64-hex). */
+  event_covenant_id: string;
 }
 
 /** The event covenant's redeem-script hash for a given `remaining`. */
@@ -179,7 +188,41 @@ export async function eventAvailability(
     outpoint = outcome.outpoint;
   }
 
-  return { capacity: event.capacity, sold: event.capacity - remaining, left: remaining };
+  const constants: DecodedConstants = {
+    eventId: hexToBytes(event.eventId),
+    price: event.price,
+    orgSpk: hexToBytes(event.orgSpk),
+    burnTemplateHash: hexToBytes(event.burnTemplateHash),
+  };
+  const code = hexToBytes(EVENT_ARTIFACT.code);
+
+  const eventCovenantId = bytesToHex(
+    covenantId(
+      { txId: hexToBytes(event.genesisTxId), index: 0 },
+      [
+        {
+          index: 0,
+          value: 0,
+          version: 0,
+          script: buildRedeemScript(
+            { owner: hexToBytes(event.orgPkh), identifierType: 0, amount: event.capacity, isMinter: false },
+            constants,
+            code,
+          ),
+        },
+      ],
+    ),
+  );
+
+  return {
+    capacity: event.capacity,
+    sold: event.capacity - remaining,
+    left: remaining,
+    event_txid: outpoint.transactionId.toLowerCase(),
+    event_index: outpoint.index,
+    event_address: address,
+    event_covenant_id: eventCovenantId,
+  };
 }
 
 /** Parse + validate the `KTICKET_EVENTS` env JSON. Throws on invalid input. */

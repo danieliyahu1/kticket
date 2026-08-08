@@ -3,6 +3,7 @@ import {
   HTTP_BAD_REQUEST,
   HTTP_CONFLICT,
   HTTP_INTERNAL_SERVER_ERROR,
+  HTTP_NOT_FOUND,
   HTTP_SERVICE_UNAVAILABLE,
   HTTP_UNPROCESSABLE_ENTITY,
 } from "./http-status.js";
@@ -44,6 +45,10 @@ export class ApiError extends Error {
 
 export function invalidError(message: string, detail?: unknown): ApiError {
   return new ApiError({ type: "invalid", message, statusCode: HTTP_BAD_REQUEST, detail });
+}
+
+export function notFoundError(message: string, detail?: unknown): ApiError {
+  return new ApiError({ type: "invalid", message, statusCode: HTTP_NOT_FOUND, detail });
 }
 
 export function conflictError(message: string, detail?: unknown): ApiError {

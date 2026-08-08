@@ -294,7 +294,7 @@ describe("eventAvailability (GET /v1/events/{id})", () => {
       index: 0,
     });
     const availability = await eventAvailability(EVENT, kaspa, NETWORK);
-    expect(availability).toEqual({ capacity: 3, sold: 0, left: 3 });
+    expect(availability).toMatchObject({ capacity: 3, sold: 0, left: 3 });
   });
 
   it("walks the event covenant lineage and counts mints as sold", async () => {
@@ -312,7 +312,7 @@ describe("eventAvailability (GET /v1/events/{id})", () => {
     kaspa.utxosAt(newAddress, { transactionId: G_ID, index: 0 });
 
     const availability = await eventAvailability(EVENT, kaspa, NETWORK);
-    expect(availability).toEqual({ capacity: 3, sold: 1, left: 2 });
+    expect(availability).toMatchObject({ capacity: 3, sold: 1, left: 2 });
   });
 });
 
@@ -321,7 +321,7 @@ describe("eventAvailability (edge cases)", () => {
     const deploy = deployModel(0);
     const kaspa = new FakeKaspa(deploy);
     const availability = await eventAvailability({ ...EVENT, capacity: 0 }, kaspa, NETWORK);
-    expect(availability).toEqual({ capacity: 0, sold: 0, left: 0 });
+    expect(availability).toMatchObject({ capacity: 0, sold: 0, left: 0 });
   });
 
   it("treats a missing deploy tx as an invalid event, not an upstream outage", async () => {

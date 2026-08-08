@@ -98,6 +98,7 @@ export type BuildRequest =
       buyer: string;
       buyer_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
+      input_utxo_metas?: WireUtxoMeta[];
     }
   | {
       type: "transfer";
@@ -107,6 +108,7 @@ export type BuildRequest =
       new_owner: string;
       holder_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
+      input_utxo_metas?: WireUtxoMeta[];
     }
   | {
       type: "handover";
@@ -230,6 +232,9 @@ function parseBuy(raw: Record<string, unknown>): BuildRequest {
     buyer: hex64(raw.buyer, "buyer"),
     buyer_utxos: utxos(raw.buyer_utxos, "buyer_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...(raw.input_utxo_metas !== undefined
+      ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
+      : {}),
   };
 }
 
@@ -242,6 +247,9 @@ function parseTransfer(raw: Record<string, unknown>): BuildRequest {
     new_owner: hex64(raw.new_owner, "new_owner"),
     holder_utxos: utxos(raw.holder_utxos, "holder_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...(raw.input_utxo_metas !== undefined
+      ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
+      : {}),
   };
 }
 

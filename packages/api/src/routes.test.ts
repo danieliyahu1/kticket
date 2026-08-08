@@ -10,7 +10,7 @@ import { hexToBytes } from "@noble/hashes/utils.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app";
 import { loadConfig } from "./config";
-import { HTTP_BAD_REQUEST, HTTP_OK } from "./http-status.js";
+import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_OK } from "./http-status.js";
 
 vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
@@ -241,7 +241,7 @@ describe("reader routes (KTK-5)", () => {
       method: "GET",
       url: `/v1/events/${"ff".repeat(TXID_BYTE_LENGTH)}`,
     });
-    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.statusCode).toBe(HTTP_NOT_FOUND);
     expect(res.json().error.type).toBe("invalid");
     await app.close();
   });
@@ -277,9 +277,20 @@ describe("reader routes (KTK-5) — event availability", () => {
     const app = await readerApp(kaspa);
     const res = await app.inject({ method: "GET", url: `/v1/events/${EVENT.eventId}` });
     expect(res.statusCode).toBe(HTTP_OK);
-    expect(res.json()).toEqual({
-      event: { event_id: EVENT.eventId, name: EVENT.name, date: EVENT.date, price: EVENT.price },
+    expect(res.json()).toMatchObject({
+      event: {
+        event_id: EVENT.eventId,
+        name: EVENT.name,
+        date: EVENT.date,
+        price: EVENT.price,
+      },
       availability: { capacity: 2, sold: 1, left: 1 },
+      buy_info: {
+        event_owner: EVENT.orgPkh,
+        org_spk: EVENT.orgSpk,
+        burn_template_hash: EVENT.burnTemplateHash,
+        remaining: 1,
+      },
     });
     await app.close();
   });

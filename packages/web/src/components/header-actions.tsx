@@ -34,6 +34,9 @@ export function HeaderActions() {
     const address = state.accounts[0];
     return (
       <div className="header-actions">
+        <Link to="/tickets" className="btn btn-secondary btn-sm">
+          Tickets
+        </Link>
         <Link to="/create" className="btn btn-primary btn-sm">
           Create event
         </Link>

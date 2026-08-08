@@ -77,10 +77,11 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
 
 function buyBuild(req: BuildRequest & { type: "buy" }): PreparedBuild {
   const constants = toDecodedConstants(req.constants);
+  const metas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
   return {
     inputTotal: req.buyer_utxos.reduce((a, u) => a + u.value, 0),
     payouts: req.constants.price > 0 ? [req.constants.price] : [],
-    inputUtxoMetas: req.buyer_utxos.map((u) => utxoMetaOf(u)),
+    inputUtxoMetas: metas,
     build: (fee) => ({
       tx: buildBuy({
         eventOutpoint: toOutpoint(req.event_outpoint),

@@ -7,7 +7,7 @@
 
 import type { KaspaNetwork } from "@kticket/kit";
 import type { FastifyInstance } from "fastify";
-import { invalidError } from "./errors.js";
+import { invalidError, notFoundError } from "./errors.js";
 import { type EventRegistry, eventAvailability } from "./events.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { verifyTicket } from "./reader.js";
@@ -21,12 +21,21 @@ export interface AppContext {
   networkId: string;
 }
 
-function toEventJson(event: { eventId: string; name: string; date: string; price: number }) {
+function toEventJson(event: {
+  eventId: string;
+  genesisTxId: string;
+  name: string;
+  date: string;
+  price: number;
+  capacity: number;
+}) {
   return {
     event_id: event.eventId,
+    genesis_txid: event.genesisTxId,
     name: event.name,
     date: event.date,
     price: event.price,
+    capacity: event.capacity,
   };
 }
 
@@ -45,11 +54,20 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get<{ Params: { eventId: string } }>("/v1/events/:eventId", async (req) => {
     const { eventId } = req.params;
     const event = ctx.events.byEventId(eventId);
-    if (!event) throw invalidError(`unknown event ${eventId}`);
+    if (!event) throw notFoundError(`event ${eventId} not found`);
     const availability = await eventAvailability(event, ctx.kaspa, ctx.network);
     return {
       event: toEventJson(event),
       availability,
+      buy_info: {
+        event_owner: event.orgPkh,
+        org_spk: event.orgSpk,
+        burn_template_hash: event.burnTemplateHash,
+        event_covenant_id: availability.event_covenant_id,
+        event_txid: availability.event_txid,
+        event_index: availability.event_index,
+        remaining: availability.left,
+      },
     };
   });
 
