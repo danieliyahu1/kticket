@@ -9,6 +9,10 @@
 // (buy) spends the event covenant and re-creates it with `remaining − 1`, so
 // the walk reconstructs each successor's script hash and counts until a live
 // covenant output is found.
+//
+// NOTE: The `event_id` in route paths and the registry's `eventId` field is
+// the deploy's `authorizing_txid` — the 64-hex transaction hash of the
+// authorizing UTXO selected for the deploy.
 
 import {
   addressFromScriptHash,
@@ -28,7 +32,7 @@ import { MAX_LINEAGE_DEPTH } from "./reader.js";
 import { HEX64, hex, hex64, isRecord, P2SH_SCRIPT, str, uint } from "./validate.js";
 
 export interface RegisteredEvent {
-  /** Event id as a 64-hex string (the deploy constants' `event_id`). */
+  /** Event id as a 64-hex string (the deploy's `authorizing_txid`). */
   eventId: string;
   /** The event's deploy transaction id (64-hex). */
   genesisTxId: string;
@@ -44,28 +48,50 @@ export interface RegisteredEvent {
   capacity: number;
 }
 
+function normalizeEvent(event: RegisteredEvent): RegisteredEvent {
+  return {
+    ...event,
+    eventId: event.eventId.toLowerCase(),
+    genesisTxId: event.genesisTxId.toLowerCase(),
+    orgPkh: event.orgPkh.toLowerCase(),
+    orgSpk: event.orgSpk.toLowerCase(),
+    burnTemplateHash: event.burnTemplateHash.toLowerCase(),
+  };
+}
+
 /** Normalize and index a list of registered events. Throws on invalid input. */
 export class EventRegistry {
-  readonly #byEventId: ReadonlyMap<string, RegisteredEvent>;
-  readonly #byGenesisTxId: ReadonlyMap<string, RegisteredEvent>;
-  readonly #events: readonly RegisteredEvent[];
+  #byEventId: Map<string, RegisteredEvent>;
+  #byGenesisTxId: Map<string, RegisteredEvent>;
+  #events: RegisteredEvent[];
 
   constructor(events: readonly RegisteredEvent[]) {
-    const normalized = events.map((event) => ({
-      ...event,
-      eventId: event.eventId.toLowerCase(),
-      genesisTxId: event.genesisTxId.toLowerCase(),
-      orgPkh: event.orgPkh.toLowerCase(),
-      orgSpk: event.orgSpk.toLowerCase(),
-      burnTemplateHash: event.burnTemplateHash.toLowerCase(),
-    }));
+    const normalized = events.map(normalizeEvent);
     this.#events = normalized;
     this.#byEventId = new Map(normalized.map((event) => [event.eventId, event]));
     this.#byGenesisTxId = new Map(normalized.map((event) => [event.genesisTxId, event]));
   }
 
-  list(): readonly RegisteredEvent[] {
-    return this.#events;
+  /** Register a new event at runtime (after a successful on-chain deploy). */
+  register(event: RegisteredEvent): void {
+    const normalized = normalizeEvent(event);
+    const existing = this.#byEventId.get(normalized.eventId);
+    if (existing) {
+      existing.genesisTxId = normalized.genesisTxId;
+      existing.orgPkh = normalized.orgPkh;
+      existing.orgSpk = normalized.orgSpk;
+      existing.burnTemplateHash = normalized.burnTemplateHash;
+      existing.name = normalized.name;
+      existing.date = normalized.date;
+      existing.price = normalized.price;
+      existing.capacity = normalized.capacity;
+      this.#byGenesisTxId.delete(existing.genesisTxId.toLowerCase());
+      this.#byGenesisTxId.set(normalized.genesisTxId, existing);
+    } else {
+      this.#events.push(normalized);
+      this.#byEventId.set(normalized.eventId, normalized);
+      this.#byGenesisTxId.set(normalized.genesisTxId, normalized);
+    }
   }
 
   byEventId(eventId: string): RegisteredEvent | undefined {
@@ -74,6 +100,12 @@ export class EventRegistry {
 
   byGenesisTxId(genesisTxId: string): RegisteredEvent | undefined {
     return this.#byGenesisTxId.get(genesisTxId.toLowerCase());
+  }
+
+  list(orgPkh?: string): readonly RegisteredEvent[] {
+    if (!orgPkh) return this.#events;
+    const normalized = orgPkh.toLowerCase();
+    return this.#events.filter((e) => e.orgPkh === normalized);
   }
 }
 
@@ -94,7 +126,7 @@ export interface Availability {
 /** The event covenant's redeem-script hash for a given `remaining`. */
 function eventCovenantScriptHash(event: RegisteredEvent, remaining: number): string {
   const constants: DecodedConstants = {
-    eventId: hexToBytes(event.eventId),
+    authorizingTxId: hexToBytes(event.eventId),
     price: event.price,
     orgSpk: hexToBytes(event.orgSpk),
     burnTemplateHash: hexToBytes(event.burnTemplateHash),
@@ -189,7 +221,7 @@ export async function eventAvailability(
   }
 
   const constants: DecodedConstants = {
-    eventId: hexToBytes(event.eventId),
+    authorizingTxId: hexToBytes(event.eventId),
     price: event.price,
     orgSpk: hexToBytes(event.orgSpk),
     burnTemplateHash: hexToBytes(event.burnTemplateHash),
@@ -242,12 +274,17 @@ export function parseRegisteredEvents(raw: string | undefined): RegisteredEvent[
   return parsed.map((value, i) => validateEvent(value, i));
 }
 
-function validateEvent(value: unknown, i: number): RegisteredEvent {
-  const label = `KTICKET_EVENTS[${i}]`;
+/** Parse + validate a single event registration body (POST /v1/events). */
+export function parseRegisterEventBody(raw: unknown): RegisteredEvent {
+  return validateEvent(raw, 0, "body");
+}
+
+function validateEvent(value: unknown, i: number, prefix = "KTICKET_EVENTS"): RegisteredEvent {
+  const label = `${prefix}[${i}]`;
   if (!isRecord(value)) {
     throw new Error(`${label} must be an object`);
   }
-  const eventId = hex64(value.event_id, `${label}.event_id`);
+  const eventId = hex64(value.authorizing_txid, `${label}.authorizing_txid`);
   const genesisTxId = hex64(value.genesis_txid, `${label}.genesis_txid`);
   const orgPkh = hex64(value.org_pkh, `${label}.org_pkh`);
   const orgSpk = hex(value.org_spk, `${label}.org_spk`);

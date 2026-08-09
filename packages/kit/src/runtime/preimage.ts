@@ -2,7 +2,7 @@
 //
 //   state_bytes     = byte[32] owner_identifier | u8 identifier_type
 //                     | u64 amount (LE) | u8 is_minter
-//   constants_bytes = byte[32] event_id | u64 price (LE)
+//   constants_bytes = byte[32] authorizing_txid | u64 price (LE)
 //                     | varbytes org_spk | byte[32] burn_template_hash
 //
 // `varbytes` is a LEB128 length prefix followed by the raw bytes. All integers
@@ -32,7 +32,7 @@ export interface DecodedState {
 }
 
 export interface DecodedConstants {
-  eventId: Uint8Array;
+  authorizingTxId: Uint8Array;
   /** Price per ticket in sompi (0 = free). */
   price: number;
   /** Organizer payout script (the `org_spk` payout output on a buy). */
@@ -107,7 +107,7 @@ export function decodeState(bytes: Uint8Array): DecodedState {
 
 // --- constants_bytes -------------------------------------------------------
 
-const CONSTANTS_FIXED_LEN = HASH_LENGTH + U64_LENGTH + HASH_LENGTH; // event_id + price + burn_template_hash
+const CONSTANTS_FIXED_LEN = HASH_LENGTH + U64_LENGTH + HASH_LENGTH; // authorizing_txid + price + burn_template_hash
 
 /**
  * Encode a LEB128 (unsigned, base-128 varint) length prefix. Used for
@@ -156,8 +156,8 @@ export function decodeVarint(
 }
 
 export function encodeConstants(constants: DecodedConstants): Uint8Array {
-  if (constants.eventId.length !== HASH_LENGTH) {
-    throw new PreimageError(`eventId must be 32 bytes, got ${constants.eventId.length}`);
+  if (constants.authorizingTxId.length !== HASH_LENGTH) {
+    throw new PreimageError(`authorizingTxId must be 32 bytes, got ${constants.authorizingTxId.length}`);
   }
   if (constants.burnTemplateHash.length !== HASH_LENGTH) {
     throw new PreimageError(
@@ -171,7 +171,7 @@ export function encodeConstants(constants: DecodedConstants): Uint8Array {
   const out = new Uint8Array(total);
   const view = new DataView(out.buffer);
 
-  out.set(constants.eventId, 0);
+  out.set(constants.authorizingTxId, 0);
   view.setBigUint64(PRICE_OFFSET, BigInt(constants.price), true);
   let offset = VARBYTES_START;
   const prefix = encodeVarint(orgLen);
@@ -190,7 +190,7 @@ export function decodeConstants(bytes: Uint8Array): DecodedConstants {
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
-  const eventId = bytes.slice(0, HASH_LENGTH);
+  const authorizingTxId = bytes.slice(0, HASH_LENGTH);
   const price = Number(view.getBigUint64(PRICE_OFFSET, true));
   let offset = VARBYTES_START;
   const len = decodeVarint(bytes, offset);
@@ -205,7 +205,7 @@ export function decodeConstants(bytes: Uint8Array): DecodedConstants {
   }
   const burnTemplateHash = bytes.slice(offset, offset + HASH_LENGTH);
 
-  return { eventId, price, orgSpk, burnTemplateHash };
+  return { authorizingTxId, price, orgSpk, burnTemplateHash };
 }
 
 // --- combined preimage -----------------------------------------------------

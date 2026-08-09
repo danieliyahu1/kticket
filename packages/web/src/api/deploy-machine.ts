@@ -11,7 +11,7 @@ export type DeployState =
   | { phase: "idle" }
   | { phase: "building" }
   | { phase: "broadcasting" }
-  | { phase: "success"; txid: string }
+  | { phase: "success"; txid: string; authorizingTxId: string }
   | { phase: "error"; message: string };
 
 export interface DeployParams {
@@ -19,7 +19,6 @@ export interface DeployParams {
   priceKas: number;
   publicKey: string;
   address: string;
-  eventId: string;
 }
 
 function errorMsg(err: unknown): string {
@@ -59,7 +58,7 @@ function pickUtxos(utxos: KaspaUtxoEntry[]):
 
 async function buildDeployTemplate(
   params: DeployParams,
-  eventId: string,
+  authorizingTxId: string,
   selection: {
     authorizing: ReturnType<typeof toWireUtxo>;
     rest: ReturnType<typeof toWireUtxo>[];
@@ -68,10 +67,10 @@ async function buildDeployTemplate(
 ): Promise<BuildResult> {
   return buildDeployTx({
     capacity: params.capacity,
-    eventId,
+    authorizingTxId,
     price: Math.round(params.priceKas * SOMPI_PER_KAS),
     orgSpk: orgSpkFromPublicKey(params.publicKey),
-    burnTemplateHash: burnTemplateHash(eventId, BURN_ARTIFACT.code),
+    burnTemplateHash: burnTemplateHash(authorizingTxId, BURN_ARTIFACT.code),
     organizer: organizerPkh(params.publicKey),
     authorizingOutpoint: selection.authorizing,
     organizerUtxos: selection.rest,
@@ -86,9 +85,6 @@ export async function executeDeploy(
 ): Promise<void> {
   setState({ phase: "building" });
   logStep("start", params);
-
-  const eventId = params.eventId;
-  logStep("event-id", eventId);
 
   let utxos: KaspaUtxoEntry[];
   try {
@@ -107,9 +103,12 @@ export async function executeDeploy(
     return;
   }
 
+  const authorizingTxId = selection.authorizing.transaction_id.toLowerCase();
+  logStep("authorizing-txid", authorizingTxId);
+
   let buildResult: BuildResult;
   try {
-    buildResult = await buildDeployTemplate(params, eventId, selection);
+    buildResult = await buildDeployTemplate(params, authorizingTxId, selection);
     logStep("built", {
       covenantId: buildResult.event_covenant_id,
       signingTemplate: buildResult.signing_template?.slice(0, LOG_SAMPLE_LEN),
@@ -121,11 +120,12 @@ export async function executeDeploy(
   }
 
   setState({ phase: "broadcasting" });
-  await signAndBroadcast(buildResult, setState);
+  await signAndBroadcast(buildResult, authorizingTxId, setState);
 }
 
 async function signAndBroadcast(
   buildResult: BuildResult,
+  authorizingTxId: string,
   setState: (s: DeployState) => void,
 ): Promise<void> {
   let signedTx;
@@ -146,7 +146,7 @@ async function signAndBroadcast(
   try {
     const result = await broadcastTx(signedTx);
     logStep("broadcast-ok", result);
-    setState({ phase: "success", txid: result.txid });
+    setState({ phase: "success", txid: result.txid, authorizingTxId });
   } catch (err) {
     logError("broadcast", err);
     setState({ phase: "error", message: errorMsg(err) });

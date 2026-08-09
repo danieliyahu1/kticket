@@ -65,8 +65,8 @@ function covenantScript(
   return p2shScript(buildRedeemScript(state, constants, code));
 }
 
-function burnScriptFor(eventId: Uint8Array, burnCode: Uint8Array): ScriptPublicKey {
-  return p2shScript(buildBurnRedeemScript(eventId, burnCode));
+function burnScriptFor(authorizingTxId: Uint8Array, burnCode: Uint8Array): ScriptPublicKey {
+  return p2shScript(buildBurnRedeemScript(authorizingTxId, burnCode));
 }
 
 function asInput(outpoint: Outpoint): TxInput {
@@ -146,7 +146,7 @@ export interface DeployInput {
   organizer: Uint8Array;
   /** Event capacity — becomes the event covenant's `remaining`. */
   capacity: number;
-  /** Event constants (event_id, price, org_spk, burn_template_hash). */
+  /** Event constants (authorizing_txid, price, org_spk, burn_template_hash). */
   constants: DecodedConstants;
   /** Event covenant code segment (from the Event artifact). */
   covenantCode: Uint8Array;
@@ -241,7 +241,7 @@ export interface BuyInput {
   eventCovenantId: string;
   /** The event covenant's current owner identifier (preserved). */
   eventOwner: Uint8Array;
-  /** Event constants (event_id, price, org_spk, burn_template_hash). */
+  /** Event constants (authorizing_txid, price, org_spk, burn_template_hash). */
   constants: DecodedConstants;
   /** Buyer's 32-byte owner identifier (pubkey). */
   buyer: Uint8Array;
@@ -375,10 +375,10 @@ export interface HandoverInput {
 /**
  * The event's burn-owner output script public key — the successor every
  * handover must create (FR-9). The burn redeem script is `OP_PUSH(count=1)
- * OP_PUSH(event_id) <burn code>`, fixed per event.
+ * OP_PUSH(authorizing_txid) <burn code>`, fixed per event.
  */
 export function burnScript(constants: DecodedConstants, burnCode: Uint8Array): ScriptPublicKey {
-  return burnScriptFor(constants.eventId, burnCode);
+  return burnScriptFor(constants.authorizingTxId, burnCode);
 }
 
 /**
@@ -386,9 +386,9 @@ export function burnScript(constants: DecodedConstants, burnCode: Uint8Array): S
  * template" a handover must create (HLD §2.1). The reader (HLD §2.2) compares a
  * handover successor's on-chain script against this to report GONE.
  */
-export function burnTemplateHash(eventIdHex: string, burnCodeHex: string): string {
+export function burnTemplateHash(authorizingTxIdHex: string, burnCodeHex: string): string {
   return bytesToHex(
-    scriptHash(buildBurnRedeemScript(hexToBytes(eventIdHex), hexToBytes(burnCodeHex))),
+    scriptHash(buildBurnRedeemScript(hexToBytes(authorizingTxIdHex), hexToBytes(burnCodeHex))),
   );
 }
 

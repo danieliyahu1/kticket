@@ -55,7 +55,7 @@ const ORG_SPK_OFFSET = HASH_LENGTH + PRICE_SIZE + VARLEN_SIZE;
 const BURN_HASH_OFFSET = ORG_SPK_OFFSET + ORG_SPK.length;
 
 const CONSTANTS = {
-  eventId: EVENT_ID,
+  authorizingTxId: EVENT_ID,
   price: PRICE,
   orgSpk: ORG_SPK,
   burnTemplateHash: BURN_HASH,
@@ -123,7 +123,7 @@ describe("varint (LEB128) prefix", () => {
 describe("constants_bytes layout (HLD v0.22 §2.1)", () => {
   it("encodes the pinned field order and endianness", () => {
     const bytes = encodeConstants(CONSTANTS);
-    // event_id[32] | price u64 LE | varbytes org_spk | burn_tmpl_hash[32]
+    // authorizing_txid[32] | price u64 LE | varbytes org_spk | burn_tmpl_hash[32]
     expect([...bytes.subarray(0, HASH_LENGTH)]).toEqual([...EVENT_ID]);
     expect(new DataView(bytes.buffer).getBigUint64(HASH_LENGTH, true)).toBe(PRICE_BIG);
     // org_spk varbytes: LEB128 length 4 then the bytes
@@ -141,7 +141,7 @@ describe("constants_bytes layout (HLD v0.22 §2.1)", () => {
 
   it("round-trips constants", () => {
     const decoded = decodeConstants(encodeConstants(CONSTANTS));
-    expect([...decoded.eventId]).toEqual([...EVENT_ID]);
+    expect([...decoded.authorizingTxId]).toEqual([...EVENT_ID]);
     expect(decoded.price).toBe(PRICE);
     expect([...decoded.orgSpk]).toEqual([...ORG_SPK]);
     expect([...decoded.burnTemplateHash]).toEqual([...BURN_HASH]);
@@ -158,7 +158,7 @@ describe("constants_bytes validation", () => {
   it("rejects malformed constants", () => {
     expect(() => decodeConstants(new Uint8Array(HASH_LENGTH + PRICE_SIZE))).toThrow(PreimageError);
     expect(() =>
-      encodeConstants({ ...CONSTANTS, eventId: new Uint8Array(HASH_LENGTH - 1) }),
+      encodeConstants({ ...CONSTANTS, authorizingTxId: new Uint8Array(HASH_LENGTH - 1) }),
     ).toThrow(PreimageError);
     expect(() =>
       encodeConstants({ ...CONSTANTS, burnTemplateHash: new Uint8Array(HASH_LENGTH - 1) }),
@@ -177,7 +177,7 @@ describe("decodePreimage", () => {
     const decoded = decodePreimage(new Uint8Array([...preimage.state, ...preimage.constants]));
     expect(decoded.state.amount).toBe(1);
     expect([...decoded.state.owner]).toEqual([...owner]);
-    expect([...decoded.constants.eventId]).toEqual([...EVENT_ID]);
+    expect([...decoded.constants.authorizingTxId]).toEqual([...EVENT_ID]);
     expect(decoded.constants.price).toBe(PRICE);
   });
 

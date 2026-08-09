@@ -7,7 +7,7 @@ import {
   toWireUtxoMeta,
 } from "./kaspa";
 import type { BuildResult } from "./types";
-import { mergeSignatures, signTemplate, SOMPI_PER_KAS } from "../lib/signing";
+import { mergeSignatures, signTemplate } from "../lib/signing";
 const LOG_SAMPLE_LEN = 400;
 
 export type BuyState =
@@ -95,8 +95,8 @@ export async function executeBuy(
       event_covenant_id: buyInfo.event_covenant_id,
       event_owner: buyInfo.event_owner,
       remaining: buyInfo.remaining,
-      eventId: event.event.event_id,
-      price: event.event.price * SOMPI_PER_KAS,
+      authorizingTxId: event.event.authorizing_txid,
+      price: event.event.price,
       orgSpk: buyInfo.org_spk,
       burnTemplateHash: buyInfo.burn_template_hash,
       buyer: buyerPkh,

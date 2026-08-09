@@ -10,7 +10,7 @@ pragma silverscript ^0.1.0;
 // Price (+ event meta) lives in the constants, visible to both sides; the
 // covenant does not enforce the payment amount.
 
-contract Event(byte[32] event_id, int price, byte[] org_spk, template burn_tmpl) {
+contract Event(byte[32] authorizing_txid, int price, byte[] org_spk, template burn_tmpl) {
     byte[32] owner = ZERO;   // organizer identifier (set at deploy)
     byte     identifier_type = 0;
     int      amount = 0;     // remaining tickets; set to capacity at deploy

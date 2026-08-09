@@ -70,7 +70,7 @@ export interface WireTransaction {
 }
 
 export interface TicketConstantsJson {
-  event_id: string;
+  authorizing_txid: string;
   price: number;
   org_spk: string;
   burn_template_hash: string;
@@ -191,7 +191,7 @@ function utxoMetas(value: unknown, label: string): WireUtxoMeta[] {
 function parseConstants(value: unknown): TicketConstantsJson {
   if (!isRecord(value)) throw invalidError("constants must be an object");
   return {
-    event_id: hex64(value.event_id, "constants.event_id"),
+    authorizing_txid: hex64(value.authorizing_txid, "constants.authorizing_txid"),
     price: uint(value.price, "constants.price"),
     org_spk: hex(value.org_spk, "constants.org_spk"),
     burn_template_hash: hex64(value.burn_template_hash, "constants.burn_template_hash"),
@@ -299,7 +299,7 @@ export function toSpk(spk: WireScriptPublicKey): ScriptPublicKey {
 
 export function toDecodedConstants(c: TicketConstantsJson): DecodedConstants {
   return {
-    eventId: hexToBytes(c.event_id),
+    authorizingTxId: hexToBytes(c.authorizing_txid),
     price: c.price,
     orgSpk: hexToBytes(c.org_spk),
     burnTemplateHash: hexToBytes(c.burn_template_hash),

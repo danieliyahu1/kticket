@@ -42,7 +42,7 @@ const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(ORG_PKH_BYTE);
 const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
 
 const CONSTANTS: DecodedConstants = {
-  eventId: EVENT_ID,
+  authorizingTxId: EVENT_ID,
   price: 1_000,
   orgSpk: ORG_SPK,
   burnTemplateHash: new Uint8Array(TXID_BYTE_LENGTH).fill(BURN_TEMPLATE_BYTE),
@@ -200,7 +200,7 @@ describe("parseRegisteredEvents (KTICKET_EVENTS)", () => {
       JSON.stringify([
         {
           ...EVENT,
-          event_id: EVENT.eventId,
+          authorizing_txid: EVENT.eventId,
           genesis_txid: EVENT.genesisTxId,
           org_pkh: EVENT.orgPkh,
           org_spk: EVENT.orgSpk,
@@ -220,7 +220,7 @@ describe("parseRegisteredEvents (validation)", () => {
 
   it("rejects malformed entries", () => {
     const base = {
-      event_id: EVENT.eventId,
+      authorizing_txid: EVENT.eventId,
       genesis_txid: G_ID,
       org_pkh: EVENT.orgPkh,
       org_spk: EVENT.orgSpk,
@@ -230,8 +230,8 @@ describe("parseRegisteredEvents (validation)", () => {
       price: 1,
       capacity: 2,
     };
-    expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, event_id: "short" }]))).toThrow(
-      /event_id/,
+    expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, authorizing_txid: "short" }]))).toThrow(
+      /authorizing_txid/,
     );
     expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, org_pkh: "short" }]))).toThrow(
       /org_pkh/,

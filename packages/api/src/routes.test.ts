@@ -99,7 +99,7 @@ function config() {
     KASPANET: NETWORK,
     KTICKET_EVENTS: JSON.stringify([
       {
-        event_id: EVENT.eventId,
+        authorizing_txid: EVENT.eventId,
         genesis_txid: EVENT.genesisTxId,
         org_pkh: EVENT.orgPkh,
         org_spk: EVENT.orgSpk,
@@ -115,7 +115,7 @@ function config() {
 
 function decodedConstants(): DecodedConstants {
   return {
-    eventId: Uint8Array.from(Buffer.from(EVENT.eventId, "hex")),
+    authorizingTxId: Uint8Array.from(Buffer.from(EVENT.eventId, "hex")),
     price: EVENT.price,
     orgSpk: Uint8Array.from(Buffer.from(EVENT.orgSpk, "hex")),
     burnTemplateHash: Uint8Array.from(Buffer.from(EVENT.burnTemplateHash, "hex")),
@@ -224,7 +224,7 @@ describe("reader routes (KTK-5)", () => {
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual([
       {
-        event_id: EVENT.eventId,
+        authorizing_txid: EVENT.eventId,
         genesis_txid: EVENT.genesisTxId,
         name: EVENT.name,
         date: EVENT.date,
@@ -279,7 +279,7 @@ describe("reader routes (KTK-5) — event availability", () => {
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toMatchObject({
       event: {
-        event_id: EVENT.eventId,
+        authorizing_txid: EVENT.eventId,
         name: EVENT.name,
         date: EVENT.date,
         price: EVENT.price,
@@ -332,7 +332,7 @@ describe("reader routes (KTK-5) — tickets", () => {
     const res = await app.inject({ method: "GET", url: `/v1/tickets/${B0_ID}:0` });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json().state).toBe("alive");
-    expect(res.json().event.event_id).toBe(EVENT.eventId);
+    expect(res.json().event.authorizing_txid).toBe(EVENT.eventId);
     expect(res.json().price).toBe(EVENT.price);
     await app.close();
   });
@@ -349,7 +349,7 @@ describe("reader routes (KTK-5) — unknown tickets", () => {
     expect(res.json()).toEqual({
       state: "unknown",
       cause: "unresolved-spend",
-      event: { event_id: EVENT.eventId, name: EVENT.name, date: EVENT.date },
+      event: { authorizing_txid: EVENT.eventId, name: EVENT.name, date: EVENT.date },
       price: 1_000,
     });
     await app.close();
@@ -376,7 +376,7 @@ const deployBody = {
   type: "deploy",
   capacity: 2,
   constants: {
-    event_id: EVENT.eventId,
+    authorizing_txid: EVENT.eventId,
     price: 1_000,
     org_spk: "21020001",
     burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),

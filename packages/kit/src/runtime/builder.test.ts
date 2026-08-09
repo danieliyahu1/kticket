@@ -47,7 +47,7 @@ const EVENT_ID = new Uint8Array(HASH_LENGTH).map((_, i) => (i === 0 ? EVENT_ID_S
 const ORG_SPK = new Uint8Array([PUSH_33, TWO_BYTE, ZERO_BYTE, ONE_BYTE]);
 const BURN_HASH = new Uint8Array(HASH_LENGTH).fill(BURN_HASH_FILL);
 const CONSTANTS: DecodedConstants = {
-  eventId: EVENT_ID,
+  authorizingTxId: EVENT_ID,
   price: 1_000,
   orgSpk: ORG_SPK,
   burnTemplateHash: BURN_HASH,

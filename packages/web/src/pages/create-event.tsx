@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
-import { organizerPkh, randomEventId } from "../api/crypto";
-import { saveEvent } from "../api/event-store";
+import { organizerPkh, orgSpkFromPublicKey } from "../api/crypto";
+import { registerEvent } from "../api/client";
 import { DeployDialog, DeployStatus } from "../components/deploy-dialog";
 import { Empty } from "../components/empty";
 import { EventForm, type EventFormData } from "../components/event-form";
 import { validate } from "../components/event-validate";
 import { Review } from "../components/review";
 import { useWallet } from "../hooks/use-wallet";
+import { BURN_ARTIFACT, burnTemplateHash } from "@kticket/kit";
 
 type ConnectedWallet = { publicKey: string; accounts: string[] };
 type Step = "form" | "review" | "confirm";
@@ -55,26 +56,25 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
   const [form, setForm] = useState<EventFormData>(EMPTY_FORM);
   const [deploy, setDeploy] = useState<DeployState>({ phase: "idle" });
   const [errors, setErrors] = useState<Partial<Record<keyof EventFormData, string>>>({});
-  const [eventId] = useState(() => randomEventId());
   const savedRef = useRef(false);
 
-  const startDeploy = () => deployEvent(wallet, form, eventId, setDeploy);
+  const startDeploy = () => deployEvent(wallet, form, setDeploy);
 
   useEffect(() => {
-    if (deploy.phase !== "success" || !deploy.txid || savedRef.current) return;
+    if (deploy.phase !== "success" || !deploy.txid || !deploy.authorizingTxId || savedRef.current) return;
     savedRef.current = true;
-    saveEvent({
-      eventId,
-      genesisTxId: deploy.txid,
-      orgPkh: organizerPkh(wallet.publicKey),
+    registerEvent({
+      authorizing_txid: deploy.authorizingTxId,
+      genesis_txid: deploy.txid,
+      org_pkh: organizerPkh(wallet.publicKey),
+      org_spk: orgSpkFromPublicKey(wallet.publicKey),
+      burn_template_hash: burnTemplateHash(deploy.authorizingTxId, BURN_ARTIFACT.code),
       name: form.name,
       date: form.date,
-      time: form.time,
+      price: Math.round(form.price * 1e8),
       capacity: form.capacity,
-      price: form.price,
-      createdAt: Date.now(),
     });
-  }, [deploy, eventId, form, wallet]);
+  }, [deploy, form, wallet]);
 
   if (deploy.phase !== "idle") {
     return <DeployResult deploy={deploy} onRetry={startDeploy} />;
@@ -115,7 +115,6 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
 function deployEvent(
   wallet: ConnectedWallet,
   form: EventFormData,
-  eventId: string,
   setDeploy: (s: DeployState) => void,
 ) {
   const params: DeployParams = {
@@ -123,7 +122,6 @@ function deployEvent(
     priceKas: form.price,
     publicKey: wallet.publicKey,
     address: wallet.accounts[0] ?? "",
-    eventId,
   };
   executeDeploy(setDeploy, params);
 }

@@ -38,7 +38,7 @@ const BUYER_UTXO = { transaction_id: "cc".repeat(TXID_BYTE_LENGTH), index: 0, va
 const HOLDER_UTXO = { transaction_id: "dd".repeat(TXID_BYTE_LENGTH), index: 0, value: UTXO_VALUE };
 
 const CONSTANTS = {
-  event_id: EVENT_ID,
+  authorizing_txid: EVENT_ID,
   price: 1_000,
   org_spk: ORG_SPK_HEX,
   burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),

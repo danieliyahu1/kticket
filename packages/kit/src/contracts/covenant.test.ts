@@ -25,7 +25,7 @@ function pkh(byte: number): Uint8Array {
 
 function constants(overrides: Partial<Kcc20Constants> = {}): Kcc20Constants {
   return {
-    eventId: pkh(EVENT_ID_BYTE),
+    authorizingTxId: pkh(EVENT_ID_BYTE),
     price: DEFAULT_PRICE,
     orgSpk: pkh(ORG_SPK_BYTE),
     burnTemplateHash: pkh(BURN_HASH_BYTE),

@@ -12,7 +12,7 @@
     "params": [
       {
         "type": "byte[32]",
-        "name": "event_id"
+        "name": "authorizing_txid"
       },
       {
         "type": "int",

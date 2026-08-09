@@ -48,7 +48,7 @@ function parseErrorJson(text: string): { error?: { message?: string } } | null {
 
 export interface DeployBuildRequest {
   capacity: number;
-  eventId: string;
+  authorizingTxId: string;
   price: number;
   orgSpk: string;
   burnTemplateHash: string;
@@ -64,7 +64,7 @@ export function buildDeployTx(req: DeployBuildRequest): Promise<BuildResult> {
     type: "deploy",
     capacity: req.capacity,
     constants: {
-      event_id: req.eventId,
+      authorizing_txid: req.authorizingTxId,
       price: req.price,
       org_spk: req.orgSpk,
       burn_template_hash: req.burnTemplateHash,
@@ -84,7 +84,7 @@ export function broadcastTx(transaction: unknown): Promise<BroadcastResult> {
 /** Fetch event detail + availability from the API. */
 export interface EventDetail {
   event: {
-    event_id: string;
+    authorizing_txid: string;
     genesis_txid: string;
     name: string;
     date: string;
@@ -131,12 +131,42 @@ export function fetchEvent(eventId: string): Promise<EventDetail> {
   return apiGet<EventDetail>(`/v1/events/${eventId}`);
 }
 
+export interface EventListItem {
+  authorizing_txid: string;
+  genesis_txid: string;
+  name: string;
+  date: string;
+  price: number;
+  capacity: number;
+}
+
+export function fetchEventsList(orgPkh?: string): Promise<EventListItem[]> {
+  const query = orgPkh ? `?org_pkh=${encodeURIComponent(orgPkh)}` : "";
+  return apiGet<EventListItem[]>(`/v1/events${query}`);
+}
+
+export interface RegisterEventPayload {
+  authorizing_txid: string;
+  genesis_txid: string;
+  org_pkh: string;
+  org_spk: string;
+  burn_template_hash: string;
+  name: string;
+  date: string;
+  price: number;
+  capacity: number;
+}
+
+export function registerEvent(payload: RegisterEventPayload): Promise<{ authorizing_txid: string }> {
+  return apiFetch<{ authorizing_txid: string }>("/v1/events", payload);
+}
+
 export interface BuyBuildRequest {
   event_outpoint: WireOutpoint;
   event_covenant_id: string;
   event_owner: string;
   remaining: number;
-  eventId: string;
+  authorizingTxId: string;
   price: number;
   orgSpk: string;
   burnTemplateHash: string;
@@ -154,7 +184,7 @@ export function buildBuyTx(req: BuyBuildRequest): Promise<BuildResult> {
     event_owner: req.event_owner,
     remaining: req.remaining,
     constants: {
-      event_id: req.eventId,
+      authorizing_txid: req.authorizingTxId,
       price: req.price,
       org_spk: req.orgSpk,
       burn_template_hash: req.burnTemplateHash,
@@ -169,7 +199,7 @@ export function buildBuyTx(req: BuyBuildRequest): Promise<BuildResult> {
 export interface TransferBuildRequest {
   ticket_outpoint: WireOutpoint;
   event_covenant_id: string;
-  eventId: string;
+  authorizingTxId: string;
   price: number;
   orgSpk: string;
   burnTemplateHash: string;
@@ -185,7 +215,7 @@ export function buildTransferTx(req: TransferBuildRequest): Promise<BuildResult>
     ticket_outpoint: req.ticket_outpoint,
     event_covenant_id: req.event_covenant_id,
     constants: {
-      event_id: req.eventId,
+      authorizing_txid: req.authorizingTxId,
       price: req.price,
       org_spk: req.orgSpk,
       burn_template_hash: req.burnTemplateHash,

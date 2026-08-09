@@ -37,7 +37,7 @@ export interface VerifyResult {
   state: TicketState;
   /** Set when state is "unknown" — why the walk could not resolve (never guessed). */
   cause?: UnknownCause;
-  event?: { event_id: string; name: string; date: string };
+  event?: { authorizing_txid: string; name: string; date: string };
   price?: number;
   liveOutpoint?: { transaction_id: string; index: number };
   atTx?: string;
@@ -173,7 +173,7 @@ export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<Ver
 function eventMeta(event: RegisteredEvent | undefined) {
   if (!event) return {};
   return {
-    event: { event_id: event.eventId, name: event.name, date: event.date },
+    event: { authorizing_txid: event.eventId, name: event.name, date: event.date },
     price: event.price,
   };
 }

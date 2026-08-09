@@ -51,7 +51,7 @@ const ORG_SPK = new Uint8Array([
 ]);
 const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(ORG_PKH_BYTE);
 const CONSTANTS: DecodedConstants = {
-  eventId: EVENT_ID,
+  authorizingTxId: EVENT_ID,
   price: 1_000,
   orgSpk: ORG_SPK,
   burnTemplateHash: new Uint8Array(TXID_BYTE_LENGTH).fill(BURN_TEMPLATE_BYTE),
@@ -354,7 +354,7 @@ describe("verifyTicket — happy paths (HLD v0.22 §2.2)", () => {
     expect(result.state).toBe("alive");
     expect(result.liveOutpoint).toEqual({ transaction_id: B0_ID, index: 0 });
     expect(result.event).toEqual({
-      event_id: f.event.eventId,
+      authorizing_txid: f.event.eventId,
       name: f.event.name,
       date: f.event.date,
     });
@@ -366,7 +366,7 @@ describe("verifyTicket — happy paths (HLD v0.22 §2.2)", () => {
     const result = await verifyTicket(`${B0_ID}:0`, ctx(f));
     expect(result.state).toBe("gone");
     expect(result.atTx).toBe(T2_ID);
-    expect(result.event?.event_id).toBe(f.event.eventId);
+    expect(result.event?.authorizing_txid).toBe(f.event.eventId);
     expect(result.price).toBe(TICKET_PRICE);
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { isMine, loadEvents, type StoredEvent } from "../api/event-store";
+import { fetchEventsList, type EventListItem } from "../api/client";
+import { organizerPkh } from "../api/crypto";
 import { Empty } from "../components/empty";
 import { useWallet } from "../hooks/use-wallet";
 import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
@@ -59,11 +60,11 @@ function Segmented({ current, onChange }: { current: Segment; onChange: (s: Segm
   );
 }
 
-function EventCard({ event }: { event: StoredEvent }) {
+function EventCard({ event }: { event: EventListItem }) {
   return (
-    <Link to={`/events/${event.eventId}`} className="card event-card">
+    <Link to={`/events/${event.authorizing_txid}`} className="card event-card">
       <h3 className="event-card-name">{event.name}</h3>
-      <p className="event-card-line">{whenLabel(event.date, event.time)}</p>
+      <p className="event-card-line">{whenLabel(event.date)}</p>
       <div className="event-card-meta">
         <span>{priceLabel(event.price)}</span>
         <span>{capacityLabel(event.capacity)}</span>
@@ -75,28 +76,41 @@ function EventCard({ event }: { event: StoredEvent }) {
 export default function EventsPage() {
   const { state, connect } = useWallet();
   const [segment, setSegment] = useState<Segment>("all");
-  const [events, setEvents] = useState<StoredEvent[]>([]);
+  const [events, setEvents] = useState<EventListItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const connected = state.status === "connected";
+  const filterOrgPkh =
+    segment === "mine" && connected ? organizerPkh(state.publicKey) : undefined;
 
   useEffect(() => {
-    setEvents(loadEvents());
-  }, []);
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const list = await fetchEventsList(filterOrgPkh);
+        if (!cancelled) setEvents(list);
+      } catch {
+        if (!cancelled) setEvents([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [filterOrgPkh]);
 
-  const visible =
-    segment === "all"
-      ? events
-      : state.status === "connected"
-        ? events.filter((event) => isMine(event, state.publicKey))
-        : [];
+  const visible = events;
 
   return (
     <section>
       <h2 className="page-heading">Events</h2>
       <Segmented current={segment} onChange={setSegment} />
-      {visible.length > 0 ? (
+      {loading ? null : visible.length > 0 ? (
         <div className="event-list">
           {visible.map((event) => (
-            <EventCard key={event.eventId} event={event} />
+            <EventCard key={event.authorizing_txid} event={event} />
           ))}
         </div>
       ) : segment === "mine" ? (

@@ -26,7 +26,7 @@ export interface Kcc20State {
 }
 
 export interface Kcc20Constants {
-  eventId: Uint8Array;
+  authorizingTxId: Uint8Array;
   /** Price per ticket in sompi (0 = free). */
   price: number;
   orgSpk: Uint8Array;

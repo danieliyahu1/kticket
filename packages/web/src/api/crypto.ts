@@ -1,7 +1,3 @@
-const EVENT_ID_BYTES = 32;
-const HEX_RADIX = 16;
-const HEX_PAD_WIDTH = 2;
-
 const COMPRESSED_PUBKEY_LEN = 66;
 const COMPRESSED_PREFIX_HEX_CHARS = 2;
 const OP_PUSH_32 = "20";
@@ -33,12 +29,4 @@ export function orgSpkFromPublicKey(publicKeyHex: string): string {
     throw new Error(`public key x-coordinate must be 64 hex chars, got ${x.length}`);
   }
   return `${OP_PUSH_32}${x}${OP_CHECKSIG}`;
-}
-
-export function randomEventId(): string {
-  const bytes = new Uint8Array(EVENT_ID_BYTES);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map((b) => b.toString(HEX_RADIX).padStart(HEX_PAD_WIDTH, "0"))
-    .join("");
 }

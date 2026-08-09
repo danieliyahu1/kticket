@@ -112,16 +112,16 @@ export function buildRedeemScript(
 
 /**
  * Assemble the redeem script for the event burn-owner covenant. The burn's own
- * layout is `count = 1` (state) + `event_id` (constants) — it has no owner,
+ * layout is `count = 1` (state) + `authorizing_txid` (constants) — it has no owner,
  * price, org_spk, or template hash (see burn.silverscript).
  */
-export function buildBurnRedeemScript(eventId: Uint8Array, code: Uint8Array): Uint8Array {
-  if (eventId.length !== HASH_LENGTH) {
-    throw new PreimageError(`eventId must be 32 bytes, got ${eventId.length}`);
+export function buildBurnRedeemScript(authorizingTxId: Uint8Array, code: Uint8Array): Uint8Array {
+  if (authorizingTxId.length !== HASH_LENGTH) {
+    throw new PreimageError(`authorizingTxId must be 32 bytes, got ${authorizingTxId.length}`);
   }
   const countBytes = new Uint8Array([1]);
   const constantsBytes = new Uint8Array(HASH_LENGTH);
-  constantsBytes.set(eventId);
+  constantsBytes.set(authorizingTxId);
   return assembleRedeemScript(countBytes, constantsBytes, code);
 }
 
