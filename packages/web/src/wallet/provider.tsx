@@ -45,10 +45,26 @@ function useKaswareDetection(setState: (state: WalletState) => void) {
   }, [setState]);
 }
 
+const CONNECT_TIMEOUT_MS = 30_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 async function requestConnection(
   provider: KaswareProvider,
 ): Promise<{ accounts: string[]; publicKey: string } | "empty"> {
-  const accounts = await provider.requestAccounts();
+  const accounts = await withTimeout(
+    provider.requestAccounts(),
+    CONNECT_TIMEOUT_MS,
+    "wallet approval",
+  );
   if (accounts.length === 0) return "empty";
   const publicKey = await provider.getPublicKey();
   return { accounts, publicKey };

@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useWallet } from "../hooks/use-wallet";
 import { network } from "../network";
 import { HeaderActions } from "./header-actions";
 
@@ -12,6 +13,9 @@ function PageTransition({ children }: { children: React.ReactNode }) {
 }
 
 export function Layout() {
+  const { state } = useWallet();
+  const connected = state.status === "connected";
+
   return (
     <div className="app">
       <header className="header">
@@ -20,9 +24,11 @@ export function Layout() {
             <NavLink to="/" className="wordmark">
               kticket
             </NavLink>
-            <NavLink to="/tickets" className="sub-nav">
-              Tickets
-            </NavLink>
+            {connected && (
+              <NavLink to="/tickets" className="sub-nav">
+                Tickets
+              </NavLink>
+            )}
           </div>
           <HeaderActions />
         </div>
