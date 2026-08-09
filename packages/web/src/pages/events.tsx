@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { fetchEventsList, type EventListItem } from "../api/client";
 import { organizerPkh } from "../api/crypto";
 import { Empty } from "../components/empty";
@@ -86,7 +86,9 @@ function EventCard({ event }: { event: EventListItem }) {
 
 export default function EventsPage() {
   const { state, connect } = useWallet();
-  const [segment, setSegment] = useState<Segment>("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialSegment: Segment = searchParams.get("filter") === "mine" ? "mine" : "all";
+  const [segment, setSegment] = useState<Segment>(initialSegment);
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const connected = state.status === "connected";
@@ -122,7 +124,7 @@ export default function EventsPage() {
           <p className="hero-sub">Tickets that can't be faked, duplicated, or taken from you.</p>
         </div>
       )}
-      <Segmented current={segment} onChange={setSegment} />
+      <Segmented current={segment} onChange={(s) => { setSegment(s); if (s === "mine") { setSearchParams({ filter: "mine" }); } else { setSearchParams({}); } }} />
       {loading ? (
         <div className="event-list">
           {Array.from({ length: 6 }, (_, i) => (
