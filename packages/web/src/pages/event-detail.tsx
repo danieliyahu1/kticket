@@ -159,7 +159,7 @@ export default function EventDetailPage() {
           </button>
           {event.event.price > 0 && (
             <p className="note">
-              Price: {event.event.price} KAS per ticket. Payment from your wallet.
+              Price: {priceLabel(event.event.price)} per ticket. Payment from your wallet.
             </p>
           )}
         </div>

@@ -120,7 +120,7 @@ export async function executeDeploy(
   }
 
   setState({ phase: "broadcasting" });
-  await signAndBroadcast(buildResult, authorizingTxId, buildResult.event_covenant_id, setState);
+  await signAndBroadcast(buildResult, authorizingTxId, buildResult.event_covenant_id!, setState);
 }
 
 async function signAndBroadcast(
@@ -131,7 +131,7 @@ async function signAndBroadcast(
 ): Promise<void> {
   let signedTx;
   try {
-    const signed = await signTemplate(buildResult.signing_template);
+    const signed = await signTemplate(buildResult.signing_template!);
     logStep("signed", {
       type: typeof signed,
       sample: JSON.stringify(signed).slice(0, LOG_SAMPLE_LEN),
