@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useWallet } from "../hooks/use-wallet";
 import { broadcastTx, buildTransferTx, fetchEvent, fetchMyTicketsWithRetry, type TicketEntry } from "../api/client";
 import { organizerPkh } from "../api/crypto";
@@ -7,7 +6,6 @@ import { changeScriptFromPublicKey, fetchUtxos, toWireUtxo, toWireUtxoMeta } fro
 import type { WireOutpoint } from "../api/types";
 import { priceLabel, whenLabel } from "../lib/format";
 import { mergeSignatures, SOMPI_PER_KAS } from "../lib/signing";
-import { Empty } from "../components/empty";
 
 type TransferState =
   | { phase: "idle" }
@@ -20,8 +18,8 @@ type TransferState =
 function errorMsg(err: unknown): string {
   if (!(err instanceof Error)) return "Transfer failed.";
   const msg = err.message;
-  if (msg === "No connection") return "No connection - transfer can't complete.";
-  if (msg.includes("funds") || msg.includes("fee")) return "Not enough funds - transfer didn't go through.";
+  if (msg === "No connection") return "No connection — transfer can't complete.";
+  if (msg.includes("funds") || msg.includes("fee")) return "Not enough funds — transfer didn't go through.";
   return "Transfer failed.";
 }
 
@@ -54,7 +52,7 @@ function TicketCard({ ticket, onTransfer }: { ticket: TicketEntry; onTransfer: (
   );
 }
 
-function TransferDialog({
+function TransferOverlay({
   ticket,
   state,
   onConfirm,
@@ -74,8 +72,9 @@ function TransferDialog({
           <>
             <p className="modal-heading">Transfer this ticket?</p>
             <p className="modal-sub">
-              It is one-way and cannot be undone.
+              {ticket.event_name} &middot; {whenLabel(ticket.event_date)}
             </p>
+            <p className="modal-sub">This is one-way and cannot be undone.</p>
             <div className="modal-actions">
               <button type="button" className="btn btn-primary btn-sm" onClick={onConfirm}>Transfer</button>
               <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>Cancel</button>
@@ -114,27 +113,10 @@ function TransferDialog({
   );
 }
 
-export default function WalletPage() {
-  const { state, connect } = useWallet();
-  const [tickets, setTickets] = useState<TicketEntry[]>([]);
+export function TicketsSection({ tickets, onRefetch }: { tickets: TicketEntry[]; onRefetch: () => Promise<void> }) {
+  const { state } = useWallet();
   const [transferState, setTransferState] = useState<TransferState>({ phase: "idle" });
   const [transferTicket, setTransferTicket] = useState<TicketEntry | null>(null);
-
-  const loadTickets = useCallback(async () => {
-    if (state.status !== "connected") return;
-    try {
-      const list = await fetchMyTicketsWithRetry(state.publicKey);
-      setTickets(list);
-    } catch {
-      setTickets([]);
-    }
-  }, [state.status, state.status === "connected" ? state.publicKey : undefined]);
-
-  useEffect(() => {
-    if (state.status === "connected") {
-      loadTickets();
-    }
-  }, [state.status === "connected" ? state.publicKey : ""]);
 
   const handleTransfer = useCallback((ticket: TicketEntry) => {
     setTransferTicket(ticket);
@@ -154,7 +136,7 @@ export default function WalletPage() {
 
       const utxos = await fetchUtxos(address);
       if (utxos.length === 0) {
-        setTransferState({ phase: "error", message: "Not enough funds - transfer didn't go through." });
+        setTransferState({ phase: "error", message: "Not enough funds — transfer didn't go through." });
         return;
       }
 
@@ -193,74 +175,56 @@ export default function WalletPage() {
       await broadcastTx(signedTx);
 
       setTransferState({ phase: "success" });
-      await loadTickets();
+      await onRefetch();
     } catch (err) {
       setTransferState({ phase: "error", message: errorMsg(err) });
     }
-  }, [transferTicket, state, loadTickets]);
+  }, [transferTicket, state, onRefetch]);
 
   const handleTransferCancel = useCallback(() => {
     setTransferState({ phase: "idle" });
     setTransferTicket(null);
   }, []);
 
-  const connected = state.status === "connected";
+  if (tickets.length === 0) return null;
+
+  const grouped = groupByEvent(tickets);
 
   return (
-    <section>
-      <h2 className="page-heading">My Tickets</h2>
-      {!connected ? (
-        <Empty
-          title="Your tickets live on the chain."
-          sub="Connect your wallet to see what's yours."
-          actionLabel="Connect wallet"
-          onAction={connect}
-        />
-      ) : tickets.length === 0 ? (
-        <Empty
-          title="No tickets yet."
-          sub="Find an event and grab a ticket."
-          actionLabel="Browse events"
-          actionTo="/"
-        />
-      ) : (
-        <div className="ticket-group-list">
-          {groupByEvent(tickets).map(({ eventName, eventTickets }) => (
-            <div key={eventTickets[0]?.covenant_id ?? eventName}>
-              <h3 className="ticket-group-heading">
-                {eventName} &middot; {eventTickets.length}{" "}
-                {eventTickets.length === 1 ? "ticket" : "tickets"}
-              </h3>
-              <div className="ticket-group">
-                {eventTickets.map((ticket) => (
-                  <TicketCard key={ticket.ticket_id} ticket={ticket} onTransfer={() => handleTransfer(ticket)} />
-                ))}
-              </div>
-            </div>
-          ))}
+    <div className="ticket-group-list section-gap">
+      {grouped.map(({ eventName, eventTickets }) => (
+        <div key={eventTickets[0]?.covenant_id ?? eventName}>
+          <h3 className="ticket-group-heading">
+            {eventName} &middot; {eventTickets.length}{" "}
+            {eventTickets.length === 1 ? "ticket" : "tickets"}
+          </h3>
+          <div className="ticket-group">
+            {eventTickets.map((ticket) => (
+              <TicketCard key={ticket.ticket_id} ticket={ticket} onTransfer={() => handleTransfer(ticket)} />
+            ))}
+          </div>
         </div>
-      )}
+      ))}
       {transferTicket && (
-        <TransferDialog
+        <TransferOverlay
           ticket={transferTicket}
           state={transferState}
           onConfirm={handleTransferConfirm}
           onCancel={handleTransferCancel}
         />
       )}
-    </section>
+    </div>
   );
 }
 
 function groupByEvent(tickets: TicketEntry[]): { eventName: string; eventTickets: TicketEntry[] }[] {
   const map = new Map<string, TicketEntry[]>();
   for (const t of tickets) {
-    const key = t.covenant_id;
-    const list = map.get(key);
+    const list = map.get(t.covenant_id);
     if (list) {
       list.push(t);
     } else {
-      map.set(key, [t]);
+      map.set(t.covenant_id, [t]);
     }
   }
   return Array.from(map.entries()).map(([covenantId, eventTickets]) => ({

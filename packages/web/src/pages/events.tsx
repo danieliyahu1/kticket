@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fetchEventsList, type EventListItem } from "../api/client";
+import { fetchEventsList, fetchMyTicketsWithRetry, type EventListItem, type TicketEntry } from "../api/client";
 import { organizerPkh } from "../api/crypto";
 import { Empty } from "../components/empty";
+import { TicketsSection } from "../components/tickets-section";
 import { useWallet } from "../hooks/use-wallet";
 import { priceLabel, whenLabel } from "../lib/format";
 
-type Segment = "all" | "mine";
+type Segment = "all" | "created" | "tickets";
 
 const SEGMENTS: Array<{ id: Segment; label: string }> = [
-  { id: "all", label: "All events" },
-  { id: "mine", label: "My events" },
+  { id: "all", label: "Browse" },
+  { id: "created", label: "Created" },
+  { id: "tickets", label: "Tickets" },
 ];
 
 function hashHue(name: string): number {
@@ -22,7 +24,7 @@ function hashHue(name: string): number {
   return Math.abs(hash) % 360;
 }
 
-function AllEmpty() {
+function BrowseEmpty() {
   return (
     <Empty
       title="Nothing on the chain yet."
@@ -33,18 +35,44 @@ function AllEmpty() {
   );
 }
 
-function MineEmpty({ connected, onConnect }: { connected: boolean; onConnect: () => void }) {
-  return connected ? (
+function CreatedEmptyConnected() {
+  return (
     <Empty
-      title="Nothing of yours yet."
-      sub="Put your first event on Kaspa."
+      title="Nothing here yet."
+      sub="Create your first event on Kaspa."
       actionLabel="Create an event"
       actionTo="/create"
     />
-  ) : (
+  );
+}
+
+function CreatedEmptyDisconnected({ onConnect }: { onConnect: () => void }) {
+  return (
     <Empty
-      title="Your events live here."
-      sub="Connect your wallet to see what's yours."
+      title="Events you created live here."
+      sub="Connect your wallet to see them."
+      actionLabel="Connect wallet"
+      onAction={onConnect}
+    />
+  );
+}
+
+function TicketsEmptyConnected() {
+  return (
+    <Empty
+      title="No tickets yet."
+      sub="Find an event and grab a ticket."
+      actionLabel="Browse events"
+      actionTo="/"
+    />
+  );
+}
+
+function TicketsEmptyDisconnected({ onConnect }: { onConnect: () => void }) {
+  return (
+    <Empty
+      title="Tickets you hold live here."
+      sub="Connect your wallet to see them."
       actionLabel="Connect wallet"
       onAction={onConnect}
     />
@@ -84,18 +112,70 @@ function EventCard({ event }: { event: EventListItem }) {
   );
 }
 
+const HERO: Record<Segment, { title: string; sub: string }> = {
+  all: {
+    title: "Real tickets. On the chain.",
+    sub: "Tickets that can't be faked, duplicated, or taken from you.",
+  },
+  created: {
+    title: "Events you've put on the chain.",
+    sub: "Bring people together — on Kaspa.",
+  },
+  tickets: {
+    title: "Tickets you hold.",
+    sub: "Your passes to everything you've signed up for.",
+  },
+};
+
+function segmentFromParam(param: string | null): Segment {
+  if (param === "created") return "created";
+  if (param === "tickets") return "tickets";
+  return "all";
+}
+
+function paramFromSegment(segment: Segment): string | null {
+  if (segment === "all") return null;
+  return segment;
+}
+
 export default function EventsPage() {
   const { state, connect } = useWallet();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialSegment: Segment = searchParams.get("filter") === "mine" ? "mine" : "all";
+  const initialSegment = segmentFromParam(searchParams.get("filter"));
   const [segment, setSegment] = useState<Segment>(initialSegment);
   const [events, setEvents] = useState<EventListItem[]>([]);
+  const [tickets, setTickets] = useState<TicketEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const connected = state.status === "connected";
   const filterOrgPkh =
-    segment === "mine" && connected ? organizerPkh(state.publicKey) : undefined;
+    segment === "created" && connected ? organizerPkh(state.publicKey) : undefined;
+
+  const loadTickets = useCallback(async () => {
+    if (state.status !== "connected") return;
+    try {
+      const list = await fetchMyTicketsWithRetry(state.publicKey);
+      setTickets(list);
+    } catch {
+      setTickets([]);
+    }
+  }, [state.status, state.status === "connected" ? state.publicKey : undefined]);
 
   useEffect(() => {
+    if (segment === "tickets") {
+      if (connected) {
+        loadTickets();
+      }
+      setLoading(false);
+      setEvents([]);
+      return;
+    }
+
+    if (segment === "created" && !connected) {
+      setLoading(false);
+      setEvents([]);
+      return;
+    }
+
     let cancelled = false;
     async function load() {
       setLoading(true);
@@ -112,20 +192,35 @@ export default function EventsPage() {
     return () => {
       cancelled = true;
     };
-  }, [filterOrgPkh]);
+  }, [filterOrgPkh, segment]);
 
   const visible = events;
 
   return (
     <section>
-      {segment !== "mine" && (
-        <div className="hero">
-          <h1 className="hero-title">Real tickets. On the chain.</h1>
-          <p className="hero-sub">Tickets that can't be faked, duplicated, or taken from you.</p>
-        </div>
-      )}
-      <Segmented current={segment} onChange={(s) => { setSegment(s); if (s === "mine") { setSearchParams({ filter: "mine" }); } else { setSearchParams({}); } }} />
-      {loading ? (
+      <div className="hero">
+        <h1 className="hero-title">{HERO[segment].title}</h1>
+        <p className="hero-sub">{HERO[segment].sub}</p>
+      </div>
+      <Segmented
+        current={segment}
+        onChange={(s) => {
+          setSegment(s);
+          const param = paramFromSegment(s);
+          if (param) {
+            setSearchParams({ filter: param });
+          } else {
+            setSearchParams({});
+          }
+        }}
+      />
+      {segment === "tickets" ? (
+        connected ? (
+          <TicketsSection tickets={tickets} onRefetch={loadTickets} />
+        ) : (
+          <TicketsEmptyDisconnected onConnect={connect} />
+        )
+      ) : loading ? (
         <div className="event-list">
           {Array.from({ length: 6 }, (_, i) => (
             <div key={i} className="skeleton skeleton-card" aria-hidden="true" />
@@ -137,10 +232,14 @@ export default function EventsPage() {
             <EventCard key={event.covenant_id} event={event} />
           ))}
         </div>
-      ) : segment === "mine" ? (
-        <MineEmpty connected={connected} onConnect={connect} />
+      ) : segment === "created" ? (
+        connected ? (
+          <CreatedEmptyConnected />
+        ) : (
+          <CreatedEmptyDisconnected onConnect={connect} />
+        )
       ) : (
-        <AllEmpty />
+        <BrowseEmpty />
       )}
     </section>
   );

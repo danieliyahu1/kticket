@@ -232,3 +232,30 @@ export function buildTransferTx(req: TransferBuildRequest): Promise<BuildResult>
 }
 
 export { type WireOutpoint };
+
+export interface TicketEntry {
+  ticket_id: string;
+  covenant_id: string;
+  event_name: string;
+  event_date: string;
+}
+
+async function fetchMyTickets(ownerPkh: string): Promise<TicketEntry[]> {
+  return apiGet<TicketEntry[]>(`/v1/tickets?owner_pkh=${encodeURIComponent(ownerPkh)}`);
+}
+
+const RETRY_DELAY_MS = 1000;
+const MAX_RETRIES = 2;
+
+export async function fetchMyTicketsWithRetry(ownerPkh: string): Promise<TicketEntry[]> {
+  let delay = RETRY_DELAY_MS;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const tickets = await fetchMyTickets(ownerPkh);
+    if (tickets.length > 0) return tickets;
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, delay));
+      delay *= 2;
+    }
+  }
+  return [];
+}

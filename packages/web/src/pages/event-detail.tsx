@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { fetchEvent, type EventDetail } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
 import { useWallet } from "../hooks/use-wallet";
-import { saveTicket } from "../api/ticket-store";
 import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
@@ -59,22 +58,6 @@ export default function EventDetailPage() {
     pendingBuy.current = true;
     connect();
   }, [connect]);
-
-  useEffect(() => {
-    if (buy.phase === "success" && event) {
-      saveTicket({
-        ticketId: `${buy.txid.toLowerCase()}:0`,
-        covenantId: event.event.covenant_id,
-        eventName: event.event.name,
-        eventDate: event.event.date,
-        eventTime: new Date(event.event.date).toISOString(),
-        price: event.event.price,
-        buyTxId: buy.txid.toLowerCase(),
-        orgPkh: event.buy_info.event_owner,
-        acquiredAt: Date.now(),
-      });
-    }
-  }, [buy.phase]);
 
   if (loading) {
     return (
