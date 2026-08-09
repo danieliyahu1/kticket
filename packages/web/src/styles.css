@@ -904,6 +904,26 @@ button {
   margin-bottom: var(--space-6);
 }
 
+.buy-confirm {
+  background: var(--canvas-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-5);
+}
+
+.buy-confirm-body {
+  margin: 0 0 var(--space-4);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.buy-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .btn-block {
   width: 100%;
 }

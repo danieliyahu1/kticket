@@ -14,6 +14,7 @@ export default function EventDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [buy, setBuy] = useState<BuyState>({ phase: "idle" });
   const pendingBuy = useRef(false);
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async () => {
     if (!covenantId) return;
@@ -43,9 +44,6 @@ export default function EventDetailPage() {
     });
   }, [covenantId, event, state]);
 
-  const handleBuyRef = useRef(handleBuy);
-  handleBuyRef.current = handleBuy;
-
   useEffect(() => {
     if (!pendingBuy.current) return;
     if (state.status !== "connected") return;
@@ -54,7 +52,7 @@ export default function EventDetailPage() {
       return;
     }
     pendingBuy.current = false;
-    handleBuyRef.current();
+    setConfirming(true);
   }, [state.status, event]);
 
   const handleConnectThenBuy = useCallback(() => {
@@ -160,12 +158,34 @@ export default function EventDetailPage() {
           <button type="button" className="btn btn-primary btn-lg btn-sold-out" disabled>
             Sold out
           </button>
+        ) : connected && confirming ? (
+          <div className="buy-confirm">
+            <p className="buy-confirm-body">
+              1 ticket to {event.event.name} for {priceLabel(event.event.price)}. Proceed?
+            </p>
+            <div className="buy-confirm-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleBuy}
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                className="btn btn-link"
+                onClick={() => setConfirming(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         ) : connected ? (
           <>
             <button
               type="button"
               className="btn btn-primary btn-lg btn-block"
-              onClick={handleBuy}
+              onClick={() => setConfirming(true)}
             >
               Buy ticket
             </button>
