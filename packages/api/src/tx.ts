@@ -105,16 +105,36 @@ export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<Bu
   const built = await buildFeeAware(prepared, ctx.kaspa);
 
   const wire = toWireTx(built.tx);
+
+  if (built.covenantRedeemScript && wire.inputs.length > 0) {
+    wire.inputs[0].signature_script = built.covenantRedeemScript;
+  }
+
   const result: BuildResult = { template: wire };
 
   if (built.eventCovenantId) {
     result.event_covenant_id = built.eventCovenantId;
   }
 
+  // Only a deploy is a covenant genesis. Continuation transactions (buy /
+  // transfer / handover) spend an existing covenant and must keep its genesis
+  // covenant id on their outputs — the wasm must NOT recompute a new one.
+  const isGenesis = request.type === "deploy";
+
   if (hasCompleteUtxoMetas(prepared.inputUtxoMetas)) {
-    const { signingJson, covenantIds } = await signingTemplate(wire, prepared.inputUtxoMetas);
+    const { signingJson, covenantIds } = await signingTemplate(
+      wire,
+      prepared.inputUtxoMetas,
+      isGenesis,
+    );
     result.signing_template = signingJson;
-    applyWasmCovenantIds(result, covenantIds);
+    if (isGenesis) {
+      applyWasmCovenantIds(result, covenantIds);
+    }
+  }
+
+  if (!isGenesis && "event_covenant_id" in request) {
+    result.event_covenant_id = request.event_covenant_id;
   }
 
   return result;
