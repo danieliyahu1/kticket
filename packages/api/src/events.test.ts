@@ -8,12 +8,8 @@ import {
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
-import {
-  EventRegistry,
-  eventAvailability,
-  parseRegisteredEvents,
-  type RegisteredEvent,
-} from "./events";
+import { eventAvailability, parseRegisterEventBody } from "./events";
+import type { StoredEventInternal } from "./eventstore";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
 
@@ -48,8 +44,8 @@ const CONSTANTS: DecodedConstants = {
   burnTemplateHash: new Uint8Array(TXID_BYTE_LENGTH).fill(BURN_TEMPLATE_BYTE),
 };
 
-const EVENT: RegisteredEvent = {
-  eventId: bytesToHex(EVENT_ID),
+const EVENT: StoredEventInternal = {
+  covenantId: "cc".repeat(TXID_BYTE_LENGTH),
   genesisTxId: G_ID,
   orgPkh: bytesToHex(ORG_PKH),
   orgSpk: bytesToHex(ORG_SPK),
@@ -58,6 +54,7 @@ const EVENT: RegisteredEvent = {
   date: "2026-12-31",
   price: 1_000,
   capacity: 3,
+  authorizingTxId: bytesToHex(EVENT_ID),
 };
 
 function outpointBytes(txIdHex: string, index: number) {
@@ -168,79 +165,55 @@ class FakeKaspa implements KaspaClientLike {
   }
 }
 
-describe("EventRegistry", () => {
-  it("indexes by event id and genesis txid", () => {
-    const registry = new EventRegistry([EVENT]);
-    expect(registry.byEventId(bytesToHex(EVENT_ID))).toEqual(EVENT);
-    expect(registry.byGenesisTxId(G_ID)).toEqual(EVENT);
-    expect(registry.list()).toHaveLength(1);
-  });
-
-  it("lookups are case-insensitive", () => {
-    const registry = new EventRegistry([EVENT]);
-    expect(registry.byEventId(bytesToHex(EVENT_ID).toUpperCase())?.eventId).toBe(EVENT.eventId);
-    expect(registry.byGenesisTxId(G_ID.toUpperCase())?.genesisTxId).toBe(G_ID);
-  });
-
-  it("returns undefined for unknown events", () => {
-    const registry = new EventRegistry([EVENT]);
-    expect(registry.byEventId("ff".repeat(TXID_BYTE_LENGTH))).toBeUndefined();
-    expect(registry.byGenesisTxId("ff".repeat(TXID_BYTE_LENGTH))).toBeUndefined();
-  });
-});
-
-describe("parseRegisteredEvents (KTICKET_EVENTS)", () => {
-  it("returns [] for a missing value", () => {
-    expect(parseRegisteredEvents(undefined)).toEqual([]);
-    expect(parseRegisteredEvents("")).toEqual([]);
-  });
-
-  it("parses a valid array", () => {
-    const parsed = parseRegisteredEvents(
-      JSON.stringify([
-        {
-          ...EVENT,
-          authorizing_txid: EVENT.eventId,
-          genesis_txid: EVENT.genesisTxId,
-          org_pkh: EVENT.orgPkh,
-          org_spk: EVENT.orgSpk,
-          burn_template_hash: EVENT.burnTemplateHash,
-        },
-      ]),
-    );
-    expect(parsed).toEqual([EVENT]);
-  });
-});
-
-describe("parseRegisteredEvents (validation)", () => {
-  it("rejects invalid JSON and non-arrays", () => {
-    expect(() => parseRegisteredEvents("{nope")).toThrow();
-    expect(() => parseRegisteredEvents('{"a":1}')).toThrow();
-  });
-
-  it("rejects malformed entries", () => {
-    const base = {
-      authorizing_txid: EVENT.eventId,
+describe("parseRegisterEventBody (POST /v1/events)", () => {
+  it("parses a valid registration body", () => {
+    const parsed = parseRegisterEventBody({
       genesis_txid: G_ID,
-      org_pkh: EVENT.orgPkh,
-      org_spk: EVENT.orgSpk,
-      burn_template_hash: EVENT.burnTemplateHash,
+      org_pkh: bytesToHex(ORG_PKH),
+      name: "Testnet Rave",
+      date: "2026-12-31",
+      price: 1_000,
+      capacity: 3,
+      org_spk: bytesToHex(ORG_SPK),
+      burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
+      authorizing_txid: bytesToHex(EVENT_ID),
+    });
+    expect(parsed).toEqual({
+      genesisTxId: G_ID,
+      orgPkh: bytesToHex(ORG_PKH),
+      name: "Testnet Rave",
+      date: "2026-12-31",
+      price: 1_000,
+      capacity: 3,
+      orgSpk: bytesToHex(ORG_SPK),
+      burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
+      authorizingTxId: bytesToHex(EVENT_ID),
+    });
+  });
+
+  it("rejects missing fields", () => {
+    const base = {
+      genesis_txid: G_ID,
+      org_pkh: bytesToHex(ORG_PKH),
       name: "x",
       date: "d",
       price: 1,
       capacity: 2,
+      org_spk: bytesToHex(ORG_SPK),
+      burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
+      authorizing_txid: bytesToHex(EVENT_ID),
     };
-    expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, authorizing_txid: "short" }]))).toThrow(
-      /authorizing_txid/,
+    expect(() => parseRegisterEventBody({ ...base, genesis_txid: "short" })).toThrow(
+      /genesis_txid/,
     );
-    expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, org_pkh: "short" }]))).toThrow(
+    expect(() => parseRegisterEventBody({ ...base, org_pkh: "short" })).toThrow(
       /org_pkh/,
     );
-    expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, capacity: 200 }]))).toThrow(
+    expect(() => parseRegisterEventBody({ ...base, capacity: 200 })).toThrow(
       /capacity/,
     );
-    expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, price: -1 }]))).toThrow(/price/);
-    expect(() => parseRegisteredEvents(JSON.stringify([{ ...base, name: "" }]))).toThrow(/name/);
+    expect(() => parseRegisterEventBody({ ...base, price: -1 })).toThrow(/price/);
+    expect(() => parseRegisterEventBody({ ...base, name: "" })).toThrow(/name/);
   });
 });
 
@@ -285,7 +258,7 @@ function buyModel(): TxModel {
   return buyTxModel(buy, G_ID);
 }
 
-describe("eventAvailability (GET /v1/events/{id})", () => {
+describe("eventAvailability (GET /v1/events/{covenant_id})", () => {
   it("reports sold 0 / left capacity when the event covenant is unspent", async () => {
     const deploy = deployModel(EVENT.capacity);
     const kaspa = new FakeKaspa(deploy);
@@ -300,11 +273,9 @@ describe("eventAvailability (GET /v1/events/{id})", () => {
   it("walks the event covenant lineage and counts mints as sold", async () => {
     const deploy = deployModel(EVENT.capacity);
     const kaspa = new FakeKaspa(deploy);
-    // One mint: a buy tx spends the event covenant (G_ID:0) and re-creates it
-    // with remaining 2 (output index 1).
     const buy = buyModel();
     const oldAddress = addressFromScriptHash(deploySpk(deploy), NETWORK);
-    kaspa.addressTxs.set(oldAddress, [buy]); // spender visible at deploy address
+    kaspa.addressTxs.set(oldAddress, [buy]);
     const newAddress = addressFromScriptHash(
       buy.outputs?.[1]?.script_public_key as string,
       NETWORK,
@@ -320,7 +291,11 @@ describe("eventAvailability (edge cases)", () => {
   it("handles a capacity-0 event", async () => {
     const deploy = deployModel(0);
     const kaspa = new FakeKaspa(deploy);
-    const availability = await eventAvailability({ ...EVENT, capacity: 0 }, kaspa, NETWORK);
+    const availability = await eventAvailability(
+      { ...EVENT, capacity: 0 },
+      kaspa,
+      NETWORK,
+    );
     expect(availability).toMatchObject({ capacity: 0, sold: 0, left: 0 });
   });
 

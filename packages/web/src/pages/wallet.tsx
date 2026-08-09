@@ -159,7 +159,7 @@ export default function WalletPage() {
       const buildResult = await buildTransferTx({
         ticket_outpoint: ticketOutpoint,
         event_covenant_id: buyInfo.event_covenant_id,
-        authorizingTxId: event.event.authorizing_txid,
+        authorizingTxId: event.buy_info.authorizing_txid,
         price: transferTicket.price * SOMPI_PER_KAS,
         orgSpk: buyInfo.org_spk,
         burnTemplateHash: buyInfo.burn_template_hash,

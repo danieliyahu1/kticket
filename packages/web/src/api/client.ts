@@ -84,7 +84,7 @@ export function broadcastTx(transaction: unknown): Promise<BroadcastResult> {
 /** Fetch event detail + availability from the API. */
 export interface EventDetail {
   event: {
-    authorizing_txid: string;
+    covenant_id: string;
     genesis_txid: string;
     name: string;
     date: string;
@@ -100,6 +100,7 @@ export interface EventDetail {
     event_owner: string;
     org_spk: string;
     burn_template_hash: string;
+    authorizing_txid: string;
     event_covenant_id: string;
     event_txid: string;
     event_index: number;
@@ -127,17 +128,15 @@ async function apiGet<T>(path: string): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-export function fetchEvent(eventId: string): Promise<EventDetail> {
-  return apiGet<EventDetail>(`/v1/events/${eventId}`);
+export function fetchEvent(covenantId: string): Promise<EventDetail> {
+  return apiGet<EventDetail>(`/v1/events/${covenantId}`);
 }
 
 export interface EventListItem {
-  authorizing_txid: string;
+  covenant_id: string;
   genesis_txid: string;
   name: string;
   date: string;
-  price: number;
-  capacity: number;
 }
 
 export function fetchEventsList(orgPkh?: string): Promise<EventListItem[]> {
@@ -157,8 +156,8 @@ export interface RegisterEventPayload {
   capacity: number;
 }
 
-export function registerEvent(payload: RegisterEventPayload): Promise<{ authorizing_txid: string }> {
-  return apiFetch<{ authorizing_txid: string }>("/v1/events", payload);
+export function registerEvent(payload: RegisterEventPayload): Promise<{ covenant_id: string }> {
+  return apiFetch<{ covenant_id: string }>("/v1/events", payload);
 }
 
 export interface BuyBuildRequest {

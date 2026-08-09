@@ -1,18 +1,17 @@
 // Events directory + availability (HLD v0.22 §2.2 — GET /v1/events,
-// GET /v1/events/{event_id}).
+// GET /v1/events/{covenant_id}).
 //
 // The blockDAG stores only `P2SH(blake3(redeem_script))`, not the decoded
 // preimage, so there is no on-chain index to discover events from. The events
-// directory is therefore a config-supplied registry of known events (the
-// deploy the organizer created). Availability (sold/left) is derived from the
-// event covenant's `remaining` state by walking its spend lineage: each mint
-// (buy) spends the event covenant and re-creates it with `remaining − 1`, so
-// the walk reconstructs each successor's script hash and counts until a live
-// covenant output is found.
+// directory is therefore a file-backed store of known events (the deploy the
+// organizer created). Availability (sold/left) is derived from the event
+// covenant's `remaining` state by walking its spend lineage: each mint (buy)
+// spends the event covenant and re-creates it with `remaining − 1`, so the walk
+// reconstructs each successor's script hash and counts until a live covenant
+// output is found.
 //
-// NOTE: The `event_id` in route paths and the registry's `eventId` field is
-// the deploy's `authorizing_txid` — the 64-hex transaction hash of the
-// authorizing UTXO selected for the deploy.
+// NOTE: The route parameter is now the event's `covenant_id` (KIP-20 family
+// id), not the `authorizing_txid`. The `event_id` of old routes is retired.
 
 import {
   addressFromScriptHash,
@@ -24,109 +23,27 @@ import {
   MAX_EVENT_CAPACITY,
   p2shScript,
 } from "@kticket/kit";
-import { hexToBytes, bytesToHex } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { invalidError } from "./errors.js";
+import type { StoredEventInternal } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { findSpend, type OutpointRef } from "./lineage.js";
 import { MAX_LINEAGE_DEPTH } from "./reader.js";
 import { HEX64, hex, hex64, isRecord, P2SH_SCRIPT, str, uint } from "./validate.js";
 
-export interface RegisteredEvent {
-  /** Event id as a 64-hex string (the deploy's `authorizing_txid`). */
-  eventId: string;
-  /** The event's deploy transaction id (64-hex). */
-  genesisTxId: string;
-  /** Organizer 32-byte identifier hex (pubkey) — the event covenant's owner. */
-  orgPkh: string;
-  /** The deploy constants' `org_spk` (organizer payout script), hex. */
-  orgSpk: string;
-  /** The deploy constants' `burn_template_hash` (burn-owner script hash), 64-hex. */
-  burnTemplateHash: string;
-  name: string;
-  date: string;
-  price: number;
-  capacity: number;
-}
-
-function normalizeEvent(event: RegisteredEvent): RegisteredEvent {
-  return {
-    ...event,
-    eventId: event.eventId.toLowerCase(),
-    genesisTxId: event.genesisTxId.toLowerCase(),
-    orgPkh: event.orgPkh.toLowerCase(),
-    orgSpk: event.orgSpk.toLowerCase(),
-    burnTemplateHash: event.burnTemplateHash.toLowerCase(),
-  };
-}
-
-/** Normalize and index a list of registered events. Throws on invalid input. */
-export class EventRegistry {
-  #byEventId: Map<string, RegisteredEvent>;
-  #byGenesisTxId: Map<string, RegisteredEvent>;
-  #events: RegisteredEvent[];
-
-  constructor(events: readonly RegisteredEvent[]) {
-    const normalized = events.map(normalizeEvent);
-    this.#events = normalized;
-    this.#byEventId = new Map(normalized.map((event) => [event.eventId, event]));
-    this.#byGenesisTxId = new Map(normalized.map((event) => [event.genesisTxId, event]));
-  }
-
-  /** Register a new event at runtime (after a successful on-chain deploy). */
-  register(event: RegisteredEvent): void {
-    const normalized = normalizeEvent(event);
-    const existing = this.#byEventId.get(normalized.eventId);
-    if (existing) {
-      existing.genesisTxId = normalized.genesisTxId;
-      existing.orgPkh = normalized.orgPkh;
-      existing.orgSpk = normalized.orgSpk;
-      existing.burnTemplateHash = normalized.burnTemplateHash;
-      existing.name = normalized.name;
-      existing.date = normalized.date;
-      existing.price = normalized.price;
-      existing.capacity = normalized.capacity;
-      this.#byGenesisTxId.delete(existing.genesisTxId.toLowerCase());
-      this.#byGenesisTxId.set(normalized.genesisTxId, existing);
-    } else {
-      this.#events.push(normalized);
-      this.#byEventId.set(normalized.eventId, normalized);
-      this.#byGenesisTxId.set(normalized.genesisTxId, normalized);
-    }
-  }
-
-  byEventId(eventId: string): RegisteredEvent | undefined {
-    return this.#byEventId.get(eventId.toLowerCase());
-  }
-
-  byGenesisTxId(genesisTxId: string): RegisteredEvent | undefined {
-    return this.#byGenesisTxId.get(genesisTxId.toLowerCase());
-  }
-
-  list(orgPkh?: string): readonly RegisteredEvent[] {
-    if (!orgPkh) return this.#events;
-    const normalized = orgPkh.toLowerCase();
-    return this.#events.filter((e) => e.orgPkh === normalized);
-  }
-}
-
 export interface Availability {
   capacity: number;
   sold: number;
   left: number;
-  /** Current event covenant outpoint txid (64-hex). */
   event_txid: string;
-  /** Current event covenant output index. */
   event_index: number;
-  /** Current event covenant address. */
   event_address: string;
-  /** Event covenant family id (64-hex). */
   event_covenant_id: string;
 }
 
-/** The event covenant's redeem-script hash for a given `remaining`. */
-function eventCovenantScriptHash(event: RegisteredEvent, remaining: number): string {
+function eventCovenantScriptHash(event: StoredEventInternal, remaining: number): string {
   const constants: DecodedConstants = {
-    authorizingTxId: hexToBytes(event.eventId),
+    authorizingTxId: hexToBytes(event.authorizingTxId),
     price: event.price,
     orgSpk: hexToBytes(event.orgSpk),
     burnTemplateHash: hexToBytes(event.burnTemplateHash),
@@ -149,7 +66,7 @@ type AvailabilityWalkOutcome =
 async function advanceAvailabilityWalk(
   kaspa: KaspaClientLike,
   network: KaspaNetwork,
-  event: RegisteredEvent,
+  event: StoredEventInternal,
   address: string,
   outpoint: OutpointRef,
   remaining: number,
@@ -175,15 +92,8 @@ async function advanceAvailabilityWalk(
   };
 }
 
-/**
- * Live remaining tickets for an event, from the event covenant's `remaining`
- * state via the lineage walk (HLD §2.2): `left = remaining`,
- * `sold = capacity − remaining`. The event covenant starts at the deploy
- * output; each mint spends it and re-creates it with `remaining − 1`, so the
- * walk reconstructs successor script hashes and stops at the live one.
- */
 export async function eventAvailability(
-  event: RegisteredEvent,
+  event: StoredEventInternal,
   kaspa: KaspaClientLike,
   network: KaspaNetwork,
 ): Promise<Availability> {
@@ -221,7 +131,7 @@ export async function eventAvailability(
   }
 
   const constants: DecodedConstants = {
-    authorizingTxId: hexToBytes(event.eventId),
+    authorizingTxId: hexToBytes(event.authorizingTxId),
     price: event.price,
     orgSpk: hexToBytes(event.orgSpk),
     burnTemplateHash: hexToBytes(event.burnTemplateHash),
@@ -257,53 +167,42 @@ export async function eventAvailability(
   };
 }
 
-/** Parse + validate the `KTICKET_EVENTS` env JSON. Throws on invalid input. */
-export function parseRegisteredEvents(raw: string | undefined): RegisteredEvent[] {
-  if (!raw?.trim()) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    throw new Error(
-      `KTICKET_EVENTS is not valid JSON: ${err instanceof Error ? err.message : err}`,
-    );
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error("KTICKET_EVENTS must be a JSON array of events");
-  }
-  return parsed.map((value, i) => validateEvent(value, i));
+export interface RegisterEventPayload {
+  genesisTxId: string;
+  orgPkh: string;
+  name: string;
+  date: string;
+  price: number;
+  capacity: number;
+  orgSpk: string;
+  burnTemplateHash: string;
+  authorizingTxId: string;
 }
 
-/** Parse + validate a single event registration body (POST /v1/events). */
-export function parseRegisterEventBody(raw: unknown): RegisteredEvent {
-  return validateEvent(raw, 0, "body");
-}
-
-function validateEvent(value: unknown, i: number, prefix = "KTICKET_EVENTS"): RegisteredEvent {
-  const label = `${prefix}[${i}]`;
-  if (!isRecord(value)) {
-    throw new Error(`${label} must be an object`);
+export function parseRegisterEventBody(raw: unknown): RegisterEventPayload {
+  if (!isRecord(raw)) {
+    throw invalidError("request body must be an object");
   }
-  const eventId = hex64(value.authorizing_txid, `${label}.authorizing_txid`);
-  const genesisTxId = hex64(value.genesis_txid, `${label}.genesis_txid`);
-  const orgPkh = hex64(value.org_pkh, `${label}.org_pkh`);
-  const orgSpk = hex(value.org_spk, `${label}.org_spk`);
-  const burnTemplateHash = hex64(value.burn_template_hash, `${label}.burn_template_hash`);
-  const name = str(value.name, `${label}.name`);
-  const date = str(value.date, `${label}.date`);
-  const price = num(value.price, `${label}.price`);
-  const capacity = uint(value.capacity, `${label}.capacity`);
+  const genesisTxId = hex64(raw.genesis_txid, "genesis_txid");
+  const orgPkh = hex64(raw.org_pkh, "org_pkh");
+  const name = str(raw.name, "name");
+  const date = str(raw.date, "date");
+  const price = num(raw.price, "price");
+  const capacity = uint(raw.capacity, "capacity");
   if (capacity > MAX_EVENT_CAPACITY) {
-    throw new Error(`${label}.capacity must be an integer 0..${MAX_EVENT_CAPACITY}`);
+    throw invalidError(`capacity must be an integer 0..${MAX_EVENT_CAPACITY}`);
   }
+  const orgSpk = hex(raw.org_spk, "org_spk");
+  const burnTemplateHash = hex64(raw.burn_template_hash, "burn_template_hash");
+  const authorizingTxId = hex64(raw.authorizing_txid, "authorizing_txid");
 
-  return { eventId, genesisTxId, orgPkh, orgSpk, burnTemplateHash, name, date, price, capacity };
+  return { genesisTxId, orgPkh, name, date, price, capacity, orgSpk, burnTemplateHash, authorizingTxId };
 }
 
 function num(value: unknown, label: string): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) {
-    throw new Error(`${label} must be a non-negative number`);
+    throw invalidError(`${label} must be a non-negative number`);
   }
   return n;
 }

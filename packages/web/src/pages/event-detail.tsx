@@ -46,7 +46,7 @@ export default function EventDetailPage() {
     if (buy.phase === "success" && event) {
       saveTicket({
         ticketId: `${buy.txid.toLowerCase()}:0`,
-        eventId: event.event.authorizing_txid,
+        eventId: event.event.covenant_id,
         eventName: event.event.name,
         eventDate: event.event.date,
         eventTime: new Date(event.event.date).toISOString(),

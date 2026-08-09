@@ -95,7 +95,7 @@ export async function executeBuy(
       event_covenant_id: buyInfo.event_covenant_id,
       event_owner: buyInfo.event_owner,
       remaining: buyInfo.remaining,
-      authorizingTxId: event.event.authorizing_txid,
+      authorizingTxId: event.buy_info.authorizing_txid,
       price: event.event.price,
       orgSpk: buyInfo.org_spk,
       burnTemplateHash: buyInfo.burn_template_hash,

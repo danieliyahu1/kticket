@@ -11,7 +11,7 @@ export type DeployState =
   | { phase: "idle" }
   | { phase: "building" }
   | { phase: "broadcasting" }
-  | { phase: "success"; txid: string; authorizingTxId: string }
+  | { phase: "success"; txid: string; authorizingTxId: string; covenantId: string }
   | { phase: "error"; message: string };
 
 export interface DeployParams {
@@ -120,12 +120,13 @@ export async function executeDeploy(
   }
 
   setState({ phase: "broadcasting" });
-  await signAndBroadcast(buildResult, authorizingTxId, setState);
+  await signAndBroadcast(buildResult, authorizingTxId, buildResult.event_covenant_id, setState);
 }
 
 async function signAndBroadcast(
   buildResult: BuildResult,
   authorizingTxId: string,
+  covenantId: string,
   setState: (s: DeployState) => void,
 ): Promise<void> {
   let signedTx;
@@ -146,7 +147,7 @@ async function signAndBroadcast(
   try {
     const result = await broadcastTx(signedTx);
     logStep("broadcast-ok", result);
-    setState({ phase: "success", txid: result.txid, authorizingTxId });
+    setState({ phase: "success", txid: result.txid, authorizingTxId, covenantId });
   } catch (err) {
     logError("broadcast", err);
     setState({ phase: "error", message: errorMsg(err) });

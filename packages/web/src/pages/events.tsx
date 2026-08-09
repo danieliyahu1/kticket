@@ -4,7 +4,7 @@ import { fetchEventsList, type EventListItem } from "../api/client";
 import { organizerPkh } from "../api/crypto";
 import { Empty } from "../components/empty";
 import { useWallet } from "../hooks/use-wallet";
-import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
+import { whenLabel } from "../lib/format";
 
 type Segment = "all" | "mine";
 
@@ -62,13 +62,9 @@ function Segmented({ current, onChange }: { current: Segment; onChange: (s: Segm
 
 function EventCard({ event }: { event: EventListItem }) {
   return (
-    <Link to={`/events/${event.authorizing_txid}`} className="card event-card">
+    <Link to={`/events/${event.covenant_id}`} className="card event-card">
       <h3 className="event-card-name">{event.name}</h3>
       <p className="event-card-line">{whenLabel(event.date)}</p>
-      <div className="event-card-meta">
-        <span>{priceLabel(event.price)}</span>
-        <span>{capacityLabel(event.capacity)}</span>
-      </div>
     </Link>
   );
 }
@@ -110,7 +106,7 @@ export default function EventsPage() {
       {loading ? null : visible.length > 0 ? (
         <div className="event-list">
           {visible.map((event) => (
-            <EventCard key={event.authorizing_txid} event={event} />
+            <EventCard key={event.covenant_id} event={event} />
           ))}
         </div>
       ) : segment === "mine" ? (

@@ -9,7 +9,7 @@ import {
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
-import { EventRegistry } from "./events";
+import type { StoredEventInternal } from "./eventstore";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
 import { MAX_LINEAGE_DEPTH, parseTicketId, verifyTicket } from "./reader";
@@ -158,20 +158,14 @@ class FakeKaspa implements KaspaClientLike {
   }
 }
 
+interface FixtureStore {
+  byGenesisTxId(txId: string): StoredEventInternal | undefined;
+}
+
 interface Fixtures {
   kaspa: FakeKaspa;
-  registry: EventRegistry;
-  event: {
-    eventId: string;
-    genesisTxId: string;
-    orgPkh: string;
-    orgSpk: string;
-    burnTemplateHash: string;
-    name: string;
-    date: string;
-    price: number;
-    capacity: number;
-  };
+  registry: FixtureStore;
+  event: StoredEventInternal;
   address: (k: number) => string;
 }
 
@@ -190,25 +184,27 @@ function buildDeployResult(capacity: number) {
   });
 }
 
-function makeRegistry(capacity: number): EventRegistry {
-  return new EventRegistry([
-    {
-      eventId: bytesToHex(EVENT_ID),
-      genesisTxId: B0_ID,
-      orgPkh: bytesToHex(ORG_PKH),
-      orgSpk: bytesToHex(ORG_SPK),
-      burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
-      name: "Testnet Rave",
-      date: "2026-12-31",
-      price: 1_000,
-      capacity,
-    },
-  ]);
+function makeStore(capacity: number, genesisTxId: string = B0_ID): FixtureStore {
+  const event: StoredEventInternal = {
+    covenantId: "cc".repeat(TXID_BYTE_LENGTH),
+    genesisTxId,
+    orgPkh: bytesToHex(ORG_PKH),
+    orgSpk: bytesToHex(ORG_SPK),
+    burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
+    name: "Testnet Rave",
+    date: "2026-12-31",
+    price: 1_000,
+    capacity,
+    authorizingTxId: bytesToHex(EVENT_ID),
+  };
+  const byGenesisTxId = new Map<string, StoredEventInternal>();
+  byGenesisTxId.set(genesisTxId.toLowerCase(), event);
+  return { byGenesisTxId: (id: string) => byGenesisTxId.get(id.toLowerCase()) };
 }
 
-function makeEvent(capacity: number): Fixtures["event"] {
+function makeEvent(capacity: number): StoredEventInternal {
   return {
-    eventId: bytesToHex(EVENT_ID),
+    covenantId: "cc".repeat(TXID_BYTE_LENGTH),
     genesisTxId: G_ID,
     orgPkh: bytesToHex(ORG_PKH),
     orgSpk: bytesToHex(ORG_SPK),
@@ -217,6 +213,7 @@ function makeEvent(capacity: number): Fixtures["event"] {
     date: "2026-12-31",
     price: 1_000,
     capacity,
+    authorizingTxId: bytesToHex(EVENT_ID),
   };
 }
 
@@ -258,9 +255,9 @@ function buildTransferModel(
   });
   const transferModel = toTxModel(transfer, T1_ID);
   kaspa.transactions.set(T1_ID, transferModel);
-  kaspa.txAt(fromAddress, transferModel); // spent the ticket
+  kaspa.txAt(fromAddress, transferModel);
   const owner2Address = addressFromScriptHash(ticketScriptHash(transfer.outputs, 0), NETWORK);
-  kaspa.txAt(owner2Address, transferModel); // created owner2
+  kaspa.txAt(owner2Address, transferModel);
   return owner2Address;
 }
 
@@ -278,11 +275,11 @@ function buildHandoverModel(kaspa: FakeKaspa, eventCovenantId: string, fromAddre
   });
   const handoverModel = toTxModel(handover, T2_ID);
   kaspa.transactions.set(T2_ID, handoverModel);
-  kaspa.txAt(fromAddress, handoverModel); // spent owner2
+  kaspa.txAt(fromAddress, handoverModel);
   kaspa.utxo(addressFromScriptHash(ticketScriptHash(handover.outputs, 0), NETWORK), {
     transactionId: T2_ID,
     index: 0,
-  }); // burn UTXO lives forever
+  });
 }
 
 function buildFixtures(capacity = 3, chain = true): Fixtures {
@@ -290,9 +287,6 @@ function buildFixtures(capacity = 3, chain = true): Fixtures {
   const kaspa = new FakeKaspa();
   kaspa.transactions.set(G_ID, toTxModel(deploy.tx, G_ID));
 
-  // In the mint model a ticket is created on sale, so the "address of ticket k"
-  // is the buyer's minted ticket. We model one ticket minted at output 0 of a
-  // buy that also re-creates the event covenant.
   const buy = buildBuyTx(capacity);
   const buyModel = toTxModel(buy, B0_ID);
   kaspa.transactions.set(B0_ID, buyModel);
@@ -309,13 +303,16 @@ function buildFixtures(capacity = 3, chain = true): Fixtures {
 
   return {
     kaspa,
-    registry: makeRegistry(capacity),
+    registry: makeStore(capacity, B0_ID),
     event: makeEvent(capacity),
     address,
   };
 }
 
-const ctx = (f: Fixtures, overrides: Partial<Parameters<typeof verifyTicket>[1]> = {}) => ({
+const ctx = (
+  f: Fixtures,
+  overrides: Partial<Parameters<typeof verifyTicket>[1]> = {},
+): Parameters<typeof verifyTicket>[1] => ({
   kaspa: f.kaspa,
   events: f.registry,
   network: NETWORK,
@@ -354,7 +351,7 @@ describe("verifyTicket — happy paths (HLD v0.22 §2.2)", () => {
     expect(result.state).toBe("alive");
     expect(result.liveOutpoint).toEqual({ transaction_id: B0_ID, index: 0 });
     expect(result.event).toEqual({
-      authorizing_txid: f.event.eventId,
+      authorizing_txid: f.event.authorizingTxId,
       name: f.event.name,
       date: f.event.date,
     });
@@ -366,7 +363,7 @@ describe("verifyTicket — happy paths (HLD v0.22 §2.2)", () => {
     const result = await verifyTicket(`${B0_ID}:0`, ctx(f));
     expect(result.state).toBe("gone");
     expect(result.atTx).toBe(T2_ID);
-    expect(result.event?.authorizing_txid).toBe(f.event.eventId);
+    expect(result.event?.authorizing_txid).toBe(f.event.authorizingTxId);
     expect(result.price).toBe(TICKET_PRICE);
   });
 });
@@ -374,8 +371,6 @@ describe("verifyTicket — happy paths (HLD v0.22 §2.2)", () => {
 describe("verifyTicket — unresolved / depth-exceeded", () => {
   it("returns UNKNOWN unresolved-spend when no spender is visible", async () => {
     const f = buildFixtures();
-    // drop the buy tx from the ticket address history -> the spent ticket has
-    // no detectable spender
     f.kaspa.addressTxs.delete(f.address(0));
 
     const result = await verifyTicket(`${B0_ID}:0`, ctx(f));
@@ -386,7 +381,7 @@ describe("verifyTicket — unresolved / depth-exceeded", () => {
   it("returns UNKNOWN depth-exceeded after MAX_LINEAGE_DEPTH hops", async () => {
     const kaspa = new FakeKaspa();
     const mintId = buildDepthChain(kaspa);
-    const registry = makeDepthRegistry(mintId);
+    const registry = makeDepthStore(mintId);
 
     const result = await verifyTicket(`${mintId}:0`, {
       kaspa,
@@ -401,8 +396,8 @@ describe("verifyTicket — unresolved / depth-exceeded", () => {
 describe("verifyTicket — unregistered events", () => {
   it("returns UNKNOWN unknown-event for a spent ticket of an unregistered event", async () => {
     const f = buildFixtures();
-    const emptyRegistry = new EventRegistry([]);
-    const result = await verifyTicket(`${B0_ID}:0`, ctx(f, { events: emptyRegistry }));
+    const emptyStore: FixtureStore = { byGenesisTxId: () => undefined };
+    const result = await verifyTicket(`${B0_ID}:0`, ctx(f, { events: emptyStore }));
     expect(result.state).toBe("unknown");
     expect(result.cause).toBe("unknown-event");
     expect(result.event).toBeUndefined();
@@ -411,8 +406,8 @@ describe("verifyTicket — unregistered events", () => {
   it("still returns ALIVE for an unspent ticket of an unregistered event", async () => {
     const f = buildFixtures();
     f.kaspa.utxo(f.address(0), { transactionId: B0_ID, index: 0 });
-    const emptyRegistry = new EventRegistry([]);
-    const result = await verifyTicket(`${B0_ID}:0`, ctx(f, { events: emptyRegistry }));
+    const emptyStore: FixtureStore = { byGenesisTxId: () => undefined };
+    const result = await verifyTicket(`${B0_ID}:0`, ctx(f, { events: emptyStore }));
     expect(result.state).toBe("alive");
     expect(result.event).toBeUndefined();
   });
@@ -442,8 +437,6 @@ describe("verifyTicket — no-successor walk", () => {
         },
       ],
     };
-    // replace the ticket address history: the mint (creator) + a spender whose
-    // outputs carry no covenant -> the walk cannot identify a successor
     const buyModel = f.kaspa.transactions.get(B0_ID);
     if (!buyModel) throw new Error("fixture missing buy");
     f.kaspa.addressTxs.set(addr0, [buyModel, bogus]);
@@ -468,7 +461,6 @@ describe("verifyTicket — rejections", () => {
 
   it("rejects a non-covenant output (the deploy change output)", async () => {
     const f = buildFixtures(2);
-    // change output sits at index == capacity on the deploy
     await expect(verifyTicket(`${G_ID}:2`, ctx(f))).rejects.toMatchObject({ type: "invalid" });
   });
 });
@@ -539,26 +531,28 @@ function chainDepthTransfers(
     );
     const model = toTxModel(transfer, txId);
     kaspa.transactions.set(txId, model);
-    kaspa.txAt(previousAddress, model); // spent previous owner
+    kaspa.txAt(previousAddress, model);
     const nextAddress = addressFromScriptHash(ticketScriptHash(transfer.outputs, 0), NETWORK);
-    kaspa.txAt(nextAddress, model); // created next owner
+    kaspa.txAt(nextAddress, model);
     previous = { txId: hexToBytes(txId), index: 0 };
     previousAddress = nextAddress;
   }
 }
 
-function makeDepthRegistry(mintId: string): EventRegistry {
-  return new EventRegistry([
-    {
-      eventId: bytesToHex(EVENT_ID),
-      genesisTxId: mintId,
-      orgPkh: bytesToHex(ORG_PKH),
-      orgSpk: bytesToHex(ORG_SPK),
-      burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
-      name: "Long",
-      date: "2026-01-01",
-      price: 1_000,
-      capacity: 1,
-    },
-  ]);
+function makeDepthStore(mintId: string): FixtureStore {
+  const event: StoredEventInternal = {
+    covenantId: "dd".repeat(TXID_BYTE_LENGTH),
+    genesisTxId: mintId,
+    orgPkh: bytesToHex(ORG_PKH),
+    orgSpk: bytesToHex(ORG_SPK),
+    burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
+    name: "Long",
+    date: "2026-01-01",
+    price: 1_000,
+    capacity: 1,
+    authorizingTxId: bytesToHex(EVENT_ID),
+  };
+  const byGenesisTxId = new Map<string, StoredEventInternal>();
+  byGenesisTxId.set(mintId.toLowerCase(), event);
+  return { byGenesisTxId: (id: string) => byGenesisTxId.get(id.toLowerCase()) };
 }

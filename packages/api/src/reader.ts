@@ -24,7 +24,7 @@ import {
   type KaspaNetwork,
 } from "@kticket/kit";
 import { invalidError } from "./errors.js";
-import type { RegisteredEvent } from "./events.js";
+import type { StoredEventInternal } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { findSpend, findSuccessor, type OutpointRef } from "./lineage.js";
 
@@ -35,7 +35,6 @@ export type UnknownCause = "unresolved-spend" | "no-successor" | "unknown-event"
 
 export interface VerifyResult {
   state: TicketState;
-  /** Set when state is "unknown" — why the walk could not resolve (never guessed). */
   cause?: UnknownCause;
   event?: { authorizing_txid: string; name: string; date: string };
   price?: number;
@@ -45,16 +44,14 @@ export interface VerifyResult {
 
 export interface ReaderContext {
   kaspa: KaspaClientLike;
-  events: { byGenesisTxId(txId: string): RegisteredEvent | undefined };
+  events: { byGenesisTxId(txId: string): StoredEventInternal | undefined };
   network: KaspaNetwork;
 }
 
 const TICKET_ID_RE = /^([0-9a-fA-F]{64}):([0-9]{1,3})$/;
 const HEX64 = /^[0-9a-fA-F]{64}$/;
-/** Standard Kaspa P2SH output script: `aa20 <32-byte hash> 87`. */
 const P2SH_SCRIPT = /^aa20[0-9a-fA-F]{64}87$/;
 
-/** Parse a `ticket_id` of the form `<64-hex deploy txid>:<index>`. */
 export function parseTicketId(raw: string): { txId: string; index: number } {
   const [, txId, indexStr] = TICKET_ID_RE.exec(raw.trim()) ?? [];
   if (!(txId && indexStr)) {
@@ -79,7 +76,7 @@ async function loadGenesis(ctx: ReaderContext, txId: string, index: number) {
 
 function liveResult(
   utxos: readonly { outpoint: OutpointRef }[],
-  event: RegisteredEvent | undefined,
+  event: StoredEventInternal | undefined,
 ): VerifyResult | undefined {
   const live = utxos[0];
   if (!live) return undefined;
@@ -93,10 +90,9 @@ function liveResult(
   };
 }
 
-function isBurnSuccessor(event: RegisteredEvent | undefined, scriptPublicKey: string): boolean {
+function isBurnSuccessor(event: StoredEventInternal | undefined, scriptPublicKey: string): boolean {
   if (event === undefined) return false;
-  const hash = burnTemplateHash(event.eventId, BURN_ARTIFACT.code);
-  // On-chain the burn output is the standard P2SH script `aa20 <hash> 87`.
+  const hash = burnTemplateHash(event.authorizingTxId, BURN_ARTIFACT.code);
   return scriptPublicKey.toLowerCase() === `aa20${hash}87`;
 }
 
@@ -108,7 +104,7 @@ async function advance(
   ctx: ReaderContext,
   address: string,
   outpoint: OutpointRef,
-  event: RegisteredEvent | undefined,
+  event: StoredEventInternal | undefined,
 ): Promise<AdvanceOutcome> {
   const utxos = await ctx.kaspa.getUtxos(address);
   const alive = liveResult(utxos, event);
@@ -137,8 +133,6 @@ async function advance(
   }
 
   if (!event) {
-    // Cannot tell a burn successor from a ticket successor without the event's
-    // burn template — never guess (DEC-12).
     return {
       done: true,
       result: { state: "unknown", cause: "unknown-event", ...eventMeta(event) },
@@ -170,10 +164,10 @@ export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<Ver
   return { state: "unknown", cause: "depth-exceeded", ...eventMeta(event) };
 }
 
-function eventMeta(event: RegisteredEvent | undefined) {
+function eventMeta(event: StoredEventInternal | undefined) {
   if (!event) return {};
   return {
-    event: { authorizing_txid: event.eventId, name: event.name, date: event.date },
+    event: { authorizing_txid: event.authorizingTxId, name: event.name, date: event.date },
     price: event.price,
   };
 }
