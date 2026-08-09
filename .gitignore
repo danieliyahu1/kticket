@@ -20,4 +20,5 @@ wallet*.json
 
 # Runtime event store
 events.json
+events-data.json
 test-events-*.json
