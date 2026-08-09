@@ -7,9 +7,14 @@ export function Layout() {
     <div className="app">
       <header className="header">
         <div className="container header-inner">
-          <NavLink to="/" className="wordmark">
-            kticket
-          </NavLink>
+          <div className="header-left">
+            <NavLink to="/" className="wordmark">
+              kticket
+            </NavLink>
+            <NavLink to="/tickets" className="sub-nav">
+              Tickets
+            </NavLink>
+          </div>
           <HeaderActions />
         </div>
       </header>

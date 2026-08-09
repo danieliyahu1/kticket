@@ -4,6 +4,7 @@ import { useWallet } from "../hooks/use-wallet";
 const INSTALL_URL = "https://kasware.xyz";
 const ADDR_PREFIX_LEN = 6;
 const ADDR_SUFFIX_LEN = 4;
+const ADDR_PREFIX_LEN_SHORT = 4;
 
 export function HeaderActions() {
   const { state, connect, disconnect } = useWallet();
@@ -34,11 +35,9 @@ export function HeaderActions() {
     const address = state.accounts[0];
     return (
       <div className="header-actions">
-        <Link to="/tickets" className="btn btn-secondary btn-sm">
-          Tickets
-        </Link>
         <Link to="/create" className="btn btn-primary btn-sm">
-          Create event
+          <span className="create-label">Create event</span>
+          <span className="create-icon" aria-hidden="true">+</span>
         </Link>
         <button
           type="button"
@@ -47,7 +46,14 @@ export function HeaderActions() {
           title="Disconnect"
         >
           <span className="dot" aria-hidden="true" />
-          {address ? shortAddress(address) : "Connected"}
+          {address ? (
+            <>
+              <span className="address-full">{shortAddress(address)}</span>
+              <span className="address-short">{shortAddressShort(address)}</span>
+            </>
+          ) : (
+            "Connected"
+          )}
         </button>
       </div>
     );
@@ -62,4 +68,8 @@ export function HeaderActions() {
 
 function shortAddress(address: string): string {
   return `${address.slice(0, ADDR_PREFIX_LEN)}...${address.slice(-ADDR_SUFFIX_LEN)}`;
+}
+
+function shortAddressShort(address: string): string {
+  return `${address.slice(0, ADDR_PREFIX_LEN_SHORT)}...${address.slice(-ADDR_SUFFIX_LEN)}`;
 }
