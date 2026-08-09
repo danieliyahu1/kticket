@@ -40,14 +40,17 @@ export interface AppContext {
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get<{ Querystring: { org_pkh?: string } }>(
     "/v1/events",
-    async (req) =>
-      ctx.events.list(req.query.org_pkh).map((event) => ({
-        covenant_id: event.covenantId,
-        genesis_txid: event.genesisTxId,
-        name: event.name,
-        date: event.date,
-        price: event.price,
-      })),
+    async (req) => {
+      const events = ctx.events.list(req.query.org_pkh);
+      await Promise.all(events.map((e) => ctx.events.ensureHydrated(e, ctx.kaspa)));
+      return events.map((event) => ({
+          covenant_id: event.covenantId,
+          genesis_txid: event.genesisTxId,
+          name: event.name,
+          date: event.date,
+          price: event.price,
+        }));
+    },
   );
 
   app.post("/v1/events", async (req) => {
@@ -84,12 +87,12 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         orgPkh: payload.orgPkh,
         name: meta?.name ?? payload.name,
         date: meta?.date ?? payload.date,
-        price: meta?.price ?? payload.price,
+        price: meta ? Math.round(meta.priceKAS * 100_000_000) : payload.price,
         capacity: payload.capacity,
-        orgSpk: payload.orgSpk,
-        burnTemplateHash: payload.burnTemplateHash,
-      authorizingTxId: payload.authorizingTxId,
-    };
+        orgSpk: meta?.orgSpk || payload.orgSpk,
+        burnTemplateHash: meta?.burnTemplateHash || payload.burnTemplateHash,
+        authorizingTxId: payload.authorizingTxId,
+      };
 
     ctx.events.register(event);
     return { covenant_id: covenantIdHex };
@@ -105,6 +108,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     const { covenantId: id } = req.params;
     const event = ctx.events.byCovenantId(id);
     if (!event) throw notFoundError(`event ${id} not found`);
+    await ctx.events.ensureHydrated(event, ctx.kaspa);
     const availability = await eventAvailability(event, ctx.kaspa, ctx.network);
     return {
       event: {
@@ -134,7 +138,9 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!ownerPkh) throw invalidError("owner_pkh query parameter is required");
 
     const ownerBytes = hexToBytes(ownerPkh);
-    const events = ctx.events.list().filter(hasFullConstants);
+    const allEvents = ctx.events.list();
+    await Promise.all(allEvents.map((e) => ctx.events.ensureHydrated(e, ctx.kaspa)));
+    const events = allEvents.filter(hasFullConstants);
     if (events.length === 0) return [];
 
     const addressMap = new Map<string, StoredEventInternal>();

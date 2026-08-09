@@ -39,7 +39,9 @@ const TEXT_DECODER = new TextDecoder();
 export interface EventMetadata {
   name: string;
   date: string;
-  price: number;
+  priceKAS: number;
+  orgSpk: string;
+  burnTemplateHash: string;
 }
 
 /**
@@ -47,13 +49,22 @@ export interface EventMetadata {
  * (KCC-0021 convention: metadata lives in the tx payload, not a separate output).
  */
 export function encodeMetadataPayload(meta: EventMetadata): string {
-  const json = JSON.stringify({ n: meta.name, d: meta.date, p: meta.price });
+  const json = JSON.stringify({
+    name: meta.name,
+    date: meta.date,
+    priceKAS: meta.priceKAS,
+    orgSpk: meta.orgSpk,
+    burnTemplateHash: meta.burnTemplateHash,
+  });
   return bytesToHex(TEXT_ENCODER.encode(json));
 }
 
 /**
  * Decode event metadata from a hex-encoded genesis tx payload.
  * Returns `null` if the payload does not carry valid kticket metadata.
+ *
+ * Supports both the current KCC-0021 format (readable field names) and
+ * the legacy format ({n, d, p}) from older deploy transactions.
  */
 export function decodeMetadataFromPayload(payloadHex: string | null | undefined): EventMetadata | null {
   if (!payloadHex) return null;
@@ -61,10 +72,40 @@ export function decodeMetadataFromPayload(payloadHex: string | null | undefined)
     const bytes = hexToBytes(payloadHex);
     const json = TEXT_DECODER.decode(bytes);
     const parsed = JSON.parse(json) as Record<string, unknown>;
-    if (typeof parsed.n !== "string" || typeof parsed.d !== "string" || typeof parsed.p !== "number") {
-      return null;
+
+    // Current format — readable names, self-describing
+    if (
+      typeof parsed.name === "string" &&
+      typeof parsed.date === "string" &&
+      typeof parsed.priceKAS === "number" &&
+      typeof parsed.orgSpk === "string" &&
+      typeof parsed.burnTemplateHash === "string"
+    ) {
+      return {
+        name: parsed.name,
+        date: parsed.date,
+        priceKAS: parsed.priceKAS,
+        orgSpk: parsed.orgSpk,
+        burnTemplateHash: parsed.burnTemplateHash,
+      };
     }
-    return { name: parsed.n, date: parsed.d, price: parsed.p };
+
+    // Legacy format — {n, d, p} (no orgSpk/burnTemplateHash)
+    if (
+      typeof parsed.n === "string" &&
+      typeof parsed.d === "string" &&
+      typeof parsed.p === "number"
+    ) {
+      return {
+        name: parsed.n,
+        date: parsed.d,
+        priceKAS: parsed.p / 100_000_000,
+        orgSpk: "",
+        burnTemplateHash: "",
+      };
+    }
+
+    return null;
   } catch {
     return null;
   }

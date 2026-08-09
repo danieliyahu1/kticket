@@ -59,7 +59,13 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
     req.input_utxo_metas ?? [req.authorizing_outpoint, ...req.organizer_utxos].map(utxoMetaOf);
   const metadata =
     req.name !== undefined && req.date !== undefined
-      ? { name: req.name, date: req.date, price: req.constants.price }
+      ? {
+          name: req.name,
+          date: req.date,
+          priceKAS: req.constants.price / 100_000_000,
+          orgSpk: req.constants.org_spk,
+          burnTemplateHash: req.constants.burn_template_hash,
+        }
       : undefined;
   return {
     inputTotal: sum(values),
