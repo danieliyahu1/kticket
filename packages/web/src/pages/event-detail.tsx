@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchEvent, type EventDetail } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
@@ -13,6 +13,7 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [buy, setBuy] = useState<BuyState>({ phase: "idle" });
+  const pendingBuy = useRef(false);
 
   const load = useCallback(async () => {
     if (!covenantId) return;
@@ -41,6 +42,25 @@ export default function EventDetailPage() {
       address: state.accounts[0],
     });
   }, [covenantId, event, state]);
+
+  const handleBuyRef = useRef(handleBuy);
+  handleBuyRef.current = handleBuy;
+
+  useEffect(() => {
+    if (!pendingBuy.current) return;
+    if (state.status !== "connected") return;
+    if (!event || event.availability.left === 0) {
+      pendingBuy.current = false;
+      return;
+    }
+    pendingBuy.current = false;
+    handleBuyRef.current();
+  }, [state.status, event]);
+
+  const handleConnectThenBuy = useCallback(() => {
+    pendingBuy.current = true;
+    connect();
+  }, [connect]);
 
   useEffect(() => {
     if (buy.phase === "success" && event) {
@@ -159,7 +179,7 @@ export default function EventDetailPage() {
           <button
             type="button"
             className="btn btn-primary btn-lg btn-block"
-            onClick={connect}
+            onClick={handleConnectThenBuy}
           >
             Connect wallet to buy
           </button>
