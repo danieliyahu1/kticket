@@ -122,6 +122,8 @@ function deployEvent(
     priceKas: form.price,
     publicKey: wallet.publicKey,
     address: wallet.accounts[0] ?? "",
+    name: form.name,
+    date: form.date,
   };
   executeDeploy(setDeploy, params);
 }

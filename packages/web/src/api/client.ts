@@ -57,6 +57,8 @@ export interface DeployBuildRequest {
   organizerUtxos: WireUtxo[];
   changeSpk: WireScriptPublicKey;
   inputUtxoMetas: WireUtxoMeta[];
+  name?: string;
+  date?: string;
 }
 
 export function buildDeployTx(req: DeployBuildRequest): Promise<BuildResult> {
@@ -74,6 +76,8 @@ export function buildDeployTx(req: DeployBuildRequest): Promise<BuildResult> {
     organizer_utxos: req.organizerUtxos,
     change_spk: req.changeSpk,
     input_utxo_metas: req.inputUtxoMetas,
+    ...(req.name !== undefined ? { name: req.name } : {}),
+    ...(req.date !== undefined ? { date: req.date } : {}),
   });
 }
 
@@ -137,6 +141,7 @@ export interface EventListItem {
   genesis_txid: string;
   name: string;
   date: string;
+  price: number;
 }
 
 export function fetchEventsList(orgPkh?: string): Promise<EventListItem[]> {

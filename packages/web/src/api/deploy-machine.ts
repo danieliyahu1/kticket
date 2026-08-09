@@ -19,6 +19,8 @@ export interface DeployParams {
   priceKas: number;
   publicKey: string;
   address: string;
+  name?: string;
+  date?: string;
 }
 
 function errorMsg(err: unknown): string {
@@ -76,6 +78,8 @@ async function buildDeployTemplate(
     organizerUtxos: selection.rest,
     changeSpk: changeScriptFromPublicKey(params.publicKey),
     inputUtxoMetas: selection.metas,
+    ...(params.name !== undefined ? { name: params.name } : {}),
+    ...(params.date !== undefined ? { date: params.date } : {}),
   });
 }
 

@@ -54,6 +54,10 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
   const values = [req.authorizing_outpoint.value, ...req.organizer_utxos.map((u) => u.value)];
   const metas =
     req.input_utxo_metas ?? [req.authorizing_outpoint, ...req.organizer_utxos].map(utxoMetaOf);
+  const metadata =
+    req.name !== undefined && req.date !== undefined
+      ? { name: req.name, date: req.date, price: req.constants.price }
+      : undefined;
   return {
     inputTotal: sum(values),
     payouts: [],
@@ -70,6 +74,7 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
         changeScript: toSpk(req.change_spk),
         fee,
         network: TESTNET10,
+        ...(metadata ? { metadata } : {}),
       });
       return { tx: deploy.tx, eventCovenantId: deploy.eventCovenantId };
     },

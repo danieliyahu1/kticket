@@ -207,6 +207,7 @@ describe("reader routes (KTK-5)", () => {
         genesis_txid: EVENT.genesisTxId,
         name: EVENT.name,
         date: EVENT.date,
+        price: EVENT.price,
       },
     ]);
     await app.close();

@@ -27,14 +27,18 @@ export async function buildApp(
 
   app.get("/health", async () => ({ status: "ok", network: config.kaspaNet }));
 
-  const ctx: AppContext = deps ?? {
-    kaspa: new KaspaClient(config.apiBaseUrl, {
-      timeoutMs: config.upstream.timeoutMs,
-      maxAttempts: config.upstream.maxAttempts,
-    }),
-    events: new EventStore(config.eventsFilePath),
-    network: config.kaspaNet,
-    networkId: config.networkId,
+  const kaspa = deps?.kaspa ?? new KaspaClient(config.apiBaseUrl, {
+    timeoutMs: config.upstream.timeoutMs,
+    maxAttempts: config.upstream.maxAttempts,
+  });
+
+  const events = deps?.events ?? new EventStore(config.eventsFilePath);
+
+  const ctx: AppContext = {
+    kaspa,
+    events,
+    network: deps?.network ?? config.kaspaNet,
+    networkId: deps?.networkId ?? config.networkId,
   };
 
   registerRoutes(app, ctx);

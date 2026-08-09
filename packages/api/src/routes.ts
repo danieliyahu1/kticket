@@ -12,6 +12,7 @@
 import {
   buildRedeemScript,
   covenantId,
+  decodeMetadataFromTx,
   DUST,
   EVENT_ARTIFACT,
   type KaspaNetwork,
@@ -43,6 +44,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         genesis_txid: event.genesisTxId,
         name: event.name,
         date: event.date,
+        price: event.price,
       })),
   );
 
@@ -71,13 +73,15 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       throw invalidError("could not compute covenant_id from deploy transaction");
     }
 
+    const meta = decodeMetadataFromTx(deploy.outputs ?? []);
+
     const event: StoredEventInternal = {
       covenantId: covenantIdHex,
       genesisTxId: payload.genesisTxId,
       orgPkh: payload.orgPkh,
-      name: payload.name,
-      date: payload.date,
-      price: payload.price,
+      name: meta?.name ?? payload.name,
+      date: meta?.date ?? payload.date,
+      price: meta?.price ?? payload.price,
       capacity: payload.capacity,
       orgSpk: payload.orgSpk,
       burnTemplateHash: payload.burnTemplateHash,

@@ -87,6 +87,9 @@ export type BuildRequest =
       change_spk: WireScriptPublicKey;
       /** Full prev-output metadata for every spending input, in input order (needed to sign). */
       input_utxo_metas?: WireUtxoMeta[];
+      /** KCC-20 metadata — encoded as a data output in the deploy tx. */
+      name?: string;
+      date?: string;
     }
   | {
       type: "buy";
@@ -204,8 +207,8 @@ function parseDeploy(raw: Record<string, unknown>): BuildRequest {
     throw invalidError(`capacity must be 0..${MAX_EVENT_CAPACITY}`);
   }
   const authorizingUtxo = isRecord(raw.authorizing_outpoint) ? raw.authorizing_outpoint : {};
-  return {
-    type: "deploy",
+  const base = {
+    type: "deploy" as const,
     capacity,
     constants: parseConstants(raw.constants),
     organizer: hex64(raw.organizer, "organizer"),
@@ -219,6 +222,11 @@ function parseDeploy(raw: Record<string, unknown>): BuildRequest {
       ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
       : {}),
   };
+  if (raw.name !== undefined) {
+    if (raw.date === undefined) throw invalidError("date is required when name is set");
+    return { ...base, name: str(raw.name, "name"), date: str(raw.date, "date") };
+  }
+  return base;
 }
 
 function parseBuy(raw: Record<string, unknown>): BuildRequest {

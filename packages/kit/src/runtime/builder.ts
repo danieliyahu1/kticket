@@ -32,6 +32,102 @@ import type {
 } from "./tx.js";
 import { TX_VERSION_V1 } from "./tx.js";
 
+const OP_0 = 0x00;
+const OP_PUSHDATA1 = 0x4c;
+const OP_PUSHDATA2 = 0x4d;
+const TEXT_ENCODER = new TextEncoder();
+const TEXT_DECODER = new TextDecoder();
+
+/** KCC-20 readable metadata attached to every deploy transaction. */
+export interface EventMetadata {
+  name: string;
+  date: string;
+  price: number;
+}
+
+/**
+ * Encode event metadata as a data-script output (OP_0 + pushdata).
+ * This creates a provably-unspendable output readable by anyone from the chain
+ * without needing the P2SH preimage.
+ */
+export function encodeMetadataOutput(meta: EventMetadata): ScriptPublicKey {
+  const json = JSON.stringify({ n: meta.name, d: meta.date, p: meta.price });
+  const data = TEXT_ENCODER.encode(json);
+  let script: Uint8Array;
+  if (data.length <= 75) {
+    script = new Uint8Array(2 + data.length);
+    script[0] = OP_0;
+    script[1] = data.length;
+    script.set(data, 2);
+  } else if (data.length <= 255) {
+    script = new Uint8Array(3 + data.length);
+    script[0] = OP_0;
+    script[1] = OP_PUSHDATA1;
+    script[2] = data.length;
+    script.set(data, 3);
+  } else {
+    script = new Uint8Array(4 + data.length);
+    script[0] = OP_0;
+    script[1] = OP_PUSHDATA2;
+    new DataView(script.buffer).setUint16(2, data.length, true);
+    script.set(data, 4);
+  }
+  return { version: 0, script: bytesToHex(script) };
+}
+
+/**
+ * Decode event metadata from an output script. Returns `null` if the script
+ * does not carry valid kticket metadata.
+ */
+export function decodeMetadataFromScript(scriptHex: string): EventMetadata | null {
+  try {
+    const bytes = hexToBytes(scriptHex);
+    if (bytes.length < 2 || bytes[0] !== OP_0) return null;
+
+    const b1 = bytes[1];
+    if (b1 === undefined) return null;
+    let offset: number;
+    let len: number;
+    if (b1 <= 75) {
+      len = b1;
+      offset = 2;
+    } else if (b1 === OP_PUSHDATA1) {
+      if (bytes.length < 3) return null;
+      const b2 = bytes[2];
+      if (b2 === undefined) return null;
+      len = b2;
+      offset = 3;
+    } else if (b1 === OP_PUSHDATA2) {
+      if (bytes.length < 4) return null;
+      len = new DataView(bytes.buffer, bytes.byteOffset).getUint16(2, true);
+      offset = 4;
+    } else {
+      return null;
+    }
+
+    if (offset + len > bytes.length) return null;
+    const json = TEXT_DECODER.decode(bytes.slice(offset, offset + len));
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    if (typeof parsed.n !== "string" || typeof parsed.d !== "string" || typeof parsed.p !== "number") {
+      return null;
+    }
+    return { name: parsed.n, date: parsed.d, price: parsed.p };
+  } catch {
+    return null;
+  }
+}
+
+/** Find and decode the metadata output from a deploy transaction's outputs. */
+export function decodeMetadataFromTx(outputs: Array<{ script_public_key?: string | null }>): EventMetadata | null {
+  for (const output of outputs) {
+    const spk = output.script_public_key;
+    if (typeof spk !== "string") continue;
+    const meta = decodeMetadataFromScript(spk);
+    if (meta) return meta;
+  }
+  return null;
+}
+
 export { FEE_PAYER } from "./tx.js";
 
 /** OP_HASH256 (Kaspa P2SH) — the standard script form the node accepts. */
@@ -155,6 +251,10 @@ export interface DeployInput {
   /** Network fee in sompi (paid by the organizer). */
   fee: number;
   network: AddressNetwork;
+  /** Optional KCC-20 metadata output (name, date, price). When set, a data
+   *  output is inserted between the event covenant and the change output so
+   *  anyone can read event info from the chain. */
+  metadata?: EventMetadata;
 }
 
 export interface DeployResult {
@@ -223,6 +323,9 @@ export function buildDeploy(input: DeployInput): DeployResult {
           scriptPublicKey: eventScript,
           covenant: covenantBinding(eventCovenantId),
         },
+        ...(input.metadata
+          ? [{ value: 0, scriptPublicKey: encodeMetadataOutput(input.metadata), covenant: null }]
+          : []),
         changeOutput(input.changeScript, change),
       ],
       lockTime: 0,
