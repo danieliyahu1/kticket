@@ -86,7 +86,7 @@ export default function EventDetailPage() {
   const soldOut = event.availability.left === 0;
 
   return (
-    <section>
+    <section className="fade-in">
       <Link to="/" className="btn btn-link btn-sm btn-link-clean">
         &larr; All events
       </Link>

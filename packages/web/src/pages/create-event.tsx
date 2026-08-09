@@ -77,37 +77,35 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
   }, [deploy, form, wallet]);
 
   if (deploy.phase !== "idle") {
-    return <DeployResult deploy={deploy} onRetry={startDeploy} />;
-  }
-  if (step === "confirm") {
     return (
-      <section>
-        <PageHeader caption="Step 3 of 3 · Confirm" title="Create an event" />
+      <section key="deploy" className="step-enter">
+        <PageHeader caption="Step 3 of 3 · Deploying" title="Create an event" />
+        <DeployResult deploy={deploy} onRetry={startDeploy} />
+      </section>
+    );
+  }
+
+  const caption = STEP_LABELS[step];
+
+  return (
+    <section key={step} className="step-enter">
+      <PageHeader caption={caption} title="Create an event" />
+      {step === "confirm" ? (
         <DeployDialog
           eventName={form.name}
           onConfirm={startDeploy}
           onCancel={() => setStep("review")}
         />
-      </section>
-    );
-  }
-  if (step === "review") {
-    return (
-      <section>
-        <PageHeader caption="Step 2 of 3 · Review" title="Create an event" />
+      ) : step === "review" ? (
         <Review data={form} onDeploy={() => setStep("confirm")} onEdit={() => setStep("form")} />
-      </section>
-    );
-  }
-  return (
-    <section>
-      <PageHeader caption={STEP_LABELS.form} title="Create an event" />
-      <EventForm
-        initial={form}
-        onSubmit={(data) => submitForm(data, setErrors, setStep)}
-        errors={errors}
-        onChange={setForm}
-      />
+      ) : (
+        <EventForm
+          initial={form}
+          onSubmit={(data) => submitForm(data, setErrors, setStep)}
+          errors={errors}
+          onChange={setForm}
+        />
+      )}
     </section>
   );
 }
@@ -154,14 +152,11 @@ function deployPhaseStatus(
 function DeployResult({ deploy, onRetry }: { deploy: DeployState; onRetry: () => void }) {
   if (deploy.phase === "idle") return null;
   return (
-    <section>
-      <PageHeader caption="Step 3 of 3 · Deploying" title="Create an event" />
-      <DeployStatus
-        status={deployPhaseStatus(deploy.phase)}
-        error={deploy.phase === "error" ? deploy.message : undefined}
-        txid={deploy.phase === "success" ? deploy.txid : undefined}
-        onRetry={onRetry}
-      />
-    </section>
+    <DeployStatus
+      status={deployPhaseStatus(deploy.phase)}
+      error={deploy.phase === "error" ? deploy.message : undefined}
+      txid={deploy.phase === "success" ? deploy.txid : undefined}
+      onRetry={onRetry}
+    />
   );
 }

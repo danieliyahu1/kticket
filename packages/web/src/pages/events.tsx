@@ -53,7 +53,7 @@ function MineEmpty({ connected, onConnect }: { connected: boolean; onConnect: ()
 
 function Segmented({ current, onChange }: { current: Segment; onChange: (s: Segment) => void }) {
   return (
-    <div className="segmented" role="group" aria-label="Filter events">
+    <div className="segmented" role="group" aria-label="Filter events" style={{ "--seg": SEGMENTS.findIndex((s) => s.id === current) } as React.CSSProperties}>
       {SEGMENTS.map(({ id, label }) => (
         <button
           key={id}
