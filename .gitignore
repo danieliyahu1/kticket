@@ -17,3 +17,7 @@ opencode.json
 
 # Local wallet credentials (never commit private keys)
 wallet*.json
+
+# Runtime event store
+events.json
+test-events-*.json

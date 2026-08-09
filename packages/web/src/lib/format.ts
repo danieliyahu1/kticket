@@ -13,7 +13,9 @@ export function whenLabel(date: string, time?: string): string {
 }
 
 export function priceLabel(price: number): string {
-  return price === 0 ? "Free" : `${price} KAS`;
+  if (price === 0) return "Free";
+  const kas = price >= 100000000 ? price / 100000000 : price;
+  return `${kas} KAS`;
 }
 
 export function capacityLabel(capacity: number): string {

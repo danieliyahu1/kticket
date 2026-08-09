@@ -23,6 +23,7 @@ import { invalidError, notFoundError } from "./errors.js";
 import { eventAvailability, parseRegisterEventBody } from "./events.js";
 import type { EventStore, StoredEventInternal } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import type { TxModel } from "./kaspa-types.js";
 import { verifyTicket } from "./reader.js";
 import { broadcastTransaction, buildTransaction } from "./tx.js";
 
@@ -48,7 +49,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post("/v1/events", async (req) => {
     const payload = parseRegisterEventBody(req.body);
 
-    const deploy = await ctx.kaspa.getTransaction(payload.genesisTxId);
+    const deploy = await fetchDeployTx(ctx.kaspa, payload.genesisTxId);
     if (!deploy) {
       throw invalidError(`deploy transaction ${payload.genesisTxId} not found on chain`);
     }
@@ -127,6 +128,25 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post("/v1/tx/broadcast", async (req) =>
     broadcastTransaction(req.body, { kaspa: ctx.kaspa, networkId: ctx.networkId }),
   );
+}
+
+const INITIAL_RETRY_DELAY_MS = 1000;
+const MAX_RETRIES = 2;
+
+async function fetchDeployTx(kaspa: KaspaClientLike, txId: string): Promise<TxModel | null> {
+  let delay = INITIAL_RETRY_DELAY_MS;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const deploy = await kaspa.getTransaction(txId);
+    if (deploy) return deploy;
+
+    if (attempt < MAX_RETRIES) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay *= 2;
+    }
+  }
+
+  return null;
 }
 
 function computeCovenantId(payload: {
