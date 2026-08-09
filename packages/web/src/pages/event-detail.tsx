@@ -94,6 +94,72 @@ export default function EventDetailPage() {
       <h2 className="page-heading">{event.event.name}</h2>
       <p className="page-sub">{whenLabel(event.event.date)}</p>
 
+      <div className="buy-cta">
+        {buy.phase === "success" ? (
+          <div className="status">
+            <div className="status-icon status-icon-ok">
+              <span>&#10003;</span>
+            </div>
+            <p className="status-title">You're in. Ticket received.</p>
+            <p className="status-copy">{event.event.name} &middot; {whenLabel(event.event.date)}</p>
+            <p className="status-detail mono">TX: {buy.txid}</p>
+            <div className="form-actions">
+              <Link to="/tickets" className="btn btn-primary">
+                View my tickets
+              </Link>
+              <Link to="/" className="btn btn-secondary">
+                Browse events
+              </Link>
+            </div>
+          </div>
+        ) : buy.phase === "error" ? (
+          <div className="status">
+            <div className="status-icon status-icon-error">
+              <span>&#10007;</span>
+            </div>
+            <p className="status-title">{buy.message}</p>
+            <p className="status-copy">No ticket was issued.</p>
+          </div>
+        ) : buy.phase === "building" ? (
+          <div className="status">
+            <div className="spinner" />
+            <p className="status-copy">Building transaction...</p>
+          </div>
+        ) : buy.phase === "broadcasting" ? (
+          <div className="status">
+            <div className="spinner" />
+            <p className="status-copy">Sending to Kaspa...</p>
+          </div>
+        ) : soldOut ? (
+          <button type="button" className="btn btn-primary btn-lg btn-sold-out" disabled>
+            Sold out
+          </button>
+        ) : connected ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-primary btn-lg btn-block"
+              onClick={handleBuy}
+            >
+              Buy ticket
+            </button>
+            {event.event.price > 0 && (
+              <p className="note">
+                Price: {priceLabel(event.event.price)} per ticket. Payment from your wallet.
+              </p>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-primary btn-lg btn-block"
+            onClick={connect}
+          >
+            Connect wallet to buy
+          </button>
+        )}
+      </div>
+
       <div className="stat-cards">
         <div className="card stat-card">
           <p className="stub-label">Price</p>
@@ -108,72 +174,6 @@ export default function EventDetailPage() {
           <p className="stub-value">{event.availability.left} left</p>
         </div>
       </div>
-
-      {buy.phase === "success" ? (
-        <div className="status section-gap">
-          <div className="status-icon status-icon-ok">
-            <span>&#10003;</span>
-          </div>
-          <p className="status-title">You're in. Ticket received.</p>
-          <p className="status-copy">{event.event.name} &middot; {whenLabel(event.event.date)}</p>
-          <p className="status-detail mono">TX: {buy.txid}</p>
-          <div className="form-actions">
-            <Link to="/tickets" className="btn btn-primary">
-              View my tickets
-            </Link>
-            <Link to="/" className="btn btn-secondary">
-              Browse events
-            </Link>
-          </div>
-        </div>
-      ) : buy.phase === "error" ? (
-        <div className="status section-gap">
-          <div className="status-icon status-icon-error">
-            <span>&#10007;</span>
-          </div>
-          <p className="status-title">{buy.message}</p>
-          <p className="status-copy">No ticket was issued.</p>
-        </div>
-      ) : buy.phase === "building" ? (
-        <div className="status section-gap">
-          <div className="spinner" />
-          <p className="status-copy">Building transaction...</p>
-        </div>
-      ) : buy.phase === "broadcasting" ? (
-        <div className="status section-gap">
-          <div className="spinner" />
-          <p className="status-copy">Sending to Kaspa...</p>
-        </div>
-      ) : soldOut ? (
-        <div className="section-gap">
-          <p className="status-title">Sold out.</p>
-        </div>
-      ) : connected ? (
-        <div className="section-gap">
-          <button
-            type="button"
-            className="btn btn-primary btn-lg"
-            onClick={handleBuy}
-          >
-            Buy ticket
-          </button>
-          {event.event.price > 0 && (
-            <p className="note">
-              Price: {priceLabel(event.event.price)} per ticket. Payment from your wallet.
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="section-gap">
-          <button
-            type="button"
-            className="btn btn-primary btn-lg"
-            onClick={connect}
-          >
-            Connect wallet to buy
-          </button>
-        </div>
-      )}
     </section>
   );
 }

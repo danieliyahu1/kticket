@@ -103,7 +103,13 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-5);
-  height: 60px;
+  height: 64px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
 }
 
 .wordmark {
@@ -112,10 +118,29 @@ button {
   letter-spacing: -0.02em;
 }
 
+.sub-nav {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--ink-tertiary);
+  transition: color var(--ease);
+}
+
+.sub-nav:hover {
+  color: var(--ink);
+}
+
 .header-actions {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+.create-icon {
+  display: none;
+}
+
+.address-short {
+  display: none;
 }
 
 /* ── Footer ─────────────────────────────────────────────── */
@@ -728,6 +753,29 @@ button {
     gap: var(--space-3);
   }
 
+  .header-left {
+    gap: var(--space-3);
+  }
+
+  .create-label {
+    display: none;
+  }
+
+  .create-icon {
+    display: inline;
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .address-full {
+    display: none;
+  }
+
+  .address-short {
+    display: inline;
+  }
+
   .field-row {
     grid-template-columns: 1fr;
   }
@@ -851,11 +899,31 @@ button {
 
 /* ── Detail / Stats ─────────────────────────────────────── */
 
+.buy-cta {
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-sold-out {
+  width: 100%;
+  background: var(--canvas-subtle);
+  color: var(--ink-tertiary);
+  border-color: var(--border);
+  cursor: default;
+}
+
+.btn-sold-out:active {
+  transform: none;
+}
+
 .stat-cards {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
-  margin-top: var(--space-5);
 }
 
 .stat-card {
