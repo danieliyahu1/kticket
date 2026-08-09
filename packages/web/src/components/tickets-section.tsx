@@ -169,7 +169,13 @@ export function TicketsSection({ tickets, onRefetch }: { tickets: TicketEntry[];
         return;
       }
 
-      const signed = await kasware.signPskt({ txJsonString: signingJson });
+      const holderIndices = buildResult.template.inputs.slice(1).map((_, i) => ({
+        index: i + 1,
+      }));
+      const signed = await kasware.signPskt({
+        txJsonString: signingJson,
+        options: { signInputs: holderIndices },
+      });
       const signedTx = mergeSignatures(buildResult.template, signed);
 
       await broadcastTx(signedTx);

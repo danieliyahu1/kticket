@@ -117,7 +117,10 @@ export async function executeBuy(
 
   let signedTx;
   try {
-    const signed = await signTemplate(buildResult.signing_template);
+    const buyerIndices = buildResult.template.inputs.slice(1).map((_, i) => ({
+      index: i + 1,
+    }));
+    const signed = await signTemplate(buildResult.signing_template, buyerIndices);
     logStep("signed", {
       type: typeof signed,
       sample: JSON.stringify(signed).slice(0, LOG_SAMPLE_LEN),

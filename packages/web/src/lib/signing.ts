@@ -4,6 +4,7 @@ export const SOMPI_PER_KAS = 100_000_000;
 
 export async function signTemplate(
   signingTemplate: string | null | undefined,
+  signInputs?: { index: number }[],
 ): Promise<unknown> {
   const kasware = window.kasware;
   if (!(kasware && "signPskt" in kasware)) {
@@ -12,7 +13,10 @@ export async function signTemplate(
   if (!signingTemplate) {
     throw new Error("No signing template from build");
   }
-  return kasware.signPskt({ txJsonString: signingTemplate });
+  return kasware.signPskt({
+    txJsonString: signingTemplate,
+    ...(signInputs ? { options: { signInputs } } : {}),
+  });
 }
 
 export function mergeSignatures(
