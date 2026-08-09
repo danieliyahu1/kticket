@@ -741,6 +741,21 @@ button {
   animation: fade-in 0.3s ease-out both;
 }
 
+/* ── Page transitions ───────────────────────────────────── */
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.page-transition {
+  animation: page-enter 0.15s ease-out both;
+}
+
 /* ── A11y + motion ──────────────────────────────────────── */
 
 :focus-visible {
