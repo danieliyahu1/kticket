@@ -3,8 +3,8 @@ const STORAGE_KEY = "kticket.tickets";
 export interface StoredTicket {
   /** The ticket covenant UTXO outpoint — txid:index. */
   ticketId: string;
-  /** Genesis txid of the event this ticket belongs to. */
-  eventId: string;
+  /** Covenant id of the event this ticket belongs to. */
+  covenantId: string;
   /** Event name. */
   eventName: string;
   /** Event date. */
@@ -38,7 +38,7 @@ function isStoredTicket(value: unknown): value is StoredTicket {
   const t = value as Record<string, unknown>;
   return (
     typeof t.ticketId === "string" &&
-    typeof t.eventId === "string" &&
+    typeof t.covenantId === "string" &&
     typeof t.eventName === "string" &&
     typeof t.eventDate === "string" &&
     typeof t.eventTime === "string" &&
@@ -66,11 +66,11 @@ export function removeTicket(ticketId: string): void {
 export function ticketsByEvent(tickets: StoredTicket[]): Map<string, StoredTicket[]> {
   const grouped = new Map<string, StoredTicket[]>();
   for (const t of tickets) {
-    const existing = grouped.get(t.eventId);
+    const existing = grouped.get(t.covenantId);
     if (existing) {
       existing.push(t);
     } else {
-      grouped.set(t.eventId, [t]);
+      grouped.set(t.covenantId, [t]);
     }
   }
   return grouped;

@@ -7,7 +7,7 @@ import { saveTicket } from "../api/ticket-store";
 import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
-  const { eventId } = useParams<{ eventId: string }>();
+  const { covenantId } = useParams<{ covenantId: string }>();
   const { state, connect } = useWallet();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -15,11 +15,11 @@ export default function EventDetailPage() {
   const [buy, setBuy] = useState<BuyState>({ phase: "idle" });
 
   const load = useCallback(async () => {
-    if (!eventId) return;
+    if (!covenantId) return;
     setLoading(true);
     setError(null);
     try {
-      const e = await fetchEvent(eventId);
+      const e = await fetchEvent(covenantId);
       setEvent(e);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
@@ -27,26 +27,26 @@ export default function EventDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [eventId]);
+  }, [covenantId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const handleBuy = useCallback(async () => {
-    if (!eventId || !event || state.status !== "connected" || !state.accounts[0]) return;
+    if (!covenantId || !event || state.status !== "connected" || !state.accounts[0]) return;
     await executeBuy(setBuy, {
-      eventId,
+      covenantId,
       publicKey: state.publicKey,
       address: state.accounts[0],
     });
-  }, [eventId, event, state]);
+  }, [covenantId, event, state]);
 
   useEffect(() => {
     if (buy.phase === "success" && event) {
       saveTicket({
         ticketId: `${buy.txid.toLowerCase()}:0`,
-        eventId: event.event.covenant_id,
+        covenantId: event.event.covenant_id,
         eventName: event.event.name,
         eventDate: event.event.date,
         eventTime: new Date(event.event.date).toISOString(),

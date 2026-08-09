@@ -144,7 +144,7 @@ export default function WalletPage() {
     setTransferState({ phase: "building" });
 
     try {
-      const event = await fetchEvent(transferTicket.eventId);
+      const event = await fetchEvent(transferTicket.covenantId);
       const buyInfo = event.buy_info;
 
       const utxos = await fetchUtxos(address);
@@ -229,8 +229,8 @@ export default function WalletPage() {
         />
       ) : (
         <div className="ticket-group-list">
-          {Array.from(grouped.entries()).map(([eventId, eventTickets]) => (
-            <div key={eventId}>
+          {Array.from(grouped.entries()).map(([covenantId, eventTickets]) => (
+            <div key={covenantId}>
               <h3 className="ticket-group-heading">
                 {eventTickets[0]?.eventName ?? "Event"} &middot; {eventTickets.length}{" "}
                 {eventTickets.length === 1 ? "ticket" : "tickets"}

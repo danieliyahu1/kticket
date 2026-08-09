@@ -15,7 +15,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<EventsPage />} />
             <Route path="create" element={<CreateEventPage />} />
-            <Route path="events/:eventId" element={<EventDetailPage />} />
+            <Route path="events/:covenantId" element={<EventDetailPage />} />
             <Route path="tickets" element={<WalletPage />} />
           </Route>
           <Route path="door" element={<DoorPage />} />

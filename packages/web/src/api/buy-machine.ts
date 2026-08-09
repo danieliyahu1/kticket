@@ -20,7 +20,7 @@ export type BuyState =
   | { phase: "error"; message: string };
 
 export interface BuyParams {
-  eventId: string;
+  covenantId: string;
   publicKey: string;
   address: string;
 }
@@ -50,7 +50,7 @@ export async function executeBuy(
 
   let event: EventDetail;
   try {
-    event = await fetchEvent(params.eventId);
+    event = await fetchEvent(params.covenantId);
     logStep("event", event);
   } catch (err) {
     logError("fetch", err);
