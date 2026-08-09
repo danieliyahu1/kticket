@@ -36,6 +36,8 @@ export interface WireUtxoMeta extends WireUtxo {
   is_coinbase: boolean;
   /** Optional human-readable address for the previous output. */
   address?: string;
+  /** Covenant id of the previous output (set for covenant spends). */
+  covenant_id?: string | null;
 }
 
 export interface WireScriptPublicKey {

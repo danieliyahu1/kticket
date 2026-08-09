@@ -15,6 +15,7 @@ import {
   availableTicketAddress,
   buildRedeemScript,
   encodeAddress,
+  pushData,
   scriptHash,
 } from "./runtime/address.js";
 import {
@@ -127,6 +128,7 @@ export {
   NETWORKS,
   p2shScript,
   payloadDigest,
+  pushData,
   RESULT_CODES,
   relayFloor,
   requiredInput,

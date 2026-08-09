@@ -7,11 +7,13 @@ import {
   buildBuy,
   buildDeploy,
   buildHandover,
+  buildRedeemScript,
   buildTransfer,
   EVENT_ARTIFACT,
+  pushData,
   type UnsignedTransaction,
 } from "@kticket/kit";
-import { hexToBytes } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { BuildRequest, WireUtxo, WireUtxoMeta } from "./wire.js";
 import { codeBytes, orgPayoutSpk, toDecodedConstants, toOutpoint, toSpk } from "./wire.js";
@@ -32,6 +34,7 @@ function utxoMetaOf(u: WireUtxo): WireUtxoMeta {
 export type BuiltTransaction = {
   tx: UnsignedTransaction;
   eventCovenantId?: string;
+  covenantRedeemScript?: string;
 };
 
 export type PreparedBuild = {
@@ -98,6 +101,7 @@ async function buyBuild(
       : { version: 0, script: "" },
     block_daa_score: eventTx?.accepting_block_blue_score ?? 0,
     is_coinbase: false,
+    covenant_id: req.event_covenant_id,
   };
 
   const buyerMetas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
@@ -107,23 +111,31 @@ async function buyBuild(
     inputTotal: eventMeta.value + req.buyer_utxos.reduce((a, u) => a + u.value, 0),
     payouts: req.constants.price > 0 ? [req.constants.price] : [],
     inputUtxoMetas: metas,
-    build: (fee) => ({
-      tx: buildBuy({
-        eventOutpoint: toOutpoint(req.event_outpoint),
-        eventCovenantId: req.event_covenant_id,
-        eventOwner: hexToBytes(req.event_owner),
+    build: (fee) => {
+      const redeem = pushData(buildRedeemScript(
+        { owner: hexToBytes(req.event_owner), identifierType: 0, amount: req.remaining, isMinter: false },
         constants,
-        buyer: hexToBytes(req.buyer),
-        buyerUtxos: req.buyer_utxos.map((u) => toOutpoint(u)),
-        buyerUtxoValues: req.buyer_utxos.map((u) => u.value),
-        orgScript: orgPayoutSpk(req.constants.org_spk),
-        changeScript: toSpk(req.change_spk),
-        covenantCode: codeBytes(EVENT_ARTIFACT.code),
-        remaining: req.remaining,
-        network: TESTNET10,
-        fee,
-      }),
-    }),
+        codeBytes(EVENT_ARTIFACT.code),
+      ));
+      return {
+        tx: buildBuy({
+          eventOutpoint: toOutpoint(req.event_outpoint),
+          eventCovenantId: req.event_covenant_id,
+          eventOwner: hexToBytes(req.event_owner),
+          constants,
+          buyer: hexToBytes(req.buyer),
+          buyerUtxos: req.buyer_utxos.map((u) => toOutpoint(u)),
+          buyerUtxoValues: req.buyer_utxos.map((u) => u.value),
+          orgScript: orgPayoutSpk(req.constants.org_spk),
+          changeScript: toSpk(req.change_spk),
+          covenantCode: codeBytes(EVENT_ARTIFACT.code),
+          remaining: req.remaining,
+          network: TESTNET10,
+          fee,
+        }),
+        covenantRedeemScript: bytesToHex(redeem),
+      };
+    },
   };
 }
 
