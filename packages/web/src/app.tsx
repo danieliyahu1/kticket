@@ -18,7 +18,7 @@ export default function App() {
             <Route path="events/:covenantId" element={<EventDetailPage />} />
             <Route path="tickets" element={<WalletPage />} />
           </Route>
-          <Route path="door" element={<DoorPage />} />
+          <Route path="door" element={<WalletProvider><DoorPage /></WalletProvider>} />
         </Routes>
       </BrowserRouter>
     </WalletProvider>

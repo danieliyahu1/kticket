@@ -1096,6 +1096,47 @@ button {
   letter-spacing: 0.02em;
 }
 
+.door-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  width: min(360px, 80vw);
+}
+
+.door-event-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--canvas-raise);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease);
+}
+
+.door-event-card:hover {
+  background: var(--canvas-subtle);
+  border-color: var(--border-strong);
+}
+
+.door-event-name {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.door-event-date {
+  font-size: 0.8125rem;
+  color: var(--ink-tertiary);
+}
+
 .door-foot {
   padding: var(--space-5) var(--space-6);
   color: var(--ink-tertiary);
