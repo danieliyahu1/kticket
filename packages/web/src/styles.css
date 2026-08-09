@@ -275,9 +275,31 @@ button {
 }
 
 .event-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  transition:
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
+}
+
+.event-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06), 0 18px 44px rgba(0, 0, 0, 0.1);
+}
+
+.event-card:active {
+  transform: scale(0.98);
+}
+
+.event-card-accent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
 }
 
 .event-card-name {
