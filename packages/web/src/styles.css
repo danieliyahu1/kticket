@@ -935,6 +935,60 @@ button {
   margin-top: var(--space-6);
 }
 
+/* ── Skeleton / Shimmer ─────────────────────────────────── */
+
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--canvas-subtle) 25%,
+    #e8e8ed 50%,
+    var(--canvas-subtle) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-card {
+  height: 120px;
+  border-radius: var(--radius-card);
+}
+
+.skeleton-heading {
+  height: 2.25rem;
+  width: 60%;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-control);
+}
+
+.skeleton-text {
+  height: 1rem;
+  width: 40%;
+  margin-bottom: var(--space-5);
+  border-radius: var(--radius-control);
+}
+
+.skeleton-btn-block {
+  height: 3.25rem;
+  width: 100%;
+  margin-bottom: var(--space-6);
+  border-radius: var(--radius-pill);
+}
+
+.skeleton-stat-card {
+  flex: 1;
+  min-width: 0;
+  height: 76px;
+}
+
 /* ── Door ───────────────────────────────────────────────── */
 
 .door {

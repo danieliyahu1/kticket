@@ -61,9 +61,15 @@ export default function EventDetailPage() {
   if (loading) {
     return (
       <section>
-        <div className="status">
-          <div className="spinner" />
-          <p className="status-copy">Loading event...</p>
+        <div className="skeleton skeleton-heading" aria-hidden="true" />
+        <div className="skeleton skeleton-text" aria-hidden="true" />
+        <div className="buy-cta">
+          <div className="skeleton skeleton-btn-block" aria-hidden="true" />
+        </div>
+        <div className="stat-cards">
+          <div className="skeleton skeleton-stat-card" aria-hidden="true" />
+          <div className="skeleton skeleton-stat-card" aria-hidden="true" />
+          <div className="skeleton skeleton-stat-card" aria-hidden="true" />
         </div>
       </section>
     );

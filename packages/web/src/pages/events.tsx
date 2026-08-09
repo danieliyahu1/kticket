@@ -123,7 +123,13 @@ export default function EventsPage() {
         </div>
       )}
       <Segmented current={segment} onChange={setSegment} />
-      {loading ? null : visible.length > 0 ? (
+      {loading ? (
+        <div className="event-list">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="skeleton skeleton-card" aria-hidden="true" />
+          ))}
+        </div>
+      ) : visible.length > 0 ? (
         <div className="event-list">
           {visible.map((event) => (
             <EventCard key={event.covenant_id} event={event} />
