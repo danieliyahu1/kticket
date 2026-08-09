@@ -12,11 +12,16 @@ export function parseBroadcastRequest(raw: unknown): WireTransaction {
   if (!isRecord(tx)) throw invalidError("transaction must be an object");
   const version = int(tx.version, "transaction.version");
   if (version < 1) throw invalidError("transaction.version must be >= 1 (v1 template)");
+  const payload = tx.payload;
+  if (payload !== undefined && payload !== null && typeof payload !== "string") {
+    throw invalidError("transaction.payload must be a string");
+  }
   return {
     version,
     inputs: parseInputs(tx.inputs),
     outputs: parseOutputs(tx.outputs),
     lock_time: uint(tx.lock_time ?? 0, "transaction.lock_time"),
+    ...(typeof payload === "string" && payload.length > 0 ? { payload } : {}),
   };
 }
 

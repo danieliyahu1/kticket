@@ -425,6 +425,38 @@ button {
   margin-top: var(--space-2);
 }
 
+.create-layout {
+  display: flex;
+  gap: var(--space-7);
+  align-items: flex-start;
+}
+
+.create-layout > .form {
+  flex: 1;
+  min-width: 0;
+}
+
+.live-preview {
+  flex: 1;
+  min-width: 0;
+  max-width: 520px;
+}
+
+.live-preview > .stub-label {
+  margin-bottom: var(--space-3);
+}
+
+@media (max-width: 860px) {
+  .create-layout {
+    flex-direction: column-reverse;
+    gap: var(--space-6);
+  }
+
+  .live-preview {
+    max-width: none;
+  }
+}
+
 /* ── Steps ──────────────────────────────────────────────── */
 
 .step {
@@ -620,8 +652,8 @@ button {
   position: absolute;
   top: 3px;
   bottom: 3px;
-  left: calc((50% - 3px) * var(--seg, 0) + 3px);
-  width: calc(50% - 3px);
+  left: calc(((100% - 6px) / 3) * var(--seg, 0) + 3px);
+  width: calc((100% - 6px) / 3);
   background: var(--canvas);
   border-radius: var(--radius-pill);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);

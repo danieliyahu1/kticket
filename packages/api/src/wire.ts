@@ -67,6 +67,8 @@ export interface WireTransaction {
   inputs: WireInput[];
   outputs: WireOutput[];
   lock_time: number;
+  /** Hex-encoded payload (KCC-0021 metadata for deploy txs). */
+  payload?: string;
 }
 
 export interface TicketConstantsJson {
@@ -345,6 +347,7 @@ export function toWireTx(tx: UnsignedTransaction): WireTransaction {
         : null,
     })),
     lock_time: tx.lockTime,
+    ...(tx.payload ? { payload: tx.payload } : {}),
   };
 }
 

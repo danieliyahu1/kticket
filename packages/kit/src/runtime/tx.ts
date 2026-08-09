@@ -45,6 +45,8 @@ export interface UnsignedTransaction {
   inputs: TxInput[];
   outputs: TxOutput[];
   lockTime: number;
+  /** Hex-encoded payload (KCC-0021: covenant metadata in genesis tx payload). */
+  payload?: string;
 }
 
 /** Which party pays the fee, per transaction type (HLD §2.1). */

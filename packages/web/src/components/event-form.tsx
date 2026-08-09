@@ -1,4 +1,5 @@
 import type { EventFormData } from "./event-validate";
+import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
 
 export type { EventFormData };
 
@@ -132,25 +133,61 @@ function PriceField({ initial, errors, onChange }: EventFormProps) {
   );
 }
 
+function LivePreview({ data }: { data: EventFormData }) {
+  const hasName = data.name.trim().length > 0;
+  const hasDate = data.date.length > 0;
+
+  return (
+    <div className="live-preview">
+      <p className="stub-label">Preview</p>
+      <div className="ticket">
+        <div className="ticket-main">
+          <h2 className="ticket-name">{hasName ? data.name : "Event name"}</h2>
+          <p className="ticket-line">
+            {hasDate && hasName
+              ? whenLabel(data.date, data.time || undefined)
+              : "Date and time"}
+          </p>
+        </div>
+        <div className="ticket-perforation" aria-hidden="true" />
+        <div className="ticket-stub">
+          <div className="stub-item">
+            <span className="stub-label">Price</span>
+            <span className="stub-value">{priceLabel(data.price)}</span>
+          </div>
+          <div className="stub-item">
+            <span className="stub-label">Capacity</span>
+            <span className="stub-value">{capacityLabel(data.capacity)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function EventForm({ initial, onSubmit, errors, onChange }: EventFormProps) {
   const p = { initial, onSubmit, errors, onChange };
+
   return (
-    <form
-      className="form"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit(initial);
-      }}
-    >
-      <NameField {...p} />
-      <WhenField {...p} />
-      <CapacityField {...p} />
-      <PriceField {...p} />
-      <div className="form-actions">
-        <button type="submit" className="btn btn-primary">
-          Review
-        </button>
-      </div>
-    </form>
+    <div className="create-layout">
+      <form
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(initial);
+        }}
+      >
+        <NameField {...p} />
+        <WhenField {...p} />
+        <CapacityField {...p} />
+        <PriceField {...p} />
+        <div className="form-actions">
+          <button type="submit" className="btn btn-primary">
+            Deploy event
+          </button>
+        </div>
+      </form>
+      <LivePreview data={initial} />
+    </div>
   );
 }

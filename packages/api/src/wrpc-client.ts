@@ -88,7 +88,7 @@ export async function submitTransactionOverWrpc(
     lockTime: BigInt(tx.lock_time),
     subnetworkId: NATIVE_SUBNETWORK_ID,
     gas: 0n,
-    payload: "",
+    payload: tx.payload ?? "",
   });
 
   const rpc = new mod.RpcClient({

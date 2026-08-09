@@ -2,24 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
 import { organizerPkh, orgSpkFromPublicKey } from "../api/crypto";
 import { registerEvent } from "../api/client";
-import { DeployDialog, DeployStatus } from "../components/deploy-dialog";
+import { DeployStatus } from "../components/deploy-dialog";
 import { Empty } from "../components/empty";
 import { EventForm, type EventFormData } from "../components/event-form";
 import { validate } from "../components/event-validate";
-import { Review } from "../components/review";
 import { useWallet } from "../hooks/use-wallet";
 import { BURN_ARTIFACT, burnTemplateHash } from "@kticket/kit";
 
 type ConnectedWallet = { publicKey: string; accounts: string[] };
-type Step = "form" | "review" | "confirm";
 
 const EMPTY_FORM: EventFormData = { name: "", date: "", time: "", capacity: 0, price: 0 };
-
-const STEP_LABELS: Record<Step, string> = {
-  form: "Step 1 of 3 · Details",
-  review: "Step 2 of 3 · Review",
-  confirm: "Step 3 of 3 · Confirm",
-};
 
 export default function CreateEventPage() {
   const { state } = useWallet();
@@ -31,7 +23,7 @@ function RequireWallet() {
   const { connect } = useWallet();
   return (
     <section>
-      <PageHeader caption="Step 1 of 3 · Details" title="Create an event" />
+      <PageHeader caption="Step 1 of 2 · Details" title="Create an event" />
       <Empty
         title="Connect your wallet to create an event."
         sub="Events are put on Kaspa from your own wallet."
@@ -52,7 +44,6 @@ function PageHeader({ caption, title }: { caption: string; title: string }) {
 }
 
 function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
-  const [step, setStep] = useState<Step>("form");
   const [form, setForm] = useState<EventFormData>(EMPTY_FORM);
   const [deploy, setDeploy] = useState<DeployState>({ phase: "idle" });
   const [errors, setErrors] = useState<Partial<Record<keyof EventFormData, string>>>({});
@@ -79,33 +70,29 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
   if (deploy.phase !== "idle") {
     return (
       <section key="deploy" className="step-enter">
-        <PageHeader caption="Step 3 of 3 · Deploying" title="Create an event" />
+        <PageHeader caption="Step 2 of 2 · Deploying" title="Create an event" />
         <DeployResult deploy={deploy} onRetry={startDeploy} />
       </section>
     );
   }
 
-  const caption = STEP_LABELS[step];
-
   return (
-    <section key={step} className="step-enter">
-      <PageHeader caption={caption} title="Create an event" />
-      {step === "confirm" ? (
-        <DeployDialog
-          eventName={form.name}
-          onConfirm={startDeploy}
-          onCancel={() => setStep("review")}
-        />
-      ) : step === "review" ? (
-        <Review data={form} onDeploy={() => setStep("confirm")} onEdit={() => setStep("form")} />
-      ) : (
-        <EventForm
-          initial={form}
-          onSubmit={(data) => submitForm(data, setErrors, setStep)}
-          errors={errors}
-          onChange={setForm}
-        />
-      )}
+    <section key="form" className="step-enter">
+      <PageHeader caption="Step 1 of 2 · Details" title="Create an event" />
+      <EventForm
+        initial={form}
+        onSubmit={(data) => {
+          const errs = validate(data);
+          if (Object.keys(errs).length > 0) {
+            setErrors(errs);
+            return;
+          }
+          setErrors({});
+          startDeploy();
+        }}
+        errors={errors}
+        onChange={setForm}
+      />
     </section>
   );
 }
@@ -124,20 +111,6 @@ function deployEvent(
     date: form.date,
   };
   executeDeploy(setDeploy, params);
-}
-
-function submitForm(
-  data: EventFormData,
-  setErrors: (e: Partial<Record<keyof EventFormData, string>>) => void,
-  setStep: (s: Step) => void,
-) {
-  const errs = validate(data);
-  if (Object.keys(errs).length > 0) {
-    setErrors(errs);
-    return;
-  }
-  setErrors({});
-  setStep("review");
 }
 
 function deployPhaseStatus(

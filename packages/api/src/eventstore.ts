@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
-import { decodeMetadataFromTx } from "@kticket/kit";
+import { decodeMetadataFromPayload } from "@kticket/kit";
 import type { KaspaClientLike } from "./kaspa-client.js";
 
 export interface StoredEvent {
@@ -134,7 +134,7 @@ export class EventStore {
       try {
         const deploy = await kaspa.getTransaction(event.genesisTxId);
         if (!deploy) continue;
-        const meta = decodeMetadataFromTx(deploy.outputs ?? []);
+        const meta = decodeMetadataFromPayload(deploy.payload);
         if (meta) {
           event.name = meta.name;
           event.date = meta.date;
