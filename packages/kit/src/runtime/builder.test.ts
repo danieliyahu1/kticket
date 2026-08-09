@@ -1,6 +1,7 @@
-import { bytesToHex } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 import type { AddressNetwork } from "./address";
+import { buildRedeemScript, scriptHash } from "./address";
 import {
   buildBuy,
   buildDeploy,
@@ -262,5 +263,36 @@ describe("burnTemplateHash (reader's GONE check)", () => {
     expect(burnTemplateHash(bytesToHex(EVENT_ID), "0000")).not.toBe(
       burnTemplateHash(otherEvent, "0000"),
     );
+  });
+});
+
+describe("P2SH hash verification — buy redeem script", () => {
+  const WALLET2_ORG_PKH = "50a41b9578b6be3a7044c94ddfcdf40142b44984d309bf946c3c5e89eb95d48f";
+  const WALLET2_ORG_SPK = "2050a41b9578b6be3a7044c94ddfcdf40142b44984d309bf946c3c5e89eb95d48fac";
+  const WALLET2_AUTH_TXID = "15bba165d56586695cbf0b5458489d8bb61d49c3b307dfebe92a64456ab109fc";
+  const WALLET2_BURN_HASH = "80be36583449085357ff47b51b58e670dd7ac155427452b8bda0990f36474e7e";
+  const ON_CHAIN_P2SH_HASH = "afb4f1b8beca90abbb71b6e399b9e144ab4efb7cc2782dd9677fd3781d55eacd";
+  const WALLET2_CAPACITY = 11;
+  const WALLET2_PRICE = 1_100_000_000;
+
+  it("the redeem script hash for wallet 2 test event matches the on-chain P2SH hash", () => {
+    const state = {
+      owner: hexToBytes(WALLET2_ORG_PKH),
+      identifierType: 0 as const,
+      amount: WALLET2_CAPACITY,
+      isMinter: false,
+    };
+    const constants = {
+      authorizingTxId: hexToBytes(WALLET2_AUTH_TXID),
+      price: WALLET2_PRICE,
+      orgSpk: hexToBytes(WALLET2_ORG_SPK),
+      burnTemplateHash: hexToBytes(WALLET2_BURN_HASH),
+    };
+    const code = COVENANT_CODE;
+
+    const redeemScript = buildRedeemScript(state, constants, code);
+    const hash = bytesToHex(scriptHash(redeemScript));
+
+    expect(hash).toBe(ON_CHAIN_P2SH_HASH);
   });
 });

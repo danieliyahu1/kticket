@@ -323,6 +323,53 @@ describe("buildTransaction (KTK-55) — buy signing template alignment", () => {
     const outputTotal = result.template.outputs.reduce((a, o) => a + o.value, 0);
     expect(outputTotal).toBeLessThan(EVENT_VALUE + UTXO_VALUE);
   });
+
+  it("fills covenant input signature_script with pushData-wrapped redeem script", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTx();
+
+    const req = buyRequest();
+    const result = await buildTransaction(
+      { ...req, input_utxo_metas: [BUYER_META] },
+      ctx(kaspa),
+    );
+
+    // Input 0 (covenant) must have a non-empty redeem script, not a Schnorr sig
+    const sigScript = result.template.inputs[0]?.signature_script ?? "";
+    expect(sigScript.length).toBeGreaterThan(0);
+    // Must start with pushData opcode (0x4c = OP_PUSHDATA1), not 0x41 (sighash)
+    expect(sigScript.slice(0, 2)).toBe("4c");
+
+    // Signing template also has the redeem script
+    expect(result.signing_template).toBeDefined();
+    const signing = JSON.parse(result.signing_template!);
+    const inputs = signing.inputs as Array<{ signatureScript: string }>;
+    expect(inputs[0]?.signatureScript.slice(0, 2)).toBe("4c");
+  });
+
+  it("continuation outputs keep the genesis covenant id from the buy request", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTx();
+
+    const req = buyRequest();
+    const result = await buildTransaction(
+      { ...req, input_utxo_metas: [BUYER_META] },
+      ctx(kaspa),
+    );
+
+    // The buy is a CONTINUATION of the deployed event covenant. Its outputs
+    // (ticket + remaining event) must be bound to the SAME covenant family id
+    // as the genesis event (`req.event_covenant_id`), NOT a freshly recomputed id.
+    const expected = "77".repeat(TXID_BYTE_LENGTH);
+    for (const output of result.template.outputs) {
+      if (output.covenant) {
+        expect(output.covenant.covenant_id, "continuation output covenant id").toBe(expected);
+      }
+    }
+    // The returned event_covenant_id must also stay as the genesis id.
+    expect(result.event_covenant_id).toBe(expected);
+  });
+
 });
 
 describe("buildTransaction (KTK-28) — transfer", () => {
