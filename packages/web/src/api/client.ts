@@ -85,15 +85,17 @@ export function broadcastTx(transaction: unknown): Promise<BroadcastResult> {
   return apiFetch<BroadcastResult>("/v1/tx/broadcast", { transaction });
 }
 
-/** Fetch event detail + availability from the API. */
+/** Fetch event detail + availability from the API (KTK-89: chain-verified). */
 export interface EventDetail {
   event: {
     covenant_id: string;
-    genesis_txid: string;
+    deploy_txid: string;
     name: string;
     date: string;
     price: number;
     capacity: number;
+    organizer_address: string;
+    verified: boolean;
   };
   availability: {
     capacity: number;
@@ -109,6 +111,21 @@ export interface EventDetail {
     event_txid: string;
     event_index: number;
     remaining: number;
+  };
+  raw_chain: {
+    deploy_txid: string;
+    authorizing_txid: string;
+    maker_address: string;
+    decoded_constants: {
+      price: number;
+      org_spk: string;
+      burn_template_hash: string;
+    };
+    decoded_state: {
+      owner: string;
+      capacity: number;
+    };
+    payload: string | null;
   };
 }
 
@@ -138,31 +155,55 @@ export function fetchEvent(covenantId: string): Promise<EventDetail> {
 
 export interface EventListItem {
   covenant_id: string;
-  genesis_txid: string;
+  deploy_txid: string;
   name: string;
   date: string;
   price: number;
+  organizer_address: string;
+  verified: boolean;
 }
 
-export function fetchEventsList(orgPkh?: string): Promise<EventListItem[]> {
-  const query = orgPkh ? `?org_pkh=${encodeURIComponent(orgPkh)}` : "";
+export function fetchEventsList(organizerAddress?: string): Promise<EventListItem[]> {
+  const query = organizerAddress
+    ? `?organizer_address=${encodeURIComponent(organizerAddress)}`
+    : "";
   return apiGet<EventListItem[]>(`/v1/events${query}`);
 }
 
 export interface RegisterEventPayload {
-  authorizing_txid: string;
-  genesis_txid: string;
-  org_pkh: string;
-  org_spk: string;
-  burn_template_hash: string;
-  name: string;
-  date: string;
-  price: number;
-  capacity: number;
+  deploy_txid: string;
 }
 
 export function registerEvent(payload: RegisterEventPayload): Promise<{ covenant_id: string }> {
   return apiFetch<{ covenant_id: string }>("/v1/events", payload);
+}
+
+const REGISTER_RETRY_DELAY_MS = 1000;
+const REGISTER_MAX_RETRIES = 5;
+
+/**
+ * Registration races the deploy tx's chain visibility: the API only registers
+ * after verifying the deploy tx on chain, which needs the tx to be mined. Retry
+ * with doubling backoff (1s, 2s, 4s, 8s, 16s) so a just-broadcast event becomes
+ * discoverable once accepted.
+ */
+export async function registerEventWithRetry(
+  payload: RegisterEventPayload,
+): Promise<{ covenant_id: string }> {
+  let delay = REGISTER_RETRY_DELAY_MS;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= REGISTER_MAX_RETRIES; attempt++) {
+    try {
+      return await registerEvent(payload);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < REGISTER_MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, delay));
+        delay *= 2;
+      }
+    }
+  }
+  throw lastErr;
 }
 
 export interface BuyBuildRequest {

@@ -1,25 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
-import { organizerPkh, orgSpkFromPublicKey } from "../api/crypto";
-import { registerEvent } from "../api/client";
+import { registerEventWithRetry } from "../api/client";
 import { DeployStatus } from "../components/deploy-dialog";
 import { Empty } from "../components/empty";
 import { EventForm, type EventFormData } from "../components/event-form";
 import { validate } from "../components/event-validate";
 import { useWallet } from "../hooks/use-wallet";
-import { BURN_ARTIFACT } from "@kticket/kit";
-
-/**
- * The wire requires a `burn_template_hash` constant, but the authoritative
- * value is derived server-side at compile time (authorizing_txid baked into the
- * burn bytecode). The client sends the reference artifact's template hash as a
- * placeholder; the API overrides it with the per-event value.
- */
-function referenceBurnTemplateHash(): string {
-  return BURN_ARTIFACT.template_hash
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 type ConnectedWallet = { publicKey: string; accounts: string[] };
 
@@ -66,18 +52,11 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
   useEffect(() => {
     if (deploy.phase !== "success" || !deploy.txid || !deploy.authorizingTxId || savedRef.current) return;
     savedRef.current = true;
-    registerEvent({
-      authorizing_txid: deploy.authorizingTxId,
-      genesis_txid: deploy.txid,
-      org_pkh: organizerPkh(wallet.publicKey),
-      org_spk: orgSpkFromPublicKey(wallet.publicKey),
-      burn_template_hash: referenceBurnTemplateHash(),
-      name: form.name,
-      date: form.date,
-      price: Math.round(form.price * 1e8),
-      capacity: form.capacity,
-    });
-  }, [deploy, form, wallet]);
+    // Discovery-only registration (KTK-89): the backend verifies the event from
+    // the deploy tx on chain and stores just the identifier registry pointers.
+    // The deploy tx may not be mined yet, so retry with backoff until verifiable.
+    registerEventWithRetry({ deploy_txid: deploy.txid });
+  }, [deploy, wallet]);
 
   if (deploy.phase !== "idle") {
     return (
