@@ -24,6 +24,18 @@ describe("P2PK address derivation (organizer trust anchor)", () => {
     expect(p2pkAddress(OWNER, NETWORK)).toMatch(/^kaspatest:/);
   });
 
+  it("pins the golden address for a real pubkey (matches vendored kaspa-wasm)", () => {
+    // Golden computed with the vendored kaspa-wasm `XOnlyPublicKey.toAddress`
+    // (rusty-kaspa v2.0.1) for the same x-coordinate. KTK-102 follow-up: the kit
+    // previously encoded P2PK addresses with version byte 1 (PubKeyECDSA) — the
+    // wallet/consensus use version 0 (AddressVersion.PubKey) for x-only keys, so
+    // the organizer address never matched the deploying wallet's address.
+    const pubkey = hexToBytes("ab".repeat(HASH_LENGTH));
+    expect(p2pkAddress(pubkey, NETWORK)).toBe(
+      "kaspatest:qz46h2at4w46h2at4w46h2at4w46h2at4w46h2at4w46h2at4w46k0vynt8sd",
+    );
+  });
+
   it("round-trips a P2PK output script back to its address", () => {
     const script = p2pkScript(OWNER);
     expect(p2pkAddressFromScript(script, NETWORK)).toBe(p2pkAddress(OWNER, NETWORK));

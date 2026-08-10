@@ -285,8 +285,8 @@ const OP_EQUAL = 0x87;
 /** P2SH push length opcode for a 32-byte script hash. */
 const PUSH32 = 0x20;
 
-/** AddressVersion.PubKey — P2PK (schnorr) addresses derived from an x-coordinate. */
-export const P2PK_ADDRESS_VERSION = 1;
+/** AddressVersion.PubKey — P2PK (schnorr) x-only addresses derived from an x-coordinate. */
+export const P2PK_ADDRESS_VERSION = 0;
 
 /**
  * Derive the P2PK bech32 address for a 32-byte schnorr pubkey x-coordinate
