@@ -1,0 +1,49 @@
+name: silverc-commit-tracker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Track upstream silverscript commits deliberately (KTK-88 A7): nightly
+    # re-pin + recompile to surface breaking changes before they bite.
+    - cron: "0 4 * * *"
+
+jobs:
+  check-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (1.85+)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/kit/silverc/target
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: silverc-${{ runner.os }}-${{ hashFiles('packages/kit/silverc/Cargo.toml') }}
+
+      - name: Build kticket-silverc
+        working-directory: packages/kit/silverc
+        run: cargo build --release
+
+      - name: Verify committed artifacts are in sync
+        working-directory: packages/kit
+        run: |
+          node scripts/silverc.mjs --check || {
+            echo "::error::committed artifacts are stale; run \`npm run build --workspace @kticket/kit\` and commit the regenerated artifacts"
+            exit 1
+          }
+
+      - name: Check pinned silverscript rev vs upstream master
+        run: |
+          REV=$(node -e "const a=require('./packages/kit/artifacts/event.artifact.json'); console.log(a.silverscript_rev)")
+          UPSTREAM=$(git ls-remote https://github.com/kaspanet/silverscript.git HEAD | awk '{print $1}')
+          echo "pinned=$REV upstream=$UPSTREAM"
+          if [ "$REV" != "$UPSTREAM" ]; then
+            echo "::warning::silverscript upstream moved (pinned $REV, upstream $UPSTREAM). Re-pin packages/kit/silverc/Cargo.toml, rebuild artifacts, re-run golden tests deliberately."
+          fi

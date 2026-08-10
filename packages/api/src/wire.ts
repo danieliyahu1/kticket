@@ -3,7 +3,6 @@
 // wallet sends/receives over HTTP.
 
 import {
-  type DecodedConstants,
   MAX_EVENT_CAPACITY,
   type ScriptPublicKey,
   type UnsignedTransaction,
@@ -300,21 +299,22 @@ export function toOutpoint(o: WireOutpoint): { txId: Uint8Array; index: number }
   return { txId: hexToBytes(o.transaction_id), index: o.index };
 }
 
-/** Artifact `code` is a hex string; the kit builders want bytes. */
-export function codeBytes(hexCode: string): Uint8Array {
-  return hexToBytes(hexCode);
-}
-
 export function toSpk(spk: WireScriptPublicKey): ScriptPublicKey {
   return { version: spk.version, script: spk.script };
 }
 
-export function toDecodedConstants(c: TicketConstantsJson): DecodedConstants {
+/** Map wire constants (snake_case) to the compiler's camelCase view. */
+export function toCompilerConstants(c: TicketConstantsJson): {
+  authorizingTxId: string;
+  price: number;
+  orgSpk: string;
+  burnTemplateHash: string;
+} {
   return {
-    authorizingTxId: hexToBytes(c.authorizing_txid),
+    authorizingTxId: c.authorizing_txid,
     price: c.price,
-    orgSpk: hexToBytes(c.org_spk),
-    burnTemplateHash: hexToBytes(c.burn_template_hash),
+    orgSpk: c.org_spk,
+    burnTemplateHash: c.burn_template_hash,
   };
 }
 

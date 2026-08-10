@@ -1,5 +1,4 @@
 import { BURN_ARTIFACT, EVENT_ARTIFACT, TICKET_ARTIFACT } from "./contracts/artifacts.js";
-import { Covenant, eventCovenant, ticketCovenant } from "./contracts/covenant.js";
 import { RESULT_CODES } from "./contracts/types.js";
 import type { KaspaNetwork, NetworkConfig } from "./network.js";
 import {
@@ -13,9 +12,12 @@ import {
   addressFor,
   addressFromScriptHash,
   availableTicketAddress,
+  buildBurnRedeemScript,
   buildRedeemScript,
   encodeAddress,
+  injectState,
   pushData,
+  readStateFromRedeem,
   scriptHash,
 } from "./runtime/address.js";
 import {
@@ -23,7 +25,6 @@ import {
   buildDeploy,
   buildHandover,
   buildTransfer,
-  burnTemplateHash,
   decodeMetadataFromPayload,
   DUST,
   encodeMetadataPayload,
@@ -36,9 +37,11 @@ import {
   decodeConstants,
   decodePreimage,
   decodeState,
+  decodeVarint,
   encodeConstants,
   encodePreimage,
   encodeState,
+  encodeVarint,
 } from "./runtime/preimage.js";
 import {
   computeMassLocal,
@@ -50,9 +53,10 @@ import {
 } from "./runtime/serialize.js";
 
 export type {
-  ContractArtifact,
-  ContractEntrypoint,
-  CovenantAbi,
+  CompiledContractArtifact,
+  CompiledStateLayout,
+  FunctionAbiEntry,
+  FunctionInputAbi,
 } from "./contracts/artifact.js";
 export type {
   CovenantContext,
@@ -96,14 +100,13 @@ export {
   addressFor,
   addressFromScriptHash,
   availableTicketAddress,
-  BURN_ARTIFACT,
+  buildBurnRedeemScript,
   buildBuy,
   buildDeploy,
   buildHandover,
   buildRedeemScript,
   buildTransfer,
-  burnTemplateHash,
-  Covenant,
+  BURN_ARTIFACT,
   computeFee,
   computeMassLocal,
   covenantId,
@@ -112,16 +115,18 @@ export {
   decodePreimage,
   decodeSigOpCount,
   decodeState,
+  decodeVarint,
   DUST,
   encodeAddress,
   encodeConstants,
   encodeMetadataPayload,
   encodePreimage,
   encodeState,
+  encodeVarint,
   estimatedSerializedSize,
   EVENT_ARTIFACT,
-  eventCovenant,
   getNetworkConfig,
+  injectState,
   isKaspaNetwork,
   KASPA_NETWORK_IDS,
   MAX_EVENT_CAPACITY,
@@ -129,13 +134,13 @@ export {
   p2shScript,
   payloadDigest,
   pushData,
-  RESULT_CODES,
+  readStateFromRedeem,
   relayFloor,
+  RESULT_CODES,
   requiredInput,
   resolveNetwork,
   scriptHash,
   TICKET_ARTIFACT,
-  ticketCovenant,
   txIdPreimageV1,
   txIdV1,
 };

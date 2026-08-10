@@ -106,7 +106,7 @@ export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<Bu
 
   const wire = toWireTx(built.tx);
 
-  if (built.covenantRedeemScript && wire.inputs.length > 0) {
+  if (built.covenantRedeemScript && wire.inputs.length > 0 && wire.inputs[0]) {
     wire.inputs[0].signature_script = built.covenantRedeemScript;
   }
 
@@ -116,28 +116,63 @@ export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<Bu
     result.event_covenant_id = built.eventCovenantId;
   }
 
-  // Only a deploy is a covenant genesis. Continuation transactions (buy /
-  // transfer / handover) spend an existing covenant and must keep its genesis
-  // covenant id on their outputs — the wasm must NOT recompute a new one.
-  const isGenesis = request.type === "deploy";
-
   if (hasCompleteUtxoMetas(prepared.inputUtxoMetas)) {
     const { signingJson, covenantIds } = await signingTemplate(
       wire,
       prepared.inputUtxoMetas,
-      isGenesis,
     );
-    result.signing_template = signingJson;
-    if (isGenesis) {
-      applyWasmCovenantIds(result, covenantIds);
-    }
+    const patched = patchContinuationCovenantIds(signingJson, wire, request.type);
+    result.signing_template = patched ?? signingJson;
+    applyWasmCovenantIds(
+      result,
+      patched ? readSigningCovenantIds(patched) : covenantIds,
+    );
   }
 
-  if (!isGenesis && "event_covenant_id" in request) {
+  if (request.type !== "deploy" && "event_covenant_id" in request) {
     result.event_covenant_id = request.event_covenant_id;
   }
 
   return result;
+}
+
+/**
+ * `populateGenesisCovenants` recomputes covenant ids for every transaction as
+ * if it were a new genesis. For continuation txs (buy / transfer / handover),
+ * the outputs must carry the genesis family id from the wire template. Patch
+ * the signing JSON so Kasware signs the correct ids, and returns the patched
+ * JSON (or null if no patch was needed).
+ */
+function patchContinuationCovenantIds(
+  signingJson: string,
+  wire: WireTransaction,
+  type: string,
+): string | null {
+  if (type === "deploy") return null;
+
+  const parsed = JSON.parse(signingJson) as { outputs?: Array<Record<string, unknown>> };
+  let changed = false;
+  (parsed.outputs ?? []).forEach((output, i) => {
+    const wireCov = wire.outputs[i]?.covenant;
+    const signingCov = output?.covenant as { covenantId?: string } | undefined;
+    if (wireCov && signingCov && signingCov.covenantId !== wireCov.covenant_id) {
+      signingCov.covenantId = wireCov.covenant_id;
+      changed = true;
+    }
+  });
+
+  return changed ? JSON.stringify(parsed) : null;
+}
+
+function readSigningCovenantIds(signingJson: string): Record<number, string> {
+  const parsed = JSON.parse(signingJson) as {
+    outputs?: Array<{ covenant?: { covenantId: string } | null }>;
+  };
+  const ids: Record<number, string> = {};
+  (parsed.outputs ?? []).forEach((output, i) => {
+    if (output?.covenant) ids[i] = output.covenant.covenantId;
+  });
+  return ids;
 }
 
 /** Patch the template's covenant ids to the consensus (wasm) values. */

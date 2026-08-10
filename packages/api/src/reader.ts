@@ -17,12 +17,8 @@
 // Invariant (DEC-12): ALIVE only on a live UTXO; GONE only on a burn-owner
 // successor; everything else UNKNOWN (retryable), never fabricated.
 
-import {
-  addressFromScriptHash,
-  BURN_ARTIFACT,
-  burnTemplateHash,
-  type KaspaNetwork,
-} from "@kticket/kit";
+import { addressFromScriptHash, p2shScript, type KaspaNetwork } from "@kticket/kit";
+import { compileBurnArtifact } from "./compiler.js";
 import { invalidError } from "./errors.js";
 import type { StoredEventInternal } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
@@ -92,8 +88,9 @@ function liveResult(
 
 function isBurnSuccessor(event: StoredEventInternal | undefined, scriptPublicKey: string): boolean {
   if (event === undefined) return false;
-  const hash = burnTemplateHash(event.authorizingTxId, BURN_ARTIFACT.code);
-  return scriptPublicKey.toLowerCase() === `aa20${hash}87`;
+  const burn = compileBurnArtifact(event.authorizingTxId);
+  const hash = p2shScript(Uint8Array.from(burn.bytecode)).script;
+  return scriptPublicKey.toLowerCase() === hash;
 }
 
 type AdvanceOutcome =

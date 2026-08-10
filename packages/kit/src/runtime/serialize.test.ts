@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { EVENT_ARTIFACT, BURN_ARTIFACT } from "../contracts/artifacts";
 import { buildBuy, buildDeploy, buildHandover, buildTransfer } from "./builder";
 import type { Outpoint } from "./covenant";
-import type { DecodedConstants } from "./preimage";
 import { estimatedSerializedSize, txIdPreimageV1, txIdV1 } from "./serialize";
 import type { ScriptPublicKey, UnsignedTransaction } from "./tx";
 
@@ -9,28 +9,12 @@ const HASH_LENGTH = 32;
 const EVENT_ID_SEED = 0xab;
 const ORG_FILL = 0x01;
 const BUYER_FILL = 0x02;
-const BURN_HASH_FILL = 0x77;
 const NEW_OWNER_FILL = 0x99;
-const ZERO_BYTE = 0x00;
-const ONE_BYTE = 0x01;
-const TWO_BYTE = 0x02;
-const PUSH_33 = 0x21;
-const OP_1 = 0x51;
 const VERSION_1 = 0x01;
 const FUNDED_UTXO_VALUE = 10_000_000_000;
 const SECOND_UTXO_VALUE = 5_000;
+const PRICE = 1_000;
 
-const COVENANT_CODE = new Uint8Array([ZERO_BYTE, OP_1]);
-const BURN_CODE = new Uint8Array([ZERO_BYTE, ZERO_BYTE]);
-const EVENT_ID = new Uint8Array(HASH_LENGTH).map((_, i) => (i === 0 ? EVENT_ID_SEED : i));
-const ORG_SPK = new Uint8Array([PUSH_33, TWO_BYTE, ZERO_BYTE, ONE_BYTE]);
-const BURN_HASH = new Uint8Array(HASH_LENGTH).fill(BURN_HASH_FILL);
-const CONSTANTS: DecodedConstants = {
-  authorizingTxId: EVENT_ID,
-  price: 1_000,
-  orgSpk: ORG_SPK,
-  burnTemplateHash: BURN_HASH,
-};
 const NETWORK = "testnet10" as const;
 const SPK: ScriptPublicKey = { version: 0, script: "51" };
 
@@ -52,8 +36,7 @@ function deploy(): ReturnType<typeof buildDeploy> {
     organizerUtxoValues: [FUNDED_UTXO_VALUE],
     organizer: ORG,
     capacity: 100,
-    constants: CONSTANTS,
-    covenantCode: COVENANT_CODE,
+    eventArtifact: EVENT_ARTIFACT,
     changeScript: SPK,
     fee: 1_000,
     network: NETWORK,
@@ -68,12 +51,11 @@ function transferTx(eventCovenantId: string): UnsignedTransaction {
   return buildTransfer({
     ticketOutpoint: outpoint("aa".repeat(HASH_LENGTH), 0),
     eventCovenantId,
-    constants: CONSTANTS,
+    eventArtifact: EVENT_ARTIFACT,
     newOwner: new Uint8Array(HASH_LENGTH).fill(NEW_OWNER_FILL),
     holderUtxos: [outpoint("bb".repeat(HASH_LENGTH), 0)],
     holderUtxoValues: [FUNDED_UTXO_VALUE],
     changeScript: SPK,
-    covenantCode: COVENANT_CODE,
     network: NETWORK,
     fee: 700,
   });
@@ -83,8 +65,7 @@ function handoverTx(eventCovenantId: string): UnsignedTransaction {
   return buildHandover({
     ticketOutpoint: outpoint("aa".repeat(HASH_LENGTH), 1),
     eventCovenantId,
-    constants: CONSTANTS,
-    burnCode: BURN_CODE,
+    burnArtifact: BURN_ARTIFACT,
     attendeeUtxos: [outpoint("cc".repeat(HASH_LENGTH), 0)],
     attendeeUtxoValues: [FUNDED_UTXO_VALUE],
     changeScript: SPK,
@@ -107,8 +88,7 @@ describe("estimatedSerializedSize (HLD v0.22 §2.2 relay floor)", () => {
       organizerUtxoValues: [FUNDED_UTXO_VALUE, SECOND_UTXO_VALUE],
       organizer: ORG,
       capacity: 100,
-      constants: CONSTANTS,
-      covenantCode: COVENANT_CODE,
+      eventArtifact: EVENT_ARTIFACT,
       changeScript: SPK,
       fee: 1_000,
       network: NETWORK,
@@ -124,14 +104,14 @@ describe("estimatedSerializedSize: covenant bindings", () => {
       eventOutpoint: outpoint("aa".repeat(HASH_LENGTH), 0),
       eventCovenantId: deploy().eventCovenantId,
       eventOwner: ORG,
-      constants: CONSTANTS,
+      eventArtifact: EVENT_ARTIFACT,
       buyer: BUYER,
       buyerUtxos: [outpoint("bb".repeat(HASH_LENGTH), 0)],
       buyerUtxoValues: [FUNDED_UTXO_VALUE],
       orgScript: SPK,
       changeScript: SPK,
-      covenantCode: COVENANT_CODE,
       remaining: 100,
+      price: PRICE,
       network: NETWORK,
       fee: 400,
     });
@@ -149,7 +129,7 @@ describe("txIdPreimageV1", () => {
     expect(preimage.length).toBeGreaterThan(0);
     // version + input count + outputs + lockTime + subnetwork + gas + empty payload
     expect(preimage[0]).toBe(VERSION_1); // version 1 LE
-    expect(preimage[1]).toBe(ZERO_BYTE);
+    expect(preimage[1]).toBe(0);
   });
 });
 

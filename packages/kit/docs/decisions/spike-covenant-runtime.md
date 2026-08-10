@@ -26,26 +26,36 @@ Verified against the KIP-20 spec and the reference implementation
   BLAKE2b-256 keyed with the `"CovenantID"` domain tag, LE integers, `varbytes`
   length prefixes.
 
-## e. Exact silverc `script_public_key` byte layout — **pinned (placeholder)**
+## e. Exact silverc `script_public_key` byte layout — **real compiler (KTK-88)**
 
-The published silverc toolchain does not exist yet; this repo's `silverc.mjs`
-compiles contracts to a WASM artifact for the transition interpreter. The
-on-chain redeem script is *not* that WASM. Per HLD §2.1:
+The real silverscript-lang toolchain shipped, so the hand-rolled `silverc.mjs`
+stub is gone (KTK-88 A3). Contracts (`contracts/event.sil`, `contracts/burn.sil`)
+compile via the `kticket-silverc` Rust wrapper (A1/A2) into a
+`kticket/compiled-contract/v1` artifact:
 
 ```
-redeem_script = OP_PUSH(state_bytes) OP_PUSH(constants_bytes) <silverc code>
+artifact = { bytecode, state_layout: {start,len}, template_hash, abi,
+             without_selector, compiler_version, silverscript_rev }
+redeem_script(state) = bytecode with the push-encoded state injected into
+                       bytecode[state_layout.start .. start+len]
 ```
 
-- `state_bytes`    = `u8 phase | byte[32] owner` (ticket) / `u8 count` (burn)
-- `constants_bytes`= `byte[32] event_id | u32 index | u64 price | varbytes org_spk
-  | byte[32] burn_template_hash` (ticket) / `byte[32] event_id` (burn)
-- push encoding: Bitcoin/Kaspa pushdata (direct, OP_PUSHDATA1, OP_PUSHDATA2).
-- `<silverc code>`: the artifact now carries a `code` field (hex). For the
-  reference compiler this is a **deterministic placeholder** — `00 51`
-  (ticket) / `00 00` (burn) — so addresses are stable and testable today.
-  The exact bytecode silverc emits for on-chain covenants remains a follow-up
-  the day the real compiler ships; the runtime already reads it from the
-  artifact, so swapping the value is a build-time change only.
+- The per-event constants (authorizing_txid, price, org_spk, burn_template_hash)
+  are constructor args baked into the bytecode at compile time, so **each event
+  requires its own compile** (KTK-88 A5 — the API compiles per event).
+- `template_hash = hash(prefix || suffix)` (blake2b, 8-byte length-prefixed
+  parts) — the `burn_template_hash` stored in the event constants and checked
+  by the `use` entrypoint via `validateOutputStateWithTemplate`.
+- The on-chain output remains standard Kaspa P2SH `aa20 <blake3(redeem)> 87`
+  (blake3-32, `AddressVersion.ScriptHash` = 8), and the reader reads the state
+  slot out of the redeem script via `state_layout` — it no longer uses
+  `decodePreimage`. The placeholder `00 51` / `00 00` code no longer appears
+  anywhere.
+- `kticket-silverc` pins the silverscript-lang rev in its `Cargo.toml`; a CI
+  check (KTK-88 A7) diffs committed artifacts against upstream to surface
+  breaking changes deliberately.
+
+**Open question (e) is closed by KTK-88.**
 
 **Address derivation** — the kit uses `P2SH(blake3(redeem_script))` (blake3-32,
 32-byte ScriptHash payload). The HLD formula mentions `hash160(blake3(...))`,

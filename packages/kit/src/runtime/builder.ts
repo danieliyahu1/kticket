@@ -1,11 +1,11 @@
-// Transaction builders (HLD v0.22 §2.1 "Transactions (v1)" — forge-style KCC20).
+// Transaction builders (KTK-88 A5).
 //
 // Each builder returns an *unsigned* v1 transaction template with covenant
 // bindings set. Fee handling: the fee payer's UTXOs are inputs and a change
 // output is derived so `sum(inputs) − sum(outputs) = fee`.
 //
 //   deploy   — one event covenant (remaining = capacity, ~0.5 KAS dust,
-//              price in constants). No per-ticket pre-creation.
+//              price baked in the compiled bytecode). No per-ticket pre-creation.
 //   buy      — the event covenant splits: ticket (amount=1, buyer) + event
 //              covenant (remaining−1) + org payout (price) + change. Buyer pays
 //              price + ticket dust + fee.
@@ -18,11 +18,12 @@
 // outputs carry the same covenant_id as the covenant UTXO they spend.
 
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import type { CompiledContractArtifact } from "../contracts/artifact.js";
 import type { AddressNetwork } from "./address.js";
-import { buildBurnRedeemScript, buildRedeemScript, scriptHash } from "./address.js";
+import { injectState, scriptHash } from "./address.js";
 import type { AuthorizedOutput, Outpoint } from "./covenant.js";
 import { covenantId } from "./covenant.js";
-import type { DecodedConstants, DecodedState } from "./preimage.js";
+import type { DecodedState } from "./preimage.js";
 import type {
   CovenantBinding,
   ScriptPublicKey,
@@ -136,16 +137,28 @@ export function p2shScript(redeemScript: Uint8Array): ScriptPublicKey {
   return { version: 0, script: bytesToHex(script) };
 }
 
-function covenantScript(
-  state: DecodedState,
-  constants: DecodedConstants,
-  code: Uint8Array,
-): ScriptPublicKey {
-  return p2shScript(buildRedeemScript(state, constants, code));
+function covenantScript(artifact: CompiledContractArtifact, state: DecodedState): ScriptPublicKey {
+  return p2shScript(injectState(artifact, state));
 }
 
-function burnScriptFor(authorizingTxId: Uint8Array, burnCode: Uint8Array): ScriptPublicKey {
-  return p2shScript(buildBurnRedeemScript(authorizingTxId, burnCode));
+/**
+ * The event's burn-owner output script public key — the successor every
+ * handover must create (FR-9). The burn contract is compiled per event with its
+ * `authorizing_txid` baked; its bytecode is unspendable and fixed.
+ */
+export function burnScript(burnArtifact: CompiledContractArtifact): ScriptPublicKey {
+  return p2shScript(Uint8Array.from(burnArtifact.bytecode));
+}
+
+/**
+ * Hex script hash of an event's burn-owner covenant output — the "burn
+ * template" a handover must create (HLD §2.1). The reader (HLD §2.2) compares a
+ * handover successor's on-chain `aa20 <hash> 87` script against this to report
+ * GONE. This is the blake3-32 P2SH script hash of the burn redeem script (the
+ * burn artifact's full bytecode) — not the silverscript `template_hash`.
+ */
+export function burnTemplateHash(burnArtifact: CompiledContractArtifact): string {
+  return bytesToHex(scriptHash(Uint8Array.from(burnArtifact.bytecode)));
 }
 
 function asInput(outpoint: Outpoint): TxInput {
@@ -225,10 +238,8 @@ export interface DeployInput {
   organizer: Uint8Array;
   /** Event capacity — becomes the event covenant's `remaining`. */
   capacity: number;
-  /** Event constants (authorizing_txid, price, org_spk, burn_template_hash). */
-  constants: DecodedConstants;
-  /** Event covenant code segment (from the Event artifact). */
-  covenantCode: Uint8Array;
+  /** The per-event compiled Event contract artifact. */
+  eventArtifact: CompiledContractArtifact;
   /** Change address for the organizer. */
   changeScript: ScriptPublicKey;
   /** Network fee in sompi (paid by the organizer). */
@@ -293,7 +304,7 @@ export function buildDeploy(input: DeployInput): DeployResult {
     amount: input.capacity,
     isMinter: false,
   };
-  const eventScript = covenantScript(eventState, input.constants, input.covenantCode);
+  const eventScript = covenantScript(input.eventArtifact, eventState);
   const eventCovenantId = eventCovenantIdOf(input.authorizingOutpoint, eventScript);
 
   return {
@@ -325,8 +336,8 @@ export interface BuyInput {
   eventCovenantId: string;
   /** The event covenant's current owner identifier (preserved). */
   eventOwner: Uint8Array;
-  /** Event constants (authorizing_txid, price, org_spk, burn_template_hash). */
-  constants: DecodedConstants;
+  /** The per-event compiled Event contract artifact. */
+  eventArtifact: CompiledContractArtifact;
   /** Buyer's 32-byte owner identifier (pubkey). */
   buyer: Uint8Array;
   /** Buyer KAS UTXOs covering price + ticket dust + fee (fee payer = buyer). */
@@ -337,10 +348,10 @@ export interface BuyInput {
   orgScript: ScriptPublicKey;
   /** Buyer change script public key. */
   changeScript: ScriptPublicKey;
-  /** Event/ticket covenant code segment. */
-  covenantCode: Uint8Array;
   /** Current `remaining` on the event covenant (must be > 0). */
   remaining: number;
+  /** Price per ticket in sompi (0 = free). */
+  price: number;
   network: AddressNetwork;
   /** Network fee in sompi (paid by the buyer). */
   fee: number;
@@ -349,7 +360,7 @@ export interface BuyInput {
 }
 
 export function buildBuy(input: BuyInput): UnsignedTransaction {
-  const price = input.constants.price;
+  const price = input.price;
   validatePairedValues(input.buyerUtxoValues, input.buyerUtxos, "buyer");
   if (!Number.isInteger(input.remaining) || input.remaining <= 0) {
     throw new Error(`cannot mint from an event with remaining ${input.remaining}`);
@@ -365,14 +376,12 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
 
   const binding = covenantBinding(input.eventCovenantId);
   const ticket = covenantScript(
+    input.eventArtifact,
     { owner: input.buyer, identifierType: 0, amount: 1, isMinter: false },
-    input.constants,
-    input.covenantCode,
   );
   const remainingEvent = covenantScript(
+    input.eventArtifact,
     { owner: input.eventOwner, identifierType: 0, amount: input.remaining - 1, isMinter: false },
-    input.constants,
-    input.covenantCode,
   );
 
   const outputs: TxOutput[] = [
@@ -397,14 +406,14 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
 export interface TransferInput {
   ticketOutpoint: Outpoint;
   eventCovenantId: string;
-  constants: DecodedConstants;
+  /** The per-event compiled Event contract artifact. */
+  eventArtifact: CompiledContractArtifact;
   /** New owner key hash. */
   newOwner: Uint8Array;
   /** Holder KAS UTXOs covering the fee (fee payer = holder). */
   holderUtxos: Outpoint[];
   holderUtxoValues: readonly number[];
   changeScript: ScriptPublicKey;
-  covenantCode: Uint8Array;
   network: AddressNetwork;
   fee: number;
   /** Dust carried by the ticket output (rides along unchanged). */
@@ -426,9 +435,8 @@ export function buildTransfer(input: TransferInput): UnsignedTransaction {
       {
         value: ticketDustOf(input.ticketDust),
         scriptPublicKey: covenantScript(
+          input.eventArtifact,
           { owner: input.newOwner, identifierType: 0, amount: 1, isMinter: false },
-          input.constants,
-          input.covenantCode,
         ),
         covenant: binding,
       },
@@ -443,9 +451,8 @@ export function buildTransfer(input: TransferInput): UnsignedTransaction {
 export interface HandoverInput {
   ticketOutpoint: Outpoint;
   eventCovenantId: string;
-  constants: DecodedConstants;
-  /** Burn contract code segment (from the Burn artifact). */
-  burnCode: Uint8Array;
+  /** The per-event compiled Burn contract artifact (unspendable). */
+  burnArtifact: CompiledContractArtifact;
   /** Attendee KAS UTXOs covering the fee (fee payer = attendee). */
   attendeeUtxos: Outpoint[];
   attendeeUtxoValues: readonly number[];
@@ -454,26 +461,6 @@ export interface HandoverInput {
   fee: number;
   /** Dust consumed with the ticket (rides into the burn output). */
   ticketDust?: number;
-}
-
-/**
- * The event's burn-owner output script public key — the successor every
- * handover must create (FR-9). The burn redeem script is `OP_PUSH(count=1)
- * OP_PUSH(authorizing_txid) <burn code>`, fixed per event.
- */
-export function burnScript(constants: DecodedConstants, burnCode: Uint8Array): ScriptPublicKey {
-  return burnScriptFor(constants.authorizingTxId, burnCode);
-}
-
-/**
- * Hex script hash of an event's burn-owner covenant output — the "burn
- * template" a handover must create (HLD §2.1). The reader (HLD §2.2) compares a
- * handover successor's on-chain script against this to report GONE.
- */
-export function burnTemplateHash(authorizingTxIdHex: string, burnCodeHex: string): string {
-  return bytesToHex(
-    scriptHash(buildBurnRedeemScript(hexToBytes(authorizingTxIdHex), hexToBytes(burnCodeHex))),
-  );
 }
 
 export function buildHandover(input: HandoverInput): UnsignedTransaction {
@@ -490,7 +477,7 @@ export function buildHandover(input: HandoverInput): UnsignedTransaction {
     outputs: [
       {
         value: ticketDustOf(input.ticketDust),
-        scriptPublicKey: burnScript(input.constants, input.burnCode),
+        scriptPublicKey: burnScript(input.burnArtifact),
         covenant: binding,
       },
       changeOutput(input.changeScript, change),

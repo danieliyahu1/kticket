@@ -2,14 +2,13 @@ import {
   addressFromScriptHash,
   buildBuy,
   buildDeploy,
-  type DecodedConstants,
   DUST,
-  EVENT_ARTIFACT,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app";
+import { compileBurnArtifact, compileEventArtifact, eventScript } from "./compiler";
 import { loadConfig } from "./config";
 import { EventStore, type StoredEventInternal } from "./eventstore";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_OK } from "./http-status.js";
@@ -22,7 +21,7 @@ import { submitTransactionOverWrpc } from "./wrpc-client.js";
 
 const mockedSubmit = vi.mocked(submitTransactionOverWrpc);
 
-import { buildRedeemScript, covenantId, p2shScript } from "@kticket/kit";
+import { covenantId } from "@kticket/kit";
 import type { KaspaClientLike } from "./kaspa-client";
 import type {
   FeeEstimateResponse,
@@ -43,38 +42,44 @@ const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
 const B0_ID = "bb".repeat(TXID_BYTE_LENGTH);
 const AUTH_TXID = "ab".repeat(TXID_BYTE_LENGTH);
 
+const AUTH_TXID_HEX = AUTH_TXID;
+const ORG_PKH_HEX = "01".repeat(TXID_BYTE_LENGTH);
+const ORG_SPK_HEX = "21020001";
+const BURN_TEMPLATE_HASH = bytesToHex(
+  Uint8Array.from(compileBurnArtifact(AUTH_TXID_HEX).template_hash),
+);
+
+function eventArtifact() {
+  return compileEventArtifact({
+    authorizingTxId: AUTH_TXID_HEX,
+    price: 1_000,
+    orgSpk: ORG_SPK_HEX,
+    burnTemplateHash: BURN_TEMPLATE_HASH,
+  });
+}
+
 function makeStoredEvent(overrides: Partial<StoredEventInternal> = {}): StoredEventInternal {
   return {
     covenantId: computeTestCovenantId(),
     genesisTxId: G_ID,
-    orgPkh: "01".repeat(TXID_BYTE_LENGTH),
-    orgSpk: "21020001",
-    burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
+    orgPkh: ORG_PKH_HEX,
+    orgSpk: ORG_SPK_HEX,
+    burnTemplateHash: BURN_TEMPLATE_HASH,
     name: "Testnet Rave",
     date: "2026-12-31",
     price: 1_000,
     capacity: 2,
-    authorizingTxId: AUTH_TXID,
+    authorizingTxId: AUTH_TXID_HEX,
     ...overrides,
   };
 }
 
 function computeTestCovenantId(): string {
-  const constants = {
-    authorizingTxId: hexToBytes(AUTH_TXID),
-    price: 1_000,
-    orgSpk: hexToBytes("21020001"),
-    burnTemplateHash: hexToBytes("77".repeat(TXID_BYTE_LENGTH)),
-  };
-  const redeemScript = buildRedeemScript(
-    { owner: hexToBytes("01".repeat(TXID_BYTE_LENGTH)), identifierType: 0, amount: 2, isMinter: false },
-    constants,
-    hexToBytes(EVENT_ARTIFACT.code),
-  );
-  const script = p2shScript(redeemScript);
+  const artifact = eventArtifact();
+  const script = eventScript(artifact, { owner: ORG_PKH_HEX, amount: 2 });
   return bytesToHex(
     covenantId(
-      { txId: hexToBytes(AUTH_TXID), index: 0 },
+      { txId: hexToBytes(AUTH_TXID_HEX), index: 0 },
       [{ index: 0, value: DUST, version: 0, script: hexToBytes(script.script) }],
     ),
   );
@@ -87,20 +92,14 @@ const EVENT = makeStoredEvent();
 function deployTxWithCapacity(capacity: number): TxModel {
   const { tx } = buildDeploy({
     authorizingOutpoint: {
-      txId: Uint8Array.from(Buffer.from(AUTH_TXID, "hex")),
+      txId: Uint8Array.from(Buffer.from(AUTH_TXID_HEX, "hex")),
       index: 0,
     },
     organizerUtxos: [],
     organizerUtxoValues: [UTXO_VALUE],
     organizer: Uint8Array.from(Buffer.from(EVENT.orgPkh, "hex")),
     capacity,
-    constants: {
-      authorizingTxId: Uint8Array.from(Buffer.from(AUTH_TXID, "hex")),
-      price: EVENT.price,
-      orgSpk: Uint8Array.from(Buffer.from(EVENT.orgSpk, "hex")),
-      burnTemplateHash: Uint8Array.from(Buffer.from(EVENT.burnTemplateHash, "hex")),
-    },
-    covenantCode: hexToBytes(EVENT_ARTIFACT.code),
+    eventArtifact: eventArtifact(),
     changeScript: { version: 0, script: "51" },
     fee: 1_000,
     network: NETWORK,
@@ -153,24 +152,18 @@ function buyTxModelFrom(tx: UnsignedTransaction): TxModel {
 }
 
 function buyTx(): TxModel {
-  const decoded = {
-    authorizingTxId: Uint8Array.from(Buffer.from(AUTH_TXID, "hex")),
-    price: EVENT.price,
-    orgSpk: Uint8Array.from(Buffer.from(EVENT.orgSpk, "hex")),
-    burnTemplateHash: Uint8Array.from(Buffer.from(EVENT.burnTemplateHash, "hex")),
-  };
   const tx = buildBuy({
     eventOutpoint: { txId: Uint8Array.from(Buffer.from(G_ID, "hex")), index: 0 },
     eventCovenantId: TEST_COVENANT_ID,
     eventOwner: Uint8Array.from(Buffer.from(EVENT.orgPkh, "hex")),
-    constants: decoded,
+    eventArtifact: eventArtifact(),
     buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
     buyerUtxos: [{ txId: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_UTXO_BYTE), index: 0 }],
     buyerUtxoValues: [UTXO_VALUE],
     orgScript: { version: 0, script: EVENT.orgSpk },
     changeScript: { version: 0, script: "51" },
-    covenantCode: hexToBytes(EVENT_ARTIFACT.code),
     remaining: EVENT.capacity,
+    price: EVENT.price,
     network: NETWORK,
     fee: 400,
   });

@@ -1,0 +1,17 @@
+[package]
+name = "kticket-silverc"
+version = "0.1.0"
+edition = "2021"
+license = "ISC"
+rust-version = "1.85.0"
+
+# Pinned silverscript-lang rev (KTK-88 A1). Bump deliberately with A7 CI check.
+[dependencies]
+silverscript-lang = { git = "https://github.com/kaspanet/silverscript", rev = "6f9e078b1d8b5389212755183b592704de99fea5" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.5.60", features = ["derive"] }
+faster-hex = "0.10"
+
+[profile.release]
+lto = true

@@ -12,16 +12,14 @@
 
 import {
   addressFor,
-  buildRedeemScript,
   covenantId,
   decodeMetadataFromPayload,
   DUST,
-  EVENT_ARTIFACT,
   type KaspaNetwork,
-  p2shScript,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { FastifyInstance } from "fastify";
+import { compileEventArtifact, burnTemplateHashOf, eventScript } from "./compiler.js";
 import { invalidError, isApiError, notFoundError } from "./errors.js";
 import { eventAvailability, parseRegisterEventBody } from "./events.js";
 import type { EventStore, StoredEventInternal } from "./eventstore.js";
@@ -80,6 +78,9 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       }
 
       const meta = decodeMetadataFromPayload(deploy.payload);
+      // The burn template hash is derived at compile time (authorizing_txid
+      // baked); the client value is advisory.
+      const burnTemplateHash = burnTemplateHashOf(payload.authorizingTxId);
 
       const event: StoredEventInternal = {
         covenantId: covenantIdHex,
@@ -90,7 +91,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         price: meta ? Math.round(meta.priceKAS * 100_000_000) : payload.price,
         capacity: payload.capacity,
         orgSpk: meta?.orgSpk || payload.orgSpk,
-        burnTemplateHash: meta?.burnTemplateHash || payload.burnTemplateHash,
+        burnTemplateHash,
         authorizingTxId: payload.authorizingTxId,
       };
 
@@ -146,15 +147,15 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     const addressMap = new Map<string, StoredEventInternal>();
     const addresses: string[] = [];
     for (const event of events) {
+      const artifact = compileEventArtifact({
+        authorizingTxId: event.authorizingTxId,
+        price: event.price,
+        orgSpk: event.orgSpk,
+        burnTemplateHash: event.burnTemplateHash,
+      });
       const addr = addressFor(
+        artifact,
         { owner: ownerBytes, identifierType: 0, amount: 1, isMinter: false },
-        {
-          authorizingTxId: hexToBytes(event.authorizingTxId),
-          price: event.price,
-          orgSpk: hexToBytes(event.orgSpk),
-          burnTemplateHash: hexToBytes(event.burnTemplateHash),
-        },
-        hexToBytes(EVENT_ARTIFACT.code),
         ctx.network,
       );
       addressMap.set(addr, event);
@@ -241,26 +242,14 @@ function computeCovenantId(payload: {
   price: number;
   capacity: number;
   orgSpk: string;
-  burnTemplateHash: string;
 }): string | null {
-  const eventState = {
-    owner: hexToBytes(payload.orgPkh),
-    identifierType: 0 as const,
-    amount: payload.capacity,
-    isMinter: false,
-  };
-  const constants = {
-    authorizingTxId: hexToBytes(payload.authorizingTxId),
+  const artifact = compileEventArtifact({
+    authorizingTxId: payload.authorizingTxId,
     price: payload.price,
-    orgSpk: hexToBytes(payload.orgSpk),
-    burnTemplateHash: hexToBytes(payload.burnTemplateHash),
-  };
-  const redeemScript = buildRedeemScript(
-    eventState,
-    constants,
-    hexToBytes(EVENT_ARTIFACT.code),
-  );
-  const eventScript = p2shScript(redeemScript);
+    orgSpk: payload.orgSpk,
+    burnTemplateHash: burnTemplateHashOf(payload.authorizingTxId),
+  });
+  const eventScriptSpk = eventScript(artifact, { owner: payload.orgPkh, amount: payload.capacity });
 
   return bytesToHex(
     covenantId(
@@ -270,7 +259,7 @@ function computeCovenantId(payload: {
           index: 0,
           value: DUST,
           version: 0,
-          script: hexToBytes(eventScript.script),
+          script: hexToBytes(eventScriptSpk.script),
         },
       ],
     ),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EVENT_ARTIFACT } from "../contracts/artifacts";
 import {
   decodeConstants,
   decodePreimage,
@@ -12,15 +13,11 @@ import {
 } from "./preimage";
 
 const HASH_LENGTH = 32;
-const STATE_LENGTH = 42;
-const AMOUNT_OFFSET = HASH_LENGTH + 1;
 const PRICE_SIZE = 8;
 const VARLEN_SIZE = 1;
 const ORG_SPK_VARLEN = 4;
 const PRICE = 123_456_789;
 const PRICE_BIG = 123_456_789n;
-const AMOUNT_FIVE = 5;
-const AMOUNT_TEN = 10n;
 
 const EVENT_ID_SEED = 0xab;
 const OWNER_FILL = 0x42;
@@ -61,15 +58,23 @@ const CONSTANTS = {
   burnTemplateHash: BURN_HASH,
 };
 
-describe("state_bytes layout (owner | identifier_type | amount | is_minter)", () => {
-  it("encodes owner, identifier type, amount and is_minter in the pinned order", () => {
+describe("state slot layout (push owner | push identifier_type | push amount | push is_minter)", () => {
+  it("encodes each field as its own push, matching the artifact's state_layout length", () => {
     const owner = new Uint8Array(HASH_LENGTH).fill(OWNER_FILL);
     const state = encodeState(owner, 0, 10, false);
-    expect(state).toHaveLength(STATE_LENGTH);
-    expect([...state.slice(0, HASH_LENGTH)]).toEqual([...owner]);
-    expect(state[32]).toBe(0);
-    expect(new DataView(state.buffer).getBigUint64(AMOUNT_OFFSET, true)).toBe(AMOUNT_TEN);
-    expect(state[41]).toBe(0);
+    expect(state).toHaveLength(EVENT_ARTIFACT.state_layout.len);
+    // first push: 0x20 + 32 owner bytes
+    expect(state[0]).toBe(0x20);
+    expect([...state.subarray(1, 1 + HASH_LENGTH)]).toEqual([...owner]);
+    // second push: 0x01 + identifier_type
+    expect(state[33]).toBe(0x01);
+    expect(state[34]).toBe(0);
+    // third push: 0x08 + u64 LE amount
+    expect(state[35]).toBe(0x08);
+    expect(new DataView(state.buffer).getBigUint64(36, true)).toBe(10n);
+    // fourth push: 0x01 + is_minter
+    expect(state[44]).toBe(0x01);
+    expect(state[45]).toBe(0);
   });
 
   it("round-trips event covenant and ticket covenant states", () => {
@@ -81,13 +86,15 @@ describe("state_bytes layout (owner | identifier_type | amount | is_minter)", ()
       isMinter: false,
     });
     expect(decodeState(encodeState(owner, 0, 1)).amount).toBe(1);
-    expect([...decodeState(encodeState(owner, 0, AMOUNT_FIVE)).owner]).toEqual([...owner]);
+    expect([...decodeState(encodeState(owner, 0, 5)).owner]).toEqual([...owner]);
   });
 
   it("rejects an owner that is not 32 bytes and a negative amount", () => {
     expect(() => encodeState(new Uint8Array(HASH_LENGTH - 1), 0, 1)).toThrow(PreimageError);
     expect(() => encodeState(new Uint8Array(HASH_LENGTH), 0, -1)).toThrow(PreimageError);
-    expect(() => decodeState(new Uint8Array(STATE_LENGTH - 1))).toThrow(PreimageError);
+    expect(() => decodeState(new Uint8Array(EVENT_ARTIFACT.state_layout.len - 1))).toThrow(
+      PreimageError,
+    );
   });
 });
 
@@ -120,7 +127,7 @@ describe("varint (LEB128) prefix", () => {
   });
 });
 
-describe("constants_bytes layout (HLD v0.22 §2.1)", () => {
+describe("constants_bytes layout (compile-time constructor args)", () => {
   it("encodes the pinned field order and endianness", () => {
     const bytes = encodeConstants(CONSTANTS);
     // authorizing_txid[32] | price u64 LE | varbytes org_spk | burn_tmpl_hash[32]
@@ -186,7 +193,6 @@ describe("decodePreimage", () => {
       { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: 1, isMinter: false },
       CONSTANTS,
     );
-    expect(() => decodePreimage(preimage.state)).toThrow(PreimageError);
     expect(() => decodePreimage(new Uint8Array(10))).toThrow(PreimageError);
   });
 });

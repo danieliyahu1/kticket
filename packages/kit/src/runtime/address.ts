@@ -1,19 +1,21 @@
-// Address derivation for kticket covenant outputs (HLD v0.21 §2.1).
+// Address derivation for kticket covenant outputs (KTK-88 A4).
 //
-//   redeem_script = OP_PUSH(state_bytes) OP_PUSH(constants_bytes) <silverc code>
-//   address(k, phase) = P2SH(blake3(redeem_script(k, phase)))
+//   artifact.bytecode = template_prefix | state_slot | template_suffix
+//   redeem_script(k, state) = bytecode with the state slot replaced
+//   address(k, state) = P2SH(blake3(redeem_script))
 //
 // The address scheme is Kaspa's native P2SH (`AddressVersion.ScriptHash` = 8),
 // encoded with the bech32-style base32check scheme (`prefix:payload`). The
 // script hash is BLAKE3-32 of the redeem script — matching rusty-kaspa's
-// `pay_to_script_hash_script`. The HLD formula mentions `hash160(blake3(...))`;
-// see `packages/kit/docs/decisions/spike-covenant-runtime.md` — the kit pins
-// the consensus-aligned blake3-32 hash (32-byte ScriptHash payload).
+// `pay_to_script_hash_script`. The per-event constants are baked into the
+// bytecode at compile time (constructor args), so only the mutable state slot
+// is injected at runtime.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
+import type { CompiledContractArtifact } from "../contracts/artifact.js";
 import type { DecodedConstants, DecodedState } from "./preimage.js";
-import { encodeConstants, encodeState, PreimageError } from "./preimage.js";
+import { decodeState, encodeState, PreimageError, rawStateBytes } from "./preimage.js";
 
 export const P2SH_ADDRESS_VERSION = 8; // AddressVersion.ScriptHash
 
@@ -82,47 +84,71 @@ export function pushData(bytes: Uint8Array): Uint8Array {
   throw new PreimageError(`push data too large: ${bytes.length} bytes`);
 }
 
-/** Assemble a redeem script from pre-encoded state + constants pushes + code. */
-export function assembleRedeemScript(
-  stateBytes: Uint8Array,
-  constantsBytes: Uint8Array,
-  code: Uint8Array,
-): Uint8Array {
-  const statePush = pushData(stateBytes);
-  const constantsPush = pushData(constantsBytes);
-  const out = new Uint8Array(statePush.length + constantsPush.length + code.length);
-  out.set(statePush, 0);
-  out.set(constantsPush, statePush.length);
-  out.set(code, statePush.length + constantsPush.length);
+/**
+ * Inject the mutable state into the artifact's bytecode state slot, producing
+ * the full redeem script for one covenant instance. `state_layout` marks where
+ * the compiler placed the (push-encoded) state within the bytecode.
+ */
+export function injectState(artifact: CompiledContractArtifact, state: DecodedState): Uint8Array {
+  const bytecode = Uint8Array.from(artifact.bytecode);
+  const { start, len } = artifact.state_layout;
+  const slot = encodeState(state.owner, state.identifierType, state.amount, state.isMinter);
+  if (slot.length !== len) {
+    throw new PreimageError(
+      `state slot length ${slot.length} does not match artifact layout length ${len} for ${artifact.contract_name}`,
+    );
+  }
+  const out = new Uint8Array(bytecode.length);
+  out.set(bytecode.subarray(0, start), 0);
+  out.set(slot, start);
+  out.set(bytecode.subarray(start + len), start + slot.length);
   return out;
 }
 
-/** Assemble the redeem script for an event/ticket covenant output. */
-export function buildRedeemScript(
-  state: DecodedState,
-  constants: DecodedConstants,
-  code: Uint8Array,
-): Uint8Array {
-  return assembleRedeemScript(
-    encodeState(state.owner, state.identifierType, state.amount, state.isMinter),
-    encodeConstants(constants),
-    code,
-  );
+/**
+ * Read the mutable state out of an on-chain redeem script by slicing the
+ * artifact's state slot. The constants stay in the compiled bytecode; only the
+ * slot is decoded (HLD §2.2).
+ */
+export function readStateFromRedeem(artifact: CompiledContractArtifact, redeemScript: Uint8Array): DecodedState {
+  const { start, len } = artifact.state_layout;
+  const expected = Uint8Array.from(artifact.bytecode);
+  const prefix = expected.subarray(0, start);
+  const suffix = expected.subarray(start + len);
+  const prefixLen = prefix.length;
+  const suffixLen = suffix.length;
+
+  if (redeemScript.length !== prefixLen + len + suffixLen) {
+    throw new PreimageError(
+      `redeem script length ${redeemScript.length} does not match artifact layout`,
+    );
+  }
+  for (let i = 0; i < prefixLen; i++) {
+    if (redeemScript[i] !== prefix[i]) {
+      throw new PreimageError("redeem script prefix does not match artifact bytecode");
+    }
+  }
+  for (let i = 0; i < suffixLen; i++) {
+    if (redeemScript[prefixLen + len + i] !== suffix[i]) {
+      throw new PreimageError("redeem script suffix does not match artifact bytecode");
+    }
+  }
+  return decodeState(redeemScript.subarray(prefixLen, prefixLen + len));
+}
+
+/** Assemble a redeem script for an event/ticket covenant output from its artifact + state. */
+export function buildRedeemScript(artifact: CompiledContractArtifact, state: DecodedState): Uint8Array {
+  return injectState(artifact, state);
 }
 
 /**
  * Assemble the redeem script for the event burn-owner covenant. The burn's own
- * layout is `count = 1` (state) + `authorizing_txid` (constants) — it has no owner,
- * price, org_spk, or template hash (see burn.silverscript).
+ * bytecode has `authorizing_txid` baked at compile time and a single `int
+ * count = 1` state field — it is per-event and unspendable. The artifact must
+ * be that event's compiled burn contract.
  */
-export function buildBurnRedeemScript(authorizingTxId: Uint8Array, code: Uint8Array): Uint8Array {
-  if (authorizingTxId.length !== HASH_LENGTH) {
-    throw new PreimageError(`authorizingTxId must be 32 bytes, got ${authorizingTxId.length}`);
-  }
-  const countBytes = new Uint8Array([1]);
-  const constantsBytes = new Uint8Array(HASH_LENGTH);
-  constantsBytes.set(authorizingTxId);
-  return assembleRedeemScript(countBytes, constantsBytes, code);
+export function buildBurnRedeemScript(artifact: CompiledContractArtifact): Uint8Array {
+  return Uint8Array.from(artifact.bytecode);
 }
 
 // --- hashing ---------------------------------------------------------------
@@ -223,13 +249,12 @@ function p2shPayload(hash: Uint8Array): Uint8Array {
  * `blake3(redeem_script)` (32 bytes) under the given network prefix.
  */
 export function addressFor(
+  artifact: CompiledContractArtifact,
   state: DecodedState,
-  constants: DecodedConstants,
-  code: Uint8Array,
   network: AddressNetwork,
   options: AddressOptions = {},
 ): string {
-  const redeem = buildRedeemScript(state, constants, code);
+  const redeem = injectState(artifact, state);
   const hash = (options.hash ?? scriptHash)(redeem);
   return encodeAddress(options.prefix ?? NETWORK_PREFIXES[network], p2shPayload(hash));
 }
@@ -240,16 +265,14 @@ export function addressFor(
  * `amount = capacity` as its initial `remaining`.
  */
 export function availableTicketAddress(
+  artifact: CompiledContractArtifact,
   capacity: number,
-  constants: DecodedConstants,
-  code: Uint8Array,
   network: AddressNetwork,
   options: AddressOptions = {},
 ): string {
   return addressFor(
+    artifact,
     { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: capacity, isMinter: false },
-    constants,
-    code,
     network,
     options,
   );

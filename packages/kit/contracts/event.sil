@@ -1,0 +1,68 @@
+contract Event(
+    byte[32] authorizing_txid,
+    int price,
+    byte[] org_spk,
+    byte[32] burn_template_hash,
+    byte[] burn_template_prefix,
+    byte[] burn_template_suffix
+) {
+    struct BurnState {
+        int count;
+    }
+
+    // State slot — the deploy fills `owner` (organizer) and `amount` (capacity)
+    // by injecting bytes into `state_layout`; `is_minter` stays false (fixed
+    // supply). Constructor args are the per-event constants baked at compile.
+    byte[32] owner = byte[32](0x0000000000000000000000000000000000000000000000000000000000000000);
+    byte identifier_type = 0x00;
+    int amount = 0;
+    bool is_minter = false;
+
+    // True when the tx pays `org_spk` exactly `price` sompi (FR-18). Free
+    // events (price = 0) skip the payout requirement.
+    function hasPayout() : bool {
+        bool found = false;
+        for(i, 0, tx.outputs.length, 100) {
+            if (tx.outputs[i].scriptPubKey == org_spk && tx.outputs[i].value == price) {
+                found = true;
+            }
+        }
+        return found;
+    }
+
+    // Mint-on-sale (FR-8/27): the event covenant splits into a ticket
+    // (amount = 1, owner = buyer) and the remaining event (amount - 1).
+    // The organizer authorizes with their signature. Oversell is rejected.
+    #[covenant(binding = auth, from = 1, to = 2, mode = transition)]
+    function mint(State prev_state, sig s, byte[32] buyer_pkh) : State[] {
+        require(checkSig(s, pubkey(prev_state.owner)));
+        require(prev_state.amount > 0);
+        if (price > 0) {
+            require(hasPayout());
+        }
+        return(State[] {
+            State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false },
+            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount - 1, is_minter: false }
+        });
+    }
+
+    // Transfer (FR-25): the holder re-keys the ticket to a new owner.
+    #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
+    function transfer(State prev_state, sig s, byte[32] new_owner) : State {
+        require(checkSig(s, pubkey(prev_state.owner)));
+        require(prev_state.amount == 1);
+        return State { owner: new_owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount, is_minter: false };
+    }
+
+    // Use at the door (FR-23): the ticket is consumed into the burn-owner
+    // covenant (a foreign template), so this is a manual entrypoint rather than
+    // a same-template continuation. The single auth output must be the burn
+    // template, validated via validateOutputStateWithTemplate.
+    entry use(sig s) {
+        require(checkSig(s, pubkey(owner)));
+        require(amount == 1);
+        require(OpAuthOutputCount(this.activeInputIndex) == 1);
+        int o = OpAuthOutputIdx(this.activeInputIndex, 0);
+        validateOutputStateWithTemplate(o, BurnState { count: 1 }, burn_template_prefix, burn_template_suffix, burn_template_hash);
+    }
+}

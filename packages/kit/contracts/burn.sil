@@ -1,0 +1,11 @@
+contract Burn(byte[32] authorizing_txid) {
+    int count = 1;
+
+    // Unspendable: the first requirement can never hold, so no valid spend
+    // exists. `authorizing_txid` is referenced so the per-event constant is
+    // baked into the bytecode, giving each event its own burn-owner template.
+    entry unspendable() {
+        require(false);
+        require(authorizing_txid[0] == 0x00);
+    }
+}

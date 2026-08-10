@@ -1,22 +1,26 @@
-// Per-type transaction build strategies (HLD v0.22 §2.1). Each strategy knows
-// how to turn its `BuildRequest` variant into a kit builder invocation given a
-// fee, plus the input total / payouts the fee computation needs.
+// Per-type transaction build strategies (KTK-88 A5). Each strategy knows how to
+// turn its `BuildRequest` variant into a kit builder invocation given a fee,
+// plus the input total / payouts the fee computation needs.
+//
+// Events are compiled per-event: the constants (authorizing_txid, price,
+// org_spk, burn_template_hash) are constructor args baked into the bytecode at
+// compile time, so every build compiles the event/burn artifacts for that
+// event's constants before assembling the transaction.
 
 import {
-  BURN_ARTIFACT,
   buildBuy,
   buildDeploy,
   buildHandover,
-  buildRedeemScript,
   buildTransfer,
-  EVENT_ARTIFACT,
+  injectState,
   pushData,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import { burnTemplateHashOf, compileBurnArtifact, compileEventArtifact } from "./compiler.js";
 import type { BuildRequest, WireUtxo, WireUtxoMeta } from "./wire.js";
-import { codeBytes, orgPayoutSpk, toDecodedConstants, toOutpoint, toSpk } from "./wire.js";
+import { orgPayoutSpk, toCompilerConstants, toOutpoint, toSpk } from "./wire.js";
 
 const TESTNET10 = "testnet10";
 
@@ -42,7 +46,7 @@ export type PreparedBuild = {
   inputTotal: number;
   payouts: readonly number[];
   /**
-   * Full prev-output metadata for every spending input, in input order — the
+   * Full prev-output metadata for every spending input, in input order â€” the
    * wallet needs these to sign (`signPskt` safe-JSON carries `utxo` per input).
    */
   inputUtxoMetas: WireUtxoMeta[];
@@ -53,7 +57,13 @@ function sum(values: readonly number[]): number {
 }
 
 function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
-  const constants = toDecodedConstants(req.constants);
+  // The burn template hash is derived at compile time (authorizing_txid baked),
+  // so the API is authoritative — the client-sent value is advisory.
+  const burnHash = burnTemplateHashOf(req.constants.authorizing_txid);
+  const eventArtifact = compileEventArtifact({
+    ...toCompilerConstants(req.constants),
+    burnTemplateHash: burnHash,
+  });
   const values = [req.authorizing_outpoint.value, ...req.organizer_utxos.map((u) => u.value)];
   const metas =
     req.input_utxo_metas ?? [req.authorizing_outpoint, ...req.organizer_utxos].map(utxoMetaOf);
@@ -64,7 +74,7 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
           date: req.date,
           priceKAS: req.constants.price / 100_000_000,
           orgSpk: req.constants.org_spk,
-          burnTemplateHash: req.constants.burn_template_hash,
+          burnTemplateHash: burnHash,
         }
       : undefined;
   return {
@@ -78,8 +88,7 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
         organizerUtxoValues: values,
         organizer: hexToBytes(req.organizer),
         capacity: req.capacity,
-        constants,
-        covenantCode: codeBytes(EVENT_ARTIFACT.code),
+        eventArtifact,
         changeScript: toSpk(req.change_spk),
         fee,
         network: TESTNET10,
@@ -94,7 +103,7 @@ async function buyBuild(
   req: BuildRequest & { type: "buy" },
   kaspa: KaspaClientLike,
 ): Promise<PreparedBuild> {
-  const constants = toDecodedConstants(req.constants);
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
 
   const eventTx = await kaspa.getTransaction(req.event_outpoint.transaction_id);
   const eventOutput = eventTx?.outputs[req.event_outpoint.index];
@@ -118,35 +127,43 @@ async function buyBuild(
     payouts: req.constants.price > 0 ? [req.constants.price] : [],
     inputUtxoMetas: metas,
     build: (fee) => {
-      const redeem = pushData(buildRedeemScript(
-        { owner: hexToBytes(req.event_owner), identifierType: 0, amount: req.remaining, isMinter: false },
-        constants,
-        codeBytes(EVENT_ARTIFACT.code),
-      ));
-      return {
-        tx: buildBuy({
-          eventOutpoint: toOutpoint(req.event_outpoint),
-          eventCovenantId: req.event_covenant_id,
-          eventOwner: hexToBytes(req.event_owner),
-          constants,
-          buyer: hexToBytes(req.buyer),
-          buyerUtxos: req.buyer_utxos.map((u) => toOutpoint(u)),
-          buyerUtxoValues: req.buyer_utxos.map((u) => u.value),
-          orgScript: orgPayoutSpk(req.constants.org_spk),
-          changeScript: toSpk(req.change_spk),
-          covenantCode: codeBytes(EVENT_ARTIFACT.code),
-          remaining: req.remaining,
-          network: TESTNET10,
-          fee,
-        }),
-        covenantRedeemScript: bytesToHex(redeem),
-      };
+      const tx = buildBuy({
+        eventOutpoint: toOutpoint(req.event_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        eventOwner: hexToBytes(req.event_owner),
+        eventArtifact,
+        buyer: hexToBytes(req.buyer),
+        buyerUtxos: req.buyer_utxos.map((u) => toOutpoint(u)),
+        buyerUtxoValues: req.buyer_utxos.map((u) => u.value),
+        orgScript: orgPayoutSpk(req.constants.org_spk),
+        changeScript: toSpk(req.change_spk),
+        remaining: req.remaining,
+        price: req.constants.price,
+        network: TESTNET10,
+        fee,
+      });
+      return { tx, covenantRedeemScript: bytesToHex(pushData(eventRedeemPush(eventArtifact, req))) };
     },
   };
 }
 
+function eventRedeemPush(
+  artifact: ReturnType<typeof compileEventArtifact>,
+  req: { event_owner: string; remaining: number },
+): Uint8Array {
+  // P2SH reveal for the spent event covenant input: the wallet must provide the
+  // full redeem script (bytecode with the current event state injected) so the
+  // node can execute the covenant check.
+  return injectState(artifact, {
+    owner: hexToBytes(req.event_owner),
+    identifierType: 0,
+    amount: req.remaining,
+    isMinter: false,
+  });
+}
+
 function transferBuild(req: BuildRequest & { type: "transfer" }): PreparedBuild {
-  const constants = toDecodedConstants(req.constants);
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
   return {
     inputTotal: req.holder_utxos.reduce((a, u) => a + u.value, 0),
     payouts: [],
@@ -155,12 +172,11 @@ function transferBuild(req: BuildRequest & { type: "transfer" }): PreparedBuild 
       tx: buildTransfer({
         ticketOutpoint: toOutpoint(req.ticket_outpoint),
         eventCovenantId: req.event_covenant_id,
-        constants,
+        eventArtifact,
         newOwner: hexToBytes(req.new_owner),
         holderUtxos: req.holder_utxos.map((u) => toOutpoint(u)),
         holderUtxoValues: req.holder_utxos.map((u) => u.value),
         changeScript: toSpk(req.change_spk),
-        covenantCode: codeBytes(EVENT_ARTIFACT.code),
         network: TESTNET10,
         fee,
       }),
@@ -169,7 +185,7 @@ function transferBuild(req: BuildRequest & { type: "transfer" }): PreparedBuild 
 }
 
 function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild {
-  const constants = toDecodedConstants(req.constants);
+  const burnArtifact = compileBurnArtifact(req.constants.authorizing_txid);
   return {
     inputTotal: req.attendee_utxos.reduce((a, u) => a + u.value, 0),
     payouts: [],
@@ -178,8 +194,7 @@ function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild 
       tx: buildHandover({
         ticketOutpoint: toOutpoint(req.ticket_outpoint),
         eventCovenantId: req.event_covenant_id,
-        constants,
-        burnCode: codeBytes(BURN_ARTIFACT.code),
+        burnArtifact,
         attendeeUtxos: req.attendee_utxos.map((u) => toOutpoint(u)),
         attendeeUtxoValues: req.attendee_utxos.map((u) => u.value),
         changeScript: toSpk(req.change_spk),

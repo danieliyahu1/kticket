@@ -22,3 +22,7 @@ wallet*.json
 events.json
 events-data.json
 test-events-*.json
+
+# Rust build artifacts (kticket-silverc wrapper)
+target/
+

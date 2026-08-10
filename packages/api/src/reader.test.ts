@@ -4,11 +4,12 @@ import {
   buildDeploy,
   buildHandover,
   buildTransfer,
-  type DecodedConstants,
+  EVENT_ARTIFACT,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
+import { compileBurnArtifact } from "./compiler";
 import type { StoredEventInternal } from "./eventstore";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
@@ -22,23 +23,16 @@ const UTXO_VALUE = 10_000_000_000;
 const HEX_BASE = 16;
 const TXID_INDEX_OFFSET = 3;
 
-const COVENANT_CODE_VERSION_BYTE = 0x00;
-const COVENANT_CODE_OP_BYTE = 0x51;
-const BURN_CODE_BYTE = 0x00;
 const EVENT_ID_FIRST_BYTE = 0xab;
 const ORG_SPK_VERSION_BYTE = 0x21;
 const ORG_SPK_FLAG_BYTE = 0x02;
 const ORG_SPK_ZERO_BYTE = 0x00;
 const ORG_SPK_ONE_BYTE = 0x01;
 const ORG_PKH_BYTE = 0x01;
-const BURN_TEMPLATE_BYTE = 0x77;
 const BUYER_BYTE = 0x01;
 const NEW_OWNER_BYTE = 0x02;
 const DEPTH_BUYER_BYTE = 0x11;
 const OWNER_START_BYTE = 0x22;
-
-const COVENANT_CODE = new Uint8Array([COVENANT_CODE_VERSION_BYTE, COVENANT_CODE_OP_BYTE]);
-const BURN_CODE = new Uint8Array([BURN_CODE_BYTE, BURN_CODE_BYTE]);
 
 const EVENT_ID = new Uint8Array(TXID_BYTE_LENGTH).map((_, i) =>
   i === 0 ? EVENT_ID_FIRST_BYTE : i,
@@ -50,14 +44,13 @@ const ORG_SPK = new Uint8Array([
   ORG_SPK_ONE_BYTE,
 ]);
 const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(ORG_PKH_BYTE);
-const CONSTANTS: DecodedConstants = {
-  authorizingTxId: EVENT_ID,
-  price: 1_000,
-  orgSpk: ORG_SPK,
-  burnTemplateHash: new Uint8Array(TXID_BYTE_LENGTH).fill(BURN_TEMPLATE_BYTE),
-};
 const ORG_SCRIPT = { version: 0, script: "51" };
 const CHANGE_SCRIPT = { version: 0, script: "51" };
+
+// The event's burn-owner artifact is compiled per-event with authorizing_txid
+// baked; the reader derives it the same way, so the fixture must use the same
+// compiled burn artifact for the handover model.
+const BURN_ARTIFACT = compileBurnArtifact(bytesToHex(EVENT_ID));
 
 const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
 const B0_ID = "bb".repeat(TXID_BYTE_LENGTH);
@@ -176,8 +169,7 @@ function buildDeployResult(capacity: number) {
     organizerUtxoValues: [UTXO_VALUE, UTXO_VALUE],
     organizer: ORG_PKH,
     capacity,
-    constants: CONSTANTS,
-    covenantCode: COVENANT_CODE,
+    eventArtifact: EVENT_ARTIFACT,
     changeScript: CHANGE_SCRIPT,
     fee: 1_000,
     network: NETWORK,
@@ -223,14 +215,14 @@ function buildBuyTx(capacity: number): UnsignedTransaction {
     eventOutpoint: outpointBytes(G_ID, 0),
     eventCovenantId: deploy.eventCovenantId,
     eventOwner: ORG_PKH,
-    constants: CONSTANTS,
+    eventArtifact: EVENT_ARTIFACT,
     buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
     buyerUtxos: [outpointBytes("33".repeat(TXID_BYTE_LENGTH), 0)],
     buyerUtxoValues: [UTXO_VALUE],
     orgScript: ORG_SCRIPT,
     changeScript: CHANGE_SCRIPT,
-    covenantCode: COVENANT_CODE,
     remaining: capacity,
+    price: TICKET_PRICE,
     network: NETWORK,
     fee: 400,
   });
@@ -244,12 +236,11 @@ function buildTransferModel(
   const transfer = buildTransfer({
     ticketOutpoint: outpointBytes(B0_ID, 0),
     eventCovenantId,
-    constants: CONSTANTS,
+    eventArtifact: EVENT_ARTIFACT,
     newOwner: new Uint8Array(TXID_BYTE_LENGTH).fill(NEW_OWNER_BYTE),
     holderUtxos: [outpointBytes("44".repeat(TXID_BYTE_LENGTH), 0)],
     holderUtxoValues: [UTXO_VALUE],
     changeScript: CHANGE_SCRIPT,
-    covenantCode: COVENANT_CODE,
     network: NETWORK,
     fee: 100,
   });
@@ -265,8 +256,7 @@ function buildHandoverModel(kaspa: FakeKaspa, eventCovenantId: string, fromAddre
   const handover = buildHandover({
     ticketOutpoint: outpointBytes(T1_ID, 0),
     eventCovenantId,
-    constants: CONSTANTS,
-    burnCode: BURN_CODE,
+    burnArtifact: BURN_ARTIFACT,
     attendeeUtxos: [outpointBytes("55".repeat(TXID_BYTE_LENGTH), 0)],
     attendeeUtxoValues: [UTXO_VALUE],
     changeScript: CHANGE_SCRIPT,
@@ -475,14 +465,14 @@ function buildDepthChain(kaspa: FakeKaspa): string {
     eventOutpoint: outpointBytes(gid, 0),
     eventCovenantId: deploy.eventCovenantId,
     eventOwner: ORG_PKH,
-    constants: CONSTANTS,
+    eventArtifact: EVENT_ARTIFACT,
     buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(DEPTH_BUYER_BYTE),
     buyerUtxos: [outpointBytes("33".repeat(TXID_BYTE_LENGTH), 0)],
     buyerUtxoValues: [UTXO_VALUE],
     orgScript: ORG_SCRIPT,
     changeScript: CHANGE_SCRIPT,
-    covenantCode: COVENANT_CODE,
     remaining: 1,
+    price: TICKET_PRICE,
     network: NETWORK,
     fee: 400,
   });
@@ -504,12 +494,11 @@ function depthTransfer(
   return buildTransfer({
     ticketOutpoint: previous,
     eventCovenantId,
-    constants: CONSTANTS,
+    eventArtifact: EVENT_ARTIFACT,
     newOwner: new Uint8Array(TXID_BYTE_LENGTH).fill(owner),
     holderUtxos: [outpointWithFill(holderByte)],
     holderUtxoValues: [UTXO_VALUE],
     changeScript: CHANGE_SCRIPT,
-    covenantCode: COVENANT_CODE,
     network: NETWORK,
     fee: 100,
   });

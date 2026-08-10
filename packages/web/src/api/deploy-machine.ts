@@ -1,4 +1,4 @@
-import { BURN_ARTIFACT, burnTemplateHash } from "@kticket/kit";
+import { BURN_ARTIFACT } from "@kticket/kit";
 import { broadcastTx, buildDeployTx } from "./client";
 import { organizerPkh, orgSpkFromPublicKey } from "./crypto";
 import type { KaspaUtxoEntry } from "./kaspa";
@@ -6,6 +6,18 @@ import { changeScriptFromPublicKey, fetchUtxos, toWireUtxo, toWireUtxoMeta } fro
 import type { BuildResult } from "./types";
 import { mergeSignatures, signTemplate, SOMPI_PER_KAS } from "../lib/signing";
 const LOG_SAMPLE_LEN = 400;
+
+/**
+ * The wire requires a `burn_template_hash` constant, but the authoritative
+ * value is derived server-side at compile time (authorizing_txid baked into the
+ * burn bytecode). The client sends the reference artifact's template hash as a
+ * placeholder; the API overrides it with the per-event value.
+ */
+function referenceBurnTemplateHash(): string {
+  return BURN_ARTIFACT.template_hash
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 export type DeployState =
   | { phase: "idle" }
@@ -72,7 +84,7 @@ async function buildDeployTemplate(
     authorizingTxId,
     price: Math.round(params.priceKas * SOMPI_PER_KAS),
     orgSpk: orgSpkFromPublicKey(params.publicKey),
-    burnTemplateHash: burnTemplateHash(authorizingTxId, BURN_ARTIFACT.code),
+    burnTemplateHash: referenceBurnTemplateHash(),
     organizer: organizerPkh(params.publicKey),
     authorizingOutpoint: selection.authorizing,
     organizerUtxos: selection.rest,

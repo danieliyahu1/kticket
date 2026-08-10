@@ -15,7 +15,11 @@ const NATIVE_SUBNETWORK_ID = "0000000000000000000000000000000000000000";
 
 /** The vendored kaspa-wasm module surface used by the relay. */
 export interface KaspaWasm {
-  Transaction: new (init: unknown) => { [key: string]: unknown };
+  Transaction: new (init: unknown) => {
+    [key: string]: unknown;
+    populateGenesisCovenants?: (groups: unknown[]) => void;
+  };
+  GenesisCovenantGroup: new (authorizingInput: number, outputs: number[]) => unknown;
   RpcClient: new (
     init: unknown,
   ) => {
@@ -38,7 +42,11 @@ async function loadWasm(): Promise<KaspaWasm> {
   return mod;
 }
 
-function toWasmInput(input: WireTransaction["inputs"][number], version: number) {
+function toWasmInput(
+  input: WireTransaction["inputs"][number],
+  version: number,
+  covenantId?: string,
+) {
   return {
     previousOutpoint: {
       transactionId: input.previous_outpoint.transaction_id,
@@ -48,17 +56,18 @@ function toWasmInput(input: WireTransaction["inputs"][number], version: number) 
     sequence: BigInt(input.sequence),
     sigOpCount: version >= 1 ? 0 : input.sig_op_count,
     computeBudget: version >= 1 ? input.sig_op_count : 0,
+    ...(covenantId !== undefined ? { utxo: { covenantId } } : {}),
   };
 }
 
-function toWasmOutput(output: WireTransaction["outputs"][number], version: number) {
+function toWasmOutput(output: WireTransaction["outputs"][number]) {
   return {
     value: BigInt(output.value),
     scriptPublicKey: {
       version: output.script_public_key.version,
       script: output.script_public_key.script,
     },
-    ...(version >= 1 && output.covenant
+    ...(output.covenant
       ? {
           covenant: {
             authorizingInput: output.covenant.authorizing_input,
@@ -81,10 +90,21 @@ export async function submitTransactionOverWrpc(
   tx: WireTransaction,
 ): Promise<string> {
   const mod = await loadWasm();
+
+  // Map authorizing inputs → covenant id from the outputs that reference them.
+  const inputCovenant = new Map<number, string>();
+  for (const output of tx.outputs) {
+    if (output.covenant) {
+      inputCovenant.set(output.covenant.authorizing_input, output.covenant.covenant_id);
+    }
+  }
+
   const wasmTx = new mod.Transaction({
     version: tx.version,
-    inputs: tx.inputs.map((input) => toWasmInput(input, tx.version)),
-    outputs: tx.outputs.map((output) => toWasmOutput(output, tx.version)),
+    inputs: tx.inputs.map((input, i) =>
+      toWasmInput(input, tx.version, inputCovenant.get(i)),
+    ),
+    outputs: tx.outputs.map((output) => toWasmOutput(output)),
     lockTime: BigInt(tx.lock_time),
     subnetworkId: NATIVE_SUBNETWORK_ID,
     gas: 0n,
@@ -104,4 +124,22 @@ export async function submitTransactionOverWrpc(
   } finally {
     await rpc.disconnect();
   }
+}
+
+/** Output indices the wasm must bind into a genesis covenant group (per input). */
+function covenantGroupsForSubmit(
+  tx: WireTransaction,
+): { authorizingInput: number; outputs: number[] }[] {
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < tx.outputs.length; i++) {
+    const covenant = tx.outputs[i]?.covenant;
+    if (!covenant) continue;
+    const list = groups.get(covenant.authorizing_input) ?? [];
+    list.push(i);
+    groups.set(covenant.authorizing_input, list);
+  }
+  return [...groups.entries()].map(([authorizingInput, outputs]) => ({
+    authorizingInput,
+    outputs,
+  }));
 }

@@ -15,15 +15,13 @@
 
 import {
   addressFromScriptHash,
-  buildRedeemScript,
   covenantId,
-  type DecodedConstants,
-  EVENT_ARTIFACT,
   type KaspaNetwork,
   MAX_EVENT_CAPACITY,
   p2shScript,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { compileEventArtifact, eventScript } from "./compiler.js";
 import { invalidError } from "./errors.js";
 import type { StoredEventInternal } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
@@ -42,21 +40,13 @@ export interface Availability {
 }
 
 function eventCovenantScriptHash(event: StoredEventInternal, remaining: number): string {
-  const constants: DecodedConstants = {
-    authorizingTxId: hexToBytes(event.authorizingTxId),
+  const artifact = compileEventArtifact({
+    authorizingTxId: event.authorizingTxId,
     price: event.price,
-    orgSpk: hexToBytes(event.orgSpk),
-    burnTemplateHash: hexToBytes(event.burnTemplateHash),
-  };
-  const code = hexToBytes(EVENT_ARTIFACT.code);
-  const spk = p2shScript(
-    buildRedeemScript(
-      { owner: hexToBytes(event.orgPkh), identifierType: 0, amount: remaining, isMinter: false },
-      constants,
-      code,
-    ),
-  );
-  return spk.script;
+    orgSpk: event.orgSpk,
+    burnTemplateHash: event.burnTemplateHash,
+  });
+  return eventScript(artifact, { owner: event.orgPkh, amount: remaining }).script;
 }
 
 type AvailabilityWalkOutcome =
@@ -130,13 +120,12 @@ export async function eventAvailability(
     outpoint = outcome.outpoint;
   }
 
-  const constants: DecodedConstants = {
-    authorizingTxId: hexToBytes(event.authorizingTxId),
+  const artifact = compileEventArtifact({
+    authorizingTxId: event.authorizingTxId,
     price: event.price,
-    orgSpk: hexToBytes(event.orgSpk),
-    burnTemplateHash: hexToBytes(event.burnTemplateHash),
-  };
-  const code = hexToBytes(EVENT_ARTIFACT.code);
+    orgSpk: event.orgSpk,
+    burnTemplateHash: event.burnTemplateHash,
+  });
 
   const eventCovenantId = bytesToHex(
     covenantId(
@@ -146,11 +135,7 @@ export async function eventAvailability(
           index: 0,
           value: 0,
           version: 0,
-          script: buildRedeemScript(
-            { owner: hexToBytes(event.orgPkh), identifierType: 0, amount: event.capacity, isMinter: false },
-            constants,
-            code,
-          ),
+          script: hexToBytes(eventScript(artifact, { owner: event.orgPkh, amount: event.capacity }).script),
         },
       ],
     ),

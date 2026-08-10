@@ -337,14 +337,15 @@ describe("buildTransaction (KTK-55) — buy signing template alignment", () => {
     // Input 0 (covenant) must have a non-empty redeem script, not a Schnorr sig
     const sigScript = result.template.inputs[0]?.signature_script ?? "";
     expect(sigScript.length).toBeGreaterThan(0);
-    // Must start with pushData opcode (0x4c = OP_PUSHDATA1), not 0x41 (sighash)
-    expect(sigScript.slice(0, 2)).toBe("4c");
+    // Must start with a pushData opcode (0x4c = OP_PUSHDATA1 / 0x4d = OP_PUSHDATA2
+    // for the full redeem script), not 0x41 (sighash)
+    expect(sigScript.slice(0, 2)).toMatch(/^(4c|4d)$/);
 
     // Signing template also has the redeem script
     expect(result.signing_template).toBeDefined();
     const signing = JSON.parse(result.signing_template!);
     const inputs = signing.inputs as Array<{ signatureScript: string }>;
-    expect(inputs[0]?.signatureScript.slice(0, 2)).toBe("4c");
+    expect(inputs[0]?.signatureScript.slice(0, 2)).toMatch(/^(4c|4d)$/);
   });
 
   it("continuation outputs keep the genesis covenant id from the buy request", async () => {

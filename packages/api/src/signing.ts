@@ -44,6 +44,7 @@ function toWasmUtxo(meta: WireUtxoMeta) {
     },
     blockDaaScore: BigInt(meta.block_daa_score),
     isCoinbase: meta.is_coinbase,
+    ...(meta.covenant_id !== undefined ? { covenantId: meta.covenant_id ?? null } : {}),
   };
 }
 
@@ -72,21 +73,13 @@ function wasmInputs(tx: WireTransaction, metas: WireUtxoMeta[]) {
   }));
 }
 
-function wasmOutputs(tx: WireTransaction, includeCovenant: boolean) {
+function wasmOutputs(tx: WireTransaction) {
   return tx.outputs.map((output) => ({
     value: BigInt(output.value),
     scriptPublicKey: {
       version: output.script_public_key.version,
       script: output.script_public_key.script,
     },
-    ...(includeCovenant && output.covenant
-      ? {
-          covenant: {
-            authorizingInput: output.covenant.authorizing_input,
-            covenantId: output.covenant.covenant_id,
-          },
-        }
-      : {}),
   }));
 }
 
@@ -116,42 +109,34 @@ function serializeSafe(wasmTx: unknown): string {
  * signs — `Transaction.serializeToSafeJSON()`, with a full `utxo` on each input
  * and the covenant ids computed by the wasm (the consensus reference).
  *
- * `isGenesis` marks a deploy (a covenant's first transaction). Only then does
- * the wasm `populateGenesisCovenants` recompute the covenant ids. Continuation
- * transactions (buy / transfer / handover) must keep the EXISTING genesis
- * covenant id from the spent covenant output — recomputing it would bind the
- * outputs to a wrong (non-existent) covenant family.
- *
- * Also returns the wasm-computed covenant ids per output so the caller can fix
- * up the kit template (its pure-TS `covenantId` diverges from consensus) — only
- * relevant for genesis deploys.
+ * Covenant inputs carry their genesis family id via `utxo.covenantId`. The wasm
+ * uses this to build the correct genesis covenant group — for genesis deploys
+ * the id is absent (the wasm computes it fresh), and for continuation txs the
+ * id matches the existing covenant family.
  */
 export async function signingTemplate(
   tx: WireTransaction,
   inputUtxoMetas: WireUtxoMeta[],
-  isGenesis = false,
 ): Promise<{ signingJson: string; covenantIds: Record<number, string> }> {
   const mod = await loadWasm();
   const wasmTx = new mod.Transaction({
     version: tx.version,
     inputs: wasmInputs(tx, inputUtxoMetas),
-    outputs: wasmOutputs(tx, !isGenesis),
+    outputs: wasmOutputs(tx),
     lockTime: BigInt(tx.lock_time),
     subnetworkId: NATIVE_SUBNETWORK_ID,
     gas: 0n,
     payload: tx.payload ?? "",
   });
 
-  if (isGenesis) {
-    const groups = covenantGroups(tx);
-    if (groups.length > 0) {
-      const populate = (wasmTx as { populateGenesisCovenants: (g: unknown[]) => void })
-        .populateGenesisCovenants;
-      populate.call(
-        wasmTx,
-        groups.map((g) => new mod.GenesisCovenantGroup(g.authorizingInput, g.outputs)),
-      );
-    }
+  const groups = covenantGroups(tx);
+  if (groups.length > 0) {
+    const populate = (wasmTx as { populateGenesisCovenants: (g: unknown[]) => void })
+      .populateGenesisCovenants;
+    populate.call(
+      wasmTx,
+      groups.map((g) => new mod.GenesisCovenantGroup(g.authorizingInput, g.outputs)),
+    );
   }
 
   const signingJson = serializeSafe(wasmTx);
