@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchEvent, fetchEventsList, type EventListItem } from "../api/client";
-import { organizerAddressFromPublicKey } from "../api/crypto";
 import { useWallet } from "../hooks/use-wallet";
 import { network } from "../network";
 
@@ -22,12 +21,12 @@ export default function DoorPage() {
       setSelected(null);
       return;
     }
-    const publicKey = state.publicKey;
+    const organizerAddress = state.accounts[0];
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const list = await fetchEventsList(organizerAddressFromPublicKey(publicKey));
+        const list = await fetchEventsList(organizerAddress);
         if (!cancelled) setEvents(list);
       } catch {
         if (!cancelled) setEvents([]);

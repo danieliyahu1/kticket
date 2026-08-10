@@ -167,7 +167,7 @@ function transferBuild(req: BuildRequest & { type: "transfer" }): PreparedBuild 
   return {
     inputTotal: req.holder_utxos.reduce((a, u) => a + u.value, 0),
     payouts: [],
-    inputUtxoMetas: req.holder_utxos.map((u) => utxoMetaOf(u)),
+    inputUtxoMetas: req.input_utxo_metas ?? req.holder_utxos.map((u) => utxoMetaOf(u)),
     build: (fee) => ({
       tx: buildTransfer({
         ticketOutpoint: toOutpoint(req.ticket_outpoint),

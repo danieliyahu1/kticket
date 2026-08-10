@@ -1,5 +1,6 @@
 import { deployFinalize, deployPrepare } from "./client";
 import type { DeployPrepareRequest } from "./types";
+import { signTemplate } from "../lib/signing";
 
 export type DeployState =
   | { phase: "idle" }
@@ -33,14 +34,6 @@ function logError(context: string, err: unknown): void {
 
 function logStep(step: string, detail?: unknown): void {
   console.log(`[deploy:${step}]`, detail ?? "");
-}
-
-async function signWithWallet(signingTemplate: string): Promise<unknown> {
-  const kasware = window.kasware;
-  if (!(kasware && "signPskt" in kasware)) {
-    throw new Error("Kasware wallet not available");
-  }
-  return kasware.signPskt({ txJsonString: signingTemplate });
 }
 
 /**
@@ -88,7 +81,7 @@ export async function executeDeploy(
   setState({ phase: "signing" });
   let signed;
   try {
-    signed = await signWithWallet(prepared.signing_template);
+    signed = await signTemplate(prepared.signing_template);
     logStep("signed", { type: typeof signed });
   } catch (err) {
     logError("sign", err);

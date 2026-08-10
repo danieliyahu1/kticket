@@ -2,11 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   fetchEventsList,
-  fetchMyTicketsWithRetry,
+  fetchMyTickets,
   type EventListItem,
   type TicketEntry,
 } from "../api/client";
-import { organizerAddressFromPublicKey } from "../api/crypto";
 import { Empty } from "../components/empty";
 import { TicketsSection } from "../components/tickets-section";
 import { useWallet } from "../hooks/use-wallet";
@@ -172,14 +171,12 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const connected = state.status === "connected";
   const filterOrganizer =
-    segment === "created" && connected
-      ? organizerAddressFromPublicKey(state.publicKey)
-      : undefined;
+    segment === "created" && connected ? (state.accounts[0] ?? undefined) : undefined;
 
   const loadTickets = useCallback(async () => {
     if (state.status !== "connected") return;
     try {
-      const list = await fetchMyTicketsWithRetry(state.publicKey);
+      const list = await fetchMyTickets(state.publicKey);
       setTickets(list);
     } catch {
       setTickets([]);

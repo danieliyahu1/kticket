@@ -17,6 +17,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import type { KaspaNetwork } from "@kticket/kit";
 import { buildTransaction, broadcastTransaction, type TxContext } from "./tx.js";
 import { invalidError, policyError } from "./errors.js";
+import { mergeSignatures } from "./flow.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { isRecord, int, str, uint } from "./validate.js";
 import type {
@@ -139,39 +140,6 @@ function parseFinalize(raw: unknown): DeployFinalizeRequest {
     throw invalidError("signed must be the wallet's signing output");
   }
   return { phase: "finalize", template, signed: raw.signed };
-}
-
-/**
- * Merge the wallet's signatures into the template by input outpoint — the
- * backend-side equivalent of the old frontend `mergeSignatures`. The wallet's
- * signing output may arrive as a JSON string or as a parsed object.
- */
-function mergeSignatures(template: WireTransaction, signed: unknown): WireTransaction {
-  let parsed: unknown = signed;
-  if (typeof signed === "string") {
-    parsed = JSON.parse(signed);
-  }
-  const inputs =
-    typeof parsed === "object" && parsed !== null && "inputs" in parsed
-      ? (parsed as { inputs?: unknown }).inputs
-      : undefined;
-  const byInput = new Map(
-    (Array.isArray(inputs) ? inputs : []).map((input) => {
-      const rec = input as { transactionId?: string; index?: number; signatureScript?: string };
-      return [`${rec.transactionId}:${rec.index}`, rec];
-    }),
-  );
-  return {
-    ...template,
-    inputs: template.inputs.map((input) => {
-      const key = `${input.previous_outpoint.transaction_id}:${input.previous_outpoint.index}`;
-      const si = byInput.get(key);
-      return {
-        ...input,
-        signature_script: si?.signatureScript ?? input.signature_script,
-      };
-    }),
-  };
 }
 
 /** Build the deploy `BuildRequest` from organizer inputs + fetched UTXOs. */

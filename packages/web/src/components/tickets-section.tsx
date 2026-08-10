@@ -1,32 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useWallet } from "../hooks/use-wallet";
-import { broadcastTx, buildTransferTx, fetchEvent, fetchMyTicketsWithRetry, type TicketEntry } from "../api/client";
-import { organizerPkh } from "../api/crypto";
-import { changeScriptFromPublicKey, fetchUtxos, toWireUtxo, toWireUtxoMeta } from "../api/kaspa";
-import type { WireOutpoint } from "../api/types";
-import { priceLabel, whenLabel } from "../lib/format";
-import { mergeSignatures, SOMPI_PER_KAS } from "../lib/signing";
-
-type TransferState =
-  | { phase: "idle" }
-  | { phase: "confirm"; ticket: TicketEntry }
-  | { phase: "building" }
-  | { phase: "broadcasting" }
-  | { phase: "success" }
-  | { phase: "error"; message: string };
-
-function errorMsg(err: unknown): string {
-  if (!(err instanceof Error)) return "Transfer failed.";
-  const msg = err.message;
-  if (msg === "No connection") return "No connection — transfer can't complete.";
-  if (msg.includes("funds") || msg.includes("fee")) return "Not enough funds — transfer didn't go through.";
-  return "Transfer failed.";
-}
-
-function parseTicketOutpoint(ticketId: string): WireOutpoint {
-  const parts = ticketId.split(":");
-  return { transaction_id: parts[0] ?? ticketId, index: Number(parts[1] ?? 0) };
-}
+import { type TicketEntry } from "../api/client";
+import { executeTransfer, type TransferState } from "../api/transfer-machine";
+import { whenLabel } from "../lib/format";
 
 function TicketCard({ ticket, onTransfer }: { ticket: TicketEntry; onTransfer: () => void }) {
   return (
@@ -125,66 +101,12 @@ export function TicketsSection({ tickets, onRefetch }: { tickets: TicketEntry[];
 
   const handleTransferConfirm = useCallback(async () => {
     if (!transferTicket || state.status !== "connected" || !state.accounts[0]) return;
-    const address = state.accounts[0];
-    const publicKey = state.publicKey;
-
-    setTransferState({ phase: "building" });
-
-    try {
-      const event = await fetchEvent(transferTicket.covenant_id);
-      const buyInfo = event.buy_info;
-
-      const utxos = await fetchUtxos(address);
-      if (utxos.length === 0) {
-        setTransferState({ phase: "error", message: "Not enough funds — transfer didn't go through." });
-        return;
-      }
-
-      const ticketOutpoint = parseTicketOutpoint(transferTicket.ticket_id);
-      const newOwner = organizerPkh(publicKey);
-
-      const buildResult = await buildTransferTx({
-        ticket_outpoint: ticketOutpoint,
-        event_covenant_id: buyInfo.event_covenant_id,
-        authorizingTxId: event.buy_info.authorizing_txid,
-        price: event.event.price,
-        orgSpk: buyInfo.org_spk,
-        burnTemplateHash: buyInfo.burn_template_hash,
-        new_owner: newOwner,
-        holderUtxos: utxos.map(toWireUtxo),
-        changeSpk: changeScriptFromPublicKey(publicKey),
-        inputUtxoMetas: utxos.map(toWireUtxoMeta),
-      });
-
-      setTransferState({ phase: "broadcasting" });
-
-      const kasware = window.kasware;
-      if (!kasware || !("signPskt" in kasware)) {
-        setTransferState({ phase: "error", message: "Wallet not available." });
-        return;
-      }
-      const signingJson = buildResult.signing_template;
-      if (!signingJson) {
-        setTransferState({ phase: "error", message: "No signing template." });
-        return;
-      }
-
-      const holderIndices = buildResult.template.inputs.slice(1).map((_, i) => ({
-        index: i + 1,
-      }));
-      const signed = await kasware.signPskt({
-        txJsonString: signingJson,
-        options: { signInputs: holderIndices },
-      });
-      const signedTx = mergeSignatures(buildResult.template, signed);
-
-      await broadcastTx(signedTx);
-
-      setTransferState({ phase: "success" });
-      await onRefetch();
-    } catch (err) {
-      setTransferState({ phase: "error", message: errorMsg(err) });
-    }
+    await executeTransfer(setTransferState, {
+      ticket: transferTicket,
+      publicKey: state.publicKey,
+      address: state.accounts[0],
+    });
+    await onRefetch();
   }, [transferTicket, state, onRefetch]);
 
   const handleTransferCancel = useCallback(() => {

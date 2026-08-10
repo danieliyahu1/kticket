@@ -1,12 +1,7 @@
 import type {
-  BroadcastResult,
-  BuildResult,
   DeployPrepareRequest,
   DeployPrepareResult,
   WireOutpoint,
-  WireScriptPublicKey,
-  WireUtxo,
-  WireUtxoMeta,
   WireTransaction,
 } from "./types";
 
@@ -49,10 +44,6 @@ function parseErrorJson(text: string): { error?: { message?: string } } | null {
   }
 }
 
-export function broadcastTx(transaction: unknown): Promise<BroadcastResult> {
-  return apiFetch<BroadcastResult>("/v1/tx/broadcast", { transaction });
-}
-
 /** prepare: backend fetches UTXOs + builds the unsigned template the wallet signs. */
 export function deployPrepare(req: DeployPrepareRequest): Promise<DeployPrepareResult> {
   return apiFetch<DeployPrepareResult>("/v1/events/deploy", req);
@@ -65,6 +56,51 @@ export function deployFinalize(req: {
   signed: unknown;
 }): Promise<{ covenant_id: string; deploy_txid: string }> {
   return apiFetch<{ covenant_id: string; deploy_txid: string }>("/v1/events/deploy", req);
+}
+
+export interface BuyPrepareResult {
+  signing_template: string;
+  template: WireTransaction;
+  sign_inputs: { index: number }[];
+  price: number;
+}
+
+/** prepare: backend verifies the event + fetches the buyer's UTXOs + builds the template. */
+export function buyPrepare(
+  covenantId: string,
+  req: { phase: "prepare"; publicKey: string; address: string },
+): Promise<BuyPrepareResult> {
+  return apiFetch<BuyPrepareResult>(`/v1/events/${covenantId}/buy`, req);
+}
+
+/** finalize: backend merges, broadcasts, and waits for confirmation. */
+export function buyFinalize(
+  covenantId: string,
+  req: { phase: "finalize"; template: WireTransaction; signed: unknown },
+): Promise<{ txid: string }> {
+  return apiFetch<{ txid: string }>(`/v1/events/${covenantId}/buy`, req);
+}
+
+export interface TransferPrepareResult {
+  signing_template: string;
+  template: WireTransaction;
+  sign_inputs: { index: number }[];
+}
+
+/** prepare: backend resolves the event + fetches the holder's UTXOs + builds the template. */
+export function transferPrepare(
+  ticketId: string,
+  req: { phase: "prepare"; covenant_id: string; ticket_id: string; publicKey: string; address: string },
+): Promise<TransferPrepareResult> {
+  return apiFetch<TransferPrepareResult>(`/v1/tickets/${encodeURIComponent(ticketId)}/transfer`, req);
+}
+
+/** finalize: backend merges, broadcasts, and waits for confirmation. */
+export function transferFinalize(
+  ticketId: string,
+  req: { phase: "finalize"; template: WireTransaction; signed: unknown },
+): Promise<{ txid: string }> {
+  return apiFetch<{ txid: string }>(`/v1/tickets/${encodeURIComponent(ticketId)}/transfer`, req);
 }
 
 /** Fetch event detail + availability from the API (KTK-89: chain-verified). */
@@ -148,72 +184,6 @@ export function fetchEventsList(organizerAddress?: string): Promise<EventListIte
   return apiGet<EventListItem[]>(`/v1/events${query}`);
 }
 
-export interface BuyBuildRequest {
-  event_outpoint: WireOutpoint;
-  event_covenant_id: string;
-  event_owner: string;
-  remaining: number;
-  authorizingTxId: string;
-  price: number;
-  orgSpk: string;
-  burnTemplateHash: string;
-  buyer: string;
-  buyerUtxos: WireUtxo[];
-  changeSpk: WireScriptPublicKey;
-  inputUtxoMetas?: WireUtxoMeta[];
-}
-
-export function buildBuyTx(req: BuyBuildRequest): Promise<BuildResult> {
-  return apiFetch<BuildResult>("/v1/tx/build", {
-    type: "buy",
-    event_outpoint: req.event_outpoint,
-    event_covenant_id: req.event_covenant_id,
-    event_owner: req.event_owner,
-    remaining: req.remaining,
-    constants: {
-      authorizing_txid: req.authorizingTxId,
-      price: req.price,
-      org_spk: req.orgSpk,
-      burn_template_hash: req.burnTemplateHash,
-    },
-    buyer: req.buyer,
-    buyer_utxos: req.buyerUtxos,
-    change_spk: req.changeSpk,
-    ...(req.inputUtxoMetas ? { input_utxo_metas: req.inputUtxoMetas } : {}),
-  });
-}
-
-export interface TransferBuildRequest {
-  ticket_outpoint: WireOutpoint;
-  event_covenant_id: string;
-  authorizingTxId: string;
-  price: number;
-  orgSpk: string;
-  burnTemplateHash: string;
-  new_owner: string;
-  holderUtxos: WireUtxo[];
-  changeSpk: WireScriptPublicKey;
-  inputUtxoMetas?: WireUtxoMeta[];
-}
-
-export function buildTransferTx(req: TransferBuildRequest): Promise<BuildResult> {
-  return apiFetch<BuildResult>("/v1/tx/build", {
-    type: "transfer",
-    ticket_outpoint: req.ticket_outpoint,
-    event_covenant_id: req.event_covenant_id,
-    constants: {
-      authorizing_txid: req.authorizingTxId,
-      price: req.price,
-      org_spk: req.orgSpk,
-      burn_template_hash: req.burnTemplateHash,
-    },
-    new_owner: req.new_owner,
-    holder_utxos: req.holderUtxos,
-    change_spk: req.changeSpk,
-    ...(req.inputUtxoMetas ? { input_utxo_metas: req.inputUtxoMetas } : {}),
-  });
-}
-
 export { type WireOutpoint };
 
 export interface TicketEntry {
@@ -223,22 +193,7 @@ export interface TicketEntry {
   event_date: string;
 }
 
-async function fetchMyTickets(ownerPkh: string): Promise<TicketEntry[]> {
+/** Fetch the connected user's on-chain tickets. Confirmation already happened backend-side. */
+export function fetchMyTickets(ownerPkh: string): Promise<TicketEntry[]> {
   return apiGet<TicketEntry[]>(`/v1/tickets?owner_pkh=${encodeURIComponent(ownerPkh)}`);
-}
-
-const RETRY_DELAY_MS = 1000;
-const MAX_RETRIES = 2;
-
-export async function fetchMyTicketsWithRetry(ownerPkh: string): Promise<TicketEntry[]> {
-  let delay = RETRY_DELAY_MS;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const tickets = await fetchMyTickets(ownerPkh);
-    if (tickets.length > 0) return tickets;
-    if (attempt < MAX_RETRIES) {
-      await new Promise((r) => setTimeout(r, delay));
-      delay *= 2;
-    }
-  }
-  return [];
 }

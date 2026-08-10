@@ -1,14 +1,6 @@
-import { broadcastTx, buildBuyTx, fetchEvent, type EventDetail } from "./client";
-import { organizerPkh } from "./crypto";
-import {
-  changeScriptFromPublicKey,
-  fetchUtxos,
-  toWireUtxo,
-  toWireUtxoMeta,
-} from "./kaspa";
-import type { BuildResult } from "./types";
-import { mergeSignatures, signTemplate } from "../lib/signing";
-const LOG_SAMPLE_LEN = 400;
+import { buyFinalize, buyPrepare, fetchEvent, type EventDetail } from "./client";
+import type { BuyPrepareResult } from "./client";
+import { signTemplate } from "../lib/signing";
 
 export type BuyState =
   | { phase: "idle" }
@@ -42,6 +34,17 @@ function logStep(step: string, detail?: unknown): void {
   console.log(`[buy:${step}]`, detail ?? "");
 }
 
+/**
+ * The buy flow is owned by the backend (`POST /v1/events/{covenantId}/buy`):
+ *   prepare  → backend verifies the event + fetches the buyer's UTXOs + builds
+ *              the unsigned template
+ *   wallet   → signs the inputs the backend listed
+ *   finalize → backend merges the signature, broadcasts, and waits for
+ *              confirmation
+ *
+ * The frontend only relays. It never fetches UTXOs, merges signatures, or
+ * broadcasts. "Success" is set only after the backend confirms the tx.
+ */
 export async function executeBuy(
   setState: (s: BuyState) => void,
   params: BuyParams,
@@ -66,80 +69,33 @@ export async function executeBuy(
   setState({ phase: "ready", event });
   setState({ phase: "building" });
 
-  const buyInfo = event.buy_info;
-
-  let utxos;
+  let prepared: BuyPrepareResult;
   try {
-    utxos = await fetchUtxos(params.address);
-    logStep("utxos", { count: utxos.length, first: utxos[0] });
-  } catch (err) {
-    logError("utxos", err);
-    setState({ phase: "error", message: "No connection - purchase can't complete." });
-    return;
-  }
-
-  if (utxos.length === 0) {
-    setState({ phase: "error", message: "Not enough funds - purchase didn't go through." });
-    return;
-  }
-
-  const buyerPkh = organizerPkh(params.publicKey);
-
-  let buildResult: BuildResult;
-  try {
-    buildResult = await buildBuyTx({
-      event_outpoint: {
-        transaction_id: buyInfo.event_txid,
-        index: buyInfo.event_index,
-      },
-      event_covenant_id: buyInfo.event_covenant_id,
-      event_owner: buyInfo.event_owner,
-      remaining: buyInfo.remaining,
-      authorizingTxId: event.buy_info.authorizing_txid,
-      price: event.event.price,
-      orgSpk: buyInfo.org_spk,
-      burnTemplateHash: buyInfo.burn_template_hash,
-      buyer: buyerPkh,
-      buyerUtxos: utxos.map(toWireUtxo),
-      changeSpk: changeScriptFromPublicKey(params.publicKey),
-      inputUtxoMetas: utxos.map(toWireUtxoMeta),
+    prepared = await buyPrepare(params.covenantId, {
+      phase: "prepare",
+      publicKey: params.publicKey,
+      address: params.address,
     });
-    logStep("built", {
-      signingTemplate: buildResult.signing_template?.slice(0, LOG_SAMPLE_LEN),
-    });
+    logStep("prepared", { price: prepared.price, signInputs: prepared.sign_inputs });
   } catch (err) {
-    logError("build", err);
+    logError("prepare", err);
     setState({ phase: "error", message: errorMsg(err) });
     return;
   }
 
   setState({ phase: "broadcasting" });
 
-  let signedTx;
   try {
-    const buyerIndices = buildResult.template.inputs.slice(1).map((_, i) => ({
-      index: i + 1,
-    }));
-    const signed = await signTemplate(buildResult.signing_template, buyerIndices);
-    logStep("signed", {
-      type: typeof signed,
-      sample: JSON.stringify(signed).slice(0, LOG_SAMPLE_LEN),
+    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
+    const result = await buyFinalize(params.covenantId, {
+      phase: "finalize",
+      template: prepared.template,
+      signed,
     });
-    signedTx = mergeSignatures(buildResult.template, signed);
-  } catch (err) {
-    logError("sign", err);
-    setState({ phase: "error", message: errorMsg(err) });
-    return;
-  }
-
-  try {
-    const result = await broadcastTx(signedTx);
-    logStep("broadcast-ok", result);
+    logStep("finalized", result);
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    logError("broadcast", err);
+    logError("finalize", err);
     setState({ phase: "error", message: errorMsg(err) });
   }
 }
-
-

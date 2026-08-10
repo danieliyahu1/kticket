@@ -389,25 +389,6 @@ describe("reader routes (KTK-89) — unknown tickets", () => {
   });
 });
 
-const deployBody = {
-  type: "deploy",
-  capacity: 2,
-  constants: {
-    authorizing_txid: AUTH_TXID,
-    price: EVENT_PRICE,
-    org_spk: ORG_SPK_HEX,
-    burn_template_hash: BURN_TEMPLATE_HASH,
-  },
-  organizer: ORG_PKH_HEX,
-  authorizing_outpoint: {
-    transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
-    index: 0,
-    value: 1_000_000_000,
-  },
-  organizer_utxos: [],
-  change_spk: { version: 0, script: "51" },
-};
-
 function txApp() {
   return buildApp(config(), {
     kaspa: new FakeKaspa(),
@@ -458,120 +439,275 @@ class FakeKaspa implements KaspaClientLike {
   }
 }
 
-describe("tx routes (KTK-6) — build", () => {
-  beforeEach(() => {
-    mockedSubmit.mockReset();
-  });
+describe("POST /v1/events/{covenantId}/buy — prepare", () => {
+  const BUYER_PKH_HEX = "03".repeat(TXID_BYTE_LENGTH);
+  const BUYER_PUBKEY_HEX = `02${BUYER_PKH_HEX}`;
+  const BUYER_ADDRESS = p2pkAddress(hexToBytes(BUYER_PKH_HEX), NETWORK);
 
-  it("POST /v1/tx/build returns a fee-aware deploy template", async () => {
-    const app = await txApp();
-    const res = await app.inject({ method: "POST", url: "/v1/tx/build", payload: deployBody });
+  function fundBuyer(kaspa: FakeKaspa): void {
+    kaspa.utxoMap.set(BUYER_ADDRESS, [
+      {
+        outpoint: { transactionId: "dd".repeat(TXID_BYTE_LENGTH), index: 0 },
+        utxoEntry: {
+          amount: String(1_000_000_000),
+          scriptPublicKey: { scriptPublicKey: ORG_SPK_HEX },
+          blockDaaScore: "536453032",
+          isCoinbase: false,
+        },
+      },
+    ]);
+  }
+
+  it("returns a signing template the wallet can sign", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    fundBuyer(kaspa);
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
+      payload: { phase: "prepare", publicKey: BUYER_PUBKEY_HEX, address: BUYER_ADDRESS },
+    });
     expect(res.statusCode).toBe(HTTP_OK);
     const body = res.json();
-    expect(body.template.version).toBe(1);
-    expect(body.template.outputs).toHaveLength(2);
-    const inputTotal = 1_000_000_000;
-    const outputTotal = body.template.outputs.reduce(
-      (acc: number, o: { value: number }) => acc + o.value,
-      0,
-    );
-    expect(inputTotal - outputTotal).toBeGreaterThan(0);
-    expect(body.event_covenant_id).toMatch(/^[0-9a-f]{64}$/);
+    expect(typeof body.signing_template).toBe("string");
+    const parsed = JSON.parse(body.signing_template);
+    expect(parsed.version).toBe(1);
+    expect(body.sign_inputs).toEqual([{ index: 1 }]);
+    expect(body.price).toBe(EVENT_PRICE);
     await app.close();
   });
 
-  it("POST /v1/tx/build returns a signing_template (safe-JSON) when UTXO metadata is supplied", async () => {
-    await expectSigningTemplate();
-  });
-
-  it("POST /v1/tx/build rejects an unknown type as invalid", async () => {
-    const app = await txApp();
+  it("rejects a buy with no spendable buyer UTXOs", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
     const res = await app.inject({
       method: "POST",
-      url: "/v1/tx/build",
-      payload: { type: "nope" },
+      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
+      payload: { phase: "prepare", publicKey: BUYER_PUBKEY_HEX, address: BUYER_ADDRESS },
     });
-    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
-    expect(res.json().error.type).toBe("invalid");
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.type).toBe("policy");
     await app.close();
   });
 });
 
-async function expectSigningTemplate(): Promise<void> {
-  const app = await txApp();
-  const body = {
-    ...deployBody,
-    input_utxo_metas: [
-      {
-        transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
-        index: 0,
-        value: 1_000_000_000,
-        script_public_key: { version: 0, script: `2071${"11".repeat(TXID_BYTE_LENGTH)}ac` },
-        block_daa_score: 536_453_032,
-        is_coinbase: false,
-      },
-    ],
-  };
-  const res = await app.inject({ method: "POST", url: "/v1/tx/build", payload: body });
-  expect(res.statusCode).toBe(HTTP_OK);
-  const result = res.json();
-  expect(typeof result.signing_template).toBe("string");
-  const parsed = JSON.parse(result.signing_template);
-  expect(parsed.version).toBe(1);
-  expect(parsed.inputs).toHaveLength(1);
-  expect(parsed.inputs[0].utxo.scriptPublicKey).toContain("ac");
-  await app.close();
-}
+describe("POST /v1/events/{covenantId}/buy — finalize", () => {
+  it("merges, broadcasts, and confirms the buy", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    mockedSubmit.mockResolvedValue(B0_ID);
+    // Mark the buy tx accepted so waitForTransaction returns.
+    kaspa.transactions.set(B0_ID, buyTx());
 
-describe("tx routes (KTK-6) — broadcast", () => {
-  beforeEach(() => {
-    mockedSubmit.mockReset();
-  });
-
-  it("POST /v1/tx/broadcast relays a signed tx and returns the txid", async () => {
-    mockedSubmit.mockResolvedValue("dd".repeat(TXID_BYTE_LENGTH));
-    const app = await txApp();
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
     const res = await app.inject({
       method: "POST",
-      url: "/v1/tx/broadcast",
+      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
       payload: {
-        transaction: {
+        phase: "finalize",
+        template: {
           version: 1,
           inputs: [
             {
-              previous_outpoint: { transaction_id: "aa".repeat(TXID_BYTE_LENGTH), index: 0 },
-              signature_script: "01".repeat(SIGNATURE_SCRIPT_BYTE_LENGTH),
+              previous_outpoint: { transaction_id: G_ID, index: 0 },
+              signature_script: "",
               sequence: 0,
-              sig_op_count: 1,
+              sig_op_count: 50,
             },
           ],
+          outputs: [
+            {
+              value: 49_000,
+              script_public_key: { version: 0, script: "aa20" + "11".repeat(32) + "87" },
+              covenant: { authorizing_input: 0, covenant_id: TEST_COVENANT_ID },
+            },
+          ],
+          lock_time: 0,
+        },
+        signed: {
+          inputs: [
+            {
+              transactionId: G_ID,
+              index: 0,
+              signatureScript: "01".repeat(SIGNATURE_SCRIPT_BYTE_LENGTH),
+            },
+          ],
+        },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual({ txid: B0_ID });
+    await app.close();
+  });
+
+  it("rejects a finalize that is not a buy (no covenant output)", async () => {
+    const app = await txApp();
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
+      payload: {
+        phase: "finalize",
+        template: {
+          version: 1,
+          inputs: [],
           outputs: [
             { value: 49_000, script_public_key: { version: 0, script: "51" }, covenant: null },
           ],
           lock_time: 0,
         },
+        signed: { inputs: [] },
       },
     });
-    expect(res.statusCode).toBe(HTTP_OK);
-    expect(res.json()).toEqual({ txid: "dd".repeat(TXID_BYTE_LENGTH) });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
     await app.close();
   });
 });
 
-describe("tx routes (KTK-6) — broadcast validation", () => {
-  beforeEach(() => {
-    mockedSubmit.mockReset();
-  });
+describe("POST /v1/tickets/{ticketId}/transfer — prepare", () => {
+  const HOLDER_PKH_HEX = "04".repeat(TXID_BYTE_LENGTH);
+  const HOLDER_PUBKEY_HEX = `02${HOLDER_PKH_HEX}`;
+  const HOLDER_ADDRESS = p2pkAddress(hexToBytes(HOLDER_PKH_HEX), NETWORK);
+  const TICKET_ID = `${B0_ID}:0`;
 
-  it("POST /v1/tx/broadcast rejects a malformed tx as invalid", async () => {
-    const app = await txApp();
+  function fundHolder(kaspa: FakeKaspa): void {
+    kaspa.utxoMap.set(HOLDER_ADDRESS, [
+      {
+        outpoint: { transactionId: "ee".repeat(TXID_BYTE_LENGTH), index: 0 },
+        utxoEntry: {
+          amount: String(1_000_000_000),
+          scriptPublicKey: { scriptPublicKey: ORG_SPK_HEX },
+          blockDaaScore: "536453032",
+          isCoinbase: false,
+        },
+      },
+    ]);
+  }
+
+  it("returns a signing template the wallet can sign", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    fundHolder(kaspa);
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
     const res = await app.inject({
       method: "POST",
-      url: "/v1/tx/broadcast",
-      payload: { transaction: { version: 0 } },
+      url: `/v1/tickets/${TICKET_ID}/transfer`,
+      payload: {
+        phase: "prepare",
+        covenant_id: TEST_COVENANT_ID,
+        ticket_id: TICKET_ID,
+        publicKey: HOLDER_PUBKEY_HEX,
+        address: HOLDER_ADDRESS,
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    const body = res.json();
+    expect(typeof body.signing_template).toBe("string");
+    const parsed = JSON.parse(body.signing_template);
+    expect(parsed.version).toBe(1);
+    expect(body.sign_inputs).toEqual([{ index: 1 }]);
+    await app.close();
+  });
+
+  it("rejects an unknown covenant id", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    fundHolder(kaspa);
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/transfer`,
+      payload: {
+        phase: "prepare",
+        covenant_id: "ff".repeat(TXID_BYTE_LENGTH),
+        ticket_id: TICKET_ID,
+        publicKey: HOLDER_PUBKEY_HEX,
+        address: HOLDER_ADDRESS,
+      },
     });
     expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+});
+
+describe("POST /v1/tickets/{ticketId}/transfer — finalize", () => {
+  it("merges, broadcasts, and confirms the transfer", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    mockedSubmit.mockResolvedValue(B0_ID);
+    kaspa.transactions.set(B0_ID, buyTx());
+
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${B0_ID}:0/transfer`,
+      payload: {
+        phase: "finalize",
+        template: {
+          version: 1,
+          inputs: [
+            {
+              previous_outpoint: { transaction_id: B0_ID, index: 0 },
+              signature_script: "",
+              sequence: 0,
+              sig_op_count: 50,
+            },
+          ],
+          outputs: [
+            {
+              value: 49_000,
+              script_public_key: { version: 0, script: "aa20" + "11".repeat(32) + "87" },
+              covenant: { authorizing_input: 0, covenant_id: TEST_COVENANT_ID },
+            },
+          ],
+          lock_time: 0,
+        },
+        signed: {
+          inputs: [
+            {
+              transactionId: B0_ID,
+              index: 0,
+              signatureScript: "01".repeat(SIGNATURE_SCRIPT_BYTE_LENGTH),
+            },
+          ],
+        },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual({ txid: B0_ID });
     await app.close();
   });
 });

@@ -1,7 +1,12 @@
-import type { BuildResult, WireTransaction } from "../api/types";
+import type { WireTransaction } from "../api/types";
 
 export const SOMPI_PER_KAS = 100_000_000;
 
+/**
+ * Ask the wallet to sign a signing template. Signing stays in the frontend —
+ * the wallet owns the keys. `signInputs` tells the wallet which inputs to sign
+ * (the backend lists them in its prepare response).
+ */
 export async function signTemplate(
   signingTemplate: string | null | undefined,
   signInputs?: { index: number }[],
@@ -17,31 +22,4 @@ export async function signTemplate(
     txJsonString: signingTemplate,
     ...(signInputs ? { options: { signInputs } } : {}),
   });
-}
-
-export function mergeSignatures(
-  template: WireTransaction,
-  signed: unknown,
-): WireTransaction {
-  const json = typeof signed === "string" ? signed : String(signed);
-  const parsed = JSON.parse(json) as {
-    inputs?: Array<{ transactionId: string; index: number; signatureScript?: string }>;
-  };
-  const byInput = new Map(
-    (parsed.inputs ?? []).map((input) => [
-      `${input.transactionId}:${input.index}`,
-      input,
-    ]),
-  );
-  return {
-    ...template,
-    inputs: template.inputs.map((input) => {
-      const key = `${input.previous_outpoint.transaction_id}:${input.previous_outpoint.index}`;
-      const si = byInput.get(key);
-      return {
-        ...input,
-        signature_script: si?.signatureScript ?? input.signature_script,
-      };
-    }),
-  };
 }

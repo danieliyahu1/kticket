@@ -2,10 +2,11 @@
 //   GET  /v1/events                   — directory of verified events (from the registry)
 //   POST /v1/events                   — register an event after deploy (discovery only)
 //   GET  /v1/events/{covenant_id}     — verified event + availability + raw chain facts
+//   POST /v1/events/deploy            — backend-owned deploy flow (prepare/finalize)
+//   POST /v1/events/{covenant_id}/buy — backend-owned buy flow (prepare/finalize)
 //   GET  /v1/tickets                  — user's on-chain tickets (?owner_pkh=)
 //   GET  /v1/tickets/{ticket_id}      — verify walk (alive | gone | unknown)
-//   POST /v1/tx/build                 — unsigned v1 template (fee-aware)
-//   POST /v1/tx/broadcast             — relay signed tx -> {txid}
+//   POST /v1/tickets/{ticket_id}/transfer — backend-owned transfer flow (prepare/finalize)
 //
 // KTK-89 (stateless backend): the identifier registry holds only
 // `{deploy_txid, covenant_id, organizer_address}` for discovery. Every event
@@ -19,6 +20,7 @@ import {
 } from "@kticket/kit";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import type { FastifyInstance } from "fastify";
+import { buyFinalize, buyPrepare } from "./buy.js";
 import { invalidError, isApiError, notFoundError } from "./errors.js";
 import { deployFinalize, deployPrepare } from "./deploy.js";
 import { eventAvailability } from "./events.js";
@@ -26,7 +28,7 @@ import type { EventStore } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { verifyTicket } from "./reader.js";
-import { broadcastTransaction, buildTransaction } from "./tx.js";
+import { transferFinalize, transferPrepare } from "./transfer.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
 
 export interface AppContext {
@@ -199,27 +201,62 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     });
   });
 
-  app.post("/v1/tx/build", async (req) => {
-    try {
-      return await buildTransaction(req.body, { kaspa: ctx.kaspa, networkId: ctx.networkId });
-    } catch (err) {
-      if (isApiError(err)) {
-        req.log.error({ detail: err.detail }, "build failed");
+  app.post<{ Params: { covenantId: string } }>(
+    "/v1/events/:covenantId/buy",
+    async (req) => {
+      try {
+        const body = req.body;
+        const phase =
+          typeof body === "object" && body !== null && "phase" in body
+            ? (body as { phase: unknown }).phase
+            : undefined;
+        const ctxFor = {
+          kaspa: ctx.kaspa,
+          networkId: ctx.networkId,
+          network: ctx.network,
+          byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
+        };
+        if (phase === "prepare") return await buyPrepare(req.params.covenantId, body, ctxFor);
+        if (phase === "finalize") return await buyFinalize(body, ctxFor);
+        throw invalidError("phase must be prepare|finalize");
+      } catch (err) {
+        if (isApiError(err)) {
+          req.log.error({ detail: err.detail }, "buy failed");
+        }
+        throw err;
       }
-      throw err;
-    }
-  });
+    },
+  );
 
-  app.post("/v1/tx/broadcast", async (req) => {
-    try {
-      return await broadcastTransaction(req.body, { kaspa: ctx.kaspa, networkId: ctx.networkId });
-    } catch (err) {
-      if (isApiError(err)) {
-        req.log.error({ detail: err.detail }, "broadcast rejected by node");
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/transfer",
+    async (req) => {
+      try {
+        const body = req.body;
+        const phase =
+          typeof body === "object" && body !== null && "phase" in body
+            ? (body as { phase: unknown }).phase
+            : undefined;
+        const ctxFor = {
+          kaspa: ctx.kaspa,
+          networkId: ctx.networkId,
+          network: ctx.network,
+          byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
+        };
+        if (phase === "prepare") {
+          const prepared = await transferPrepare(body, ctxFor);
+          return { ...prepared, ticket_id: req.params.ticketId };
+        }
+        if (phase === "finalize") return await transferFinalize(body, ctxFor);
+        throw invalidError("phase must be prepare|finalize");
+      } catch (err) {
+        if (isApiError(err)) {
+          req.log.error({ detail: err.detail }, "transfer failed");
+        }
+        throw err;
       }
-      throw err;
-    }
-  });
+    },
+  );
 }
 
 function parseRegisterEventBody(raw: unknown): string {
