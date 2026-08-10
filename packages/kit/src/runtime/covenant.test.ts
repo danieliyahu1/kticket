@@ -40,6 +40,35 @@ describe("KIP-20 covenant_id (per-family)", () => {
   });
 });
 
+describe("KIP-20 covenant_id (golden, matches vendored kaspa-wasm)", () => {
+  it("reproduces the on-chain genesis covenant id for a real deploy", () => {
+    // Golden computed from the vendored kaspa-wasm `covenantId` (rusty-kaspa
+    // consensus). The script length is hashed as le_u64 — KTK-102: the kit used
+    // a LEB128 varint here and produced a different (wrong) id, which the node
+    // rejected when the buy tx spent the event covenant.
+    const GOLDEN = "c7f6b3f20a72474ceee1847ba87d1177f457019996c32327fc0576dd667f4bfb";
+    const DEPLOY_TXID = Uint8Array.from(
+      Buffer.from("aa0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "hex"),
+    );
+    const EVENT_SCRIPT = Uint8Array.from(
+      Buffer.from(`aa20${"ab".repeat(32)}87`, "hex"),
+    );
+
+    const id = covenantId(
+      { txId: DEPLOY_TXID, index: 0 },
+      [
+        {
+          index: 0,
+          value: 50_000_000,
+          version: 0,
+          script: EVENT_SCRIPT,
+        },
+      ],
+    );
+    expect(Buffer.from(id).toString("hex")).toBe(GOLDEN);
+  });
+});
+
 describe("KIP-20 covenant_id (sensitivity and validation)", () => {
   it("is sensitive to the output order (index), the script, and the value", () => {
     const base = covenantId(OUTPOINT, OUTPUTS);

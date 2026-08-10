@@ -21,7 +21,6 @@
 
 import { blake2b } from "@noble/hashes/blake2.js";
 import { le16, le32, le64 } from "./bytes.js";
-import { encodeVarint } from "./preimage.js";
 
 const DOMAIN_TAG = "CovenantID";
 const HASH_LENGTH = 32;
@@ -99,7 +98,7 @@ export function covenantId(
     hasher.update(le32(output.index));
     hasher.update(le64(output.value));
     hasher.update(le16(output.version));
-    hasher.update(encodeVarint(output.script.length));
+    hasher.update(le64(output.script.length));
     hasher.update(output.script);
   }
 
