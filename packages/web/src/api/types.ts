@@ -58,8 +58,8 @@ export interface BroadcastResult {
 export interface DeployPrepareRequest {
   phase: "prepare";
   capacity: number;
-  /** Ticket price in sompi (the frontend converts KAS → sompi). */
-  price: number;
+  /** Ticket price in KAS (the backend converts KAS → sompi). */
+  price_kas: number;
   /** Compressed (66-hex) or bare x-coordinate (64-hex) organizer public key. */
   publicKey: string;
   /** The organizer's bech32 address — the backend fetches its UTXOs itself. */

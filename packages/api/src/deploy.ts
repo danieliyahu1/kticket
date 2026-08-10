@@ -12,14 +12,14 @@
 // template to the wallet, and send back the template + the wallet's output
 // (finalize). It never merges, retries, or owns pipeline state.
 
-import { BURN_ARTIFACT, MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey } from "@kticket/kit";
+import { BURN_ARTIFACT, kasToSompi, MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey } from "@kticket/kit";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { KaspaNetwork } from "@kticket/kit";
 import { buildTransaction, broadcastTransaction, type TxContext } from "./tx.js";
 import { invalidError, policyError } from "./errors.js";
 import { mergeSignatures } from "./flow.js";
 import { verifyEventFromChain } from "./provenance.js";
-import { isRecord, int, str, uint } from "./validate.js";
+import { isRecord, int, str } from "./validate.js";
 import type {
   BuildRequest,
   BuildResult,
@@ -42,8 +42,8 @@ export interface DeployContext extends TxContext {
 export interface DeployPrepareRequest {
   phase: "prepare";
   capacity: number;
-  /** Ticket price in sompi (the frontend converts KAS → sompi; that's its job). */
-  price: number;
+  /** Ticket price in KAS (the backend converts KAS → sompi itself). */
+  price_kas: number;
   /** Compressed (66-hex) or bare x-coordinate (64-hex) organizer public key. */
   publicKey: string;
   /** The organizer's bech32 address — the backend fetches its UTXOs itself. */
@@ -117,7 +117,9 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
   if (capacity < 0 || capacity > MAX_EVENT_CAPACITY) {
     throw invalidError(`capacity must be 0..${MAX_EVENT_CAPACITY}`);
   }
-  const price = uint(raw.price, "price");
+  if (typeof raw.price_kas !== "number" || !Number.isFinite(raw.price_kas) || raw.price_kas < 0) {
+    throw invalidError("price_kas must be a non-negative number");
+  }
   const publicKey = validatePublicKey(raw.publicKey);
   const address = str(raw.address, "address");
   const name = raw.name === undefined ? undefined : str(raw.name, "name");
@@ -125,7 +127,15 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
   if ((name === undefined) !== (date === undefined)) {
     throw invalidError("name and date must be provided together");
   }
-  return { phase: "prepare", capacity, price, publicKey, address, ...(name ? { name } : {}), ...(date ? { date } : {}) };
+  return {
+    phase: "prepare",
+    capacity,
+    price_kas: raw.price_kas,
+    publicKey,
+    address,
+    ...(name ? { name } : {}),
+    ...(date ? { date } : {}),
+  };
 }
 
 /** Parse + validate the finalize body. */
@@ -160,7 +170,7 @@ function deployBuildRequest(req: DeployPrepareRequest, utxos: UtxoResponse[]): B
     capacity: req.capacity,
     constants: {
       authorizing_txid: authorizing.transaction_id,
-      price: req.price,
+      price: kasToSompi(req.price_kas),
       org_spk: orgSpk,
       burn_template_hash: referenceBurnTemplateHash(),
     },

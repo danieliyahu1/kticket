@@ -21,11 +21,9 @@ export interface DeployParams {
 
 function errorMsg(err: unknown): string {
   if (!(err instanceof Error)) return "Deploy failed.";
-  const msg = err.message;
-  if (msg === "No connection") return "No connection - deploy can't complete.";
-  if (msg.includes("funds")) return "Not enough funds - deploy didn't go through.";
-  if (msg.includes("UTXO")) return "Not enough funds - deploy didn't go through.";
-  return "Deploy failed.";
+  if (err.message === "No connection") return "No connection - deploy can't complete.";
+  // The backend owns the message; the frontend relays it.
+  return err.message;
 }
 
 function logError(context: string, err: unknown): void {
@@ -58,7 +56,7 @@ export async function executeDeploy(
   const prepareReq: DeployPrepareRequest = {
     phase: "prepare",
     capacity: params.capacity,
-    price: Math.round(params.priceKas * 1e8),
+    price_kas: params.priceKas,
     publicKey: params.publicKey,
     address: params.address,
     ...(params.name !== undefined ? { name: params.name } : {}),

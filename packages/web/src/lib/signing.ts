@@ -1,7 +1,5 @@
 import type { WireTransaction } from "../api/types";
 
-export const SOMPI_PER_KAS = 100_000_000;
-
 /**
  * Ask the wallet to sign a signing template. Signing stays in the frontend —
  * the wallet owns the keys. `signInputs` tells the wallet which inputs to sign

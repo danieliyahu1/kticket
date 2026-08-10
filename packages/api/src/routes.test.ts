@@ -817,7 +817,7 @@ describe("POST /v1/events/deploy — prepare", () => {
       payload: {
         phase: "prepare",
         capacity: EVENT_CAPACITY,
-        price: EVENT_PRICE,
+        price_kas: EVENT_PRICE / 100_000_000,
         publicKey: ORG_PUBKEY_HEX,
         address: ORG_ADDRESS,
         name: EVENT_NAME,
@@ -843,7 +843,7 @@ describe("POST /v1/events/deploy — prepare", () => {
       payload: {
         phase: "prepare",
         capacity: EVENT_CAPACITY,
-        price: EVENT_PRICE,
+        price_kas: EVENT_PRICE / 100_000_000,
         publicKey: ORG_PUBKEY_HEX,
         address: ORG_ADDRESS,
       },

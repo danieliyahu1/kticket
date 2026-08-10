@@ -23,10 +23,9 @@ export interface TransferParams {
 
 function errorMsg(err: unknown): string {
   if (!(err instanceof Error)) return "Transfer failed.";
-  const msg = err.message;
-  if (msg === "No connection") return "No connection - transfer can't complete.";
-  if (msg.includes("funds") || msg.includes("fee")) return "Not enough funds - transfer didn't go through.";
-  return "Transfer failed.";
+  if (err.message === "No connection") return "No connection - transfer can't complete.";
+  // The backend owns the message; the frontend relays it.
+  return err.message;
 }
 
 function logError(context: string, err: unknown): void {

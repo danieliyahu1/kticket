@@ -5,6 +5,19 @@ import type {
   WireTransaction,
 } from "./types";
 
+/** An API error carrying the backend's taxonomy (type / message / retryable). */
+export class ApiError extends Error {
+  readonly type: string | undefined;
+  readonly retryable: boolean | undefined;
+
+  constructor(message: string, type?: string, retryable?: boolean) {
+    super(message);
+    this.name = "ApiError";
+    this.type = type;
+    this.retryable = retryable;
+  }
+}
+
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   const url = path;
   console.log(`[api] POST ${url}`, JSON.stringify(body));
@@ -23,12 +36,8 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
     console.error(`[api] ${res.status} ${url}`, text);
-    const json = parseErrorJson(text);
-    const msg = json?.error?.message ?? `API error ${res.status}`;
-    if (msg.toLowerCase().includes("fee") || msg.toLowerCase().includes("mass")) {
-      throw new Error("Not enough funds");
-    }
-    throw new Error(msg);
+    const err = parseErrorJson(text);
+    throw new ApiError(err?.message ?? `API error ${res.status}`, err?.type, err?.retryable);
   }
 
   const text = await res.text();
@@ -36,9 +45,10 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-function parseErrorJson(text: string): { error?: { message?: string } } | null {
+function parseErrorJson(text: string): { message?: string; type?: string; retryable?: boolean } | null {
   try {
-    return JSON.parse(text) as { error?: { message?: string } };
+    const parsed = JSON.parse(text) as { error?: { message?: string; type?: string; retryable?: boolean } };
+    return parsed?.error ?? null;
   } catch {
     return null;
   }
@@ -159,8 +169,8 @@ async function apiGet<T>(path: string): Promise<T> {
   if (!res.ok) {
     const text = await res.text();
     console.error(`[api] ${res.status} ${path}`, text);
-    const json = parseErrorJson(text);
-    throw new Error(json?.error?.message ?? `API error ${res.status}`);
+    const err = parseErrorJson(text);
+    throw new ApiError(err?.message ?? `API error ${res.status}`, err?.type, err?.retryable);
   }
   const text = await res.text();
   console.log(`[api] 200 ${path}`, text);

@@ -19,11 +19,9 @@ export interface BuyParams {
 
 function errorMsg(err: unknown): string {
   if (!(err instanceof Error)) return "Purchase failed.";
-  const msg = err.message;
-  if (msg === "No connection") return "No connection - purchase can't complete.";
-  if (msg.includes("funds") || msg.includes("fee")) return "Not enough funds - purchase didn't go through.";
-  if (msg.includes("Sold out") || msg.includes("sold out")) return "Sold out - no tickets left.";
-  return "Purchase failed.";
+  if (err.message === "No connection") return "No connection - purchase can't complete.";
+  // The backend owns the message; the frontend relays it.
+  return err.message;
 }
 
 function logError(context: string, err: unknown): void {

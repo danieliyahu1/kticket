@@ -32,6 +32,14 @@ export function computeMass(computeGrams: number): number {
 
 const RELAY_FLOOR_SOMPI = 100;
 
+/** Sompi per KAS (1 KAS = 100,000,000 sompi) — the price unit conversion. */
+export const SOMPI_PER_KAS = 100_000_000;
+
+/** Convert a KAS-denominated price (float) to sompi, rounded to the nearest integer. */
+export function kasToSompi(priceKAS: number): number {
+  return Math.round(priceKAS * SOMPI_PER_KAS);
+}
+
 /** Relay floor: 100 sompi × max(compute grams, 2 × tx bytes). */
 export function relayFloor(massAndSize: MassAndSize): number {
   const bound = Math.max(massAndSize.mass, 2 * massAndSize.sizeBytes);

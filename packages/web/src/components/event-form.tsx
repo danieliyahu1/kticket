@@ -1,9 +1,8 @@
 import type { EventFormData } from "./event-validate";
 import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
+import { MAX_EVENT_CAPACITY } from "@kticket/kit";
 
 export type { EventFormData };
-
-const MAX_CAPACITY = 100;
 
 function toNum(v: string): number {
   return Number(v);
@@ -100,7 +99,7 @@ function CapacityField({ initial, errors, onChange }: EventFormProps) {
         className="input"
         type="number"
         min={0}
-        max={MAX_CAPACITY}
+        max={MAX_EVENT_CAPACITY}
         value={initial.capacity}
         onChange={(e) => onChange({ ...initial, capacity: toNum(e.target.value) })}
         aria-invalid={errors.capacity ? true : undefined}

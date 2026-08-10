@@ -36,7 +36,7 @@ import {
   p2shScript,
 } from "./runtime/builder.js";
 import { covenantId } from "./runtime/covenant.js";
-import { computeFee, relayFloor, requiredInput } from "./runtime/fee.js";
+import { computeFee, kasToSompi, relayFloor, requiredInput, SOMPI_PER_KAS } from "./runtime/fee.js";
 import { eventCommitmentMatches, eventOutputScript, organizerAddressFromPubkeyHex, organizerPkh, orgSpkFromPublicKey, recoverEventCapacity } from "./runtime/provenance.js";
 import {
   decodeConstants,
@@ -136,6 +136,7 @@ export {
   getNetworkConfig,
   injectState,
   isKaspaNetwork,
+  kasToSompi,
   KASPA_NETWORK_IDS,
   MAX_EVENT_CAPACITY,
   NETWORKS,
@@ -156,6 +157,7 @@ export {
   requiredInput,
   resolveNetwork,
   scriptHash,
+  SOMPI_PER_KAS,
   TICKET_ARTIFACT,
   txIdPreimageV1,
   txIdV1,
