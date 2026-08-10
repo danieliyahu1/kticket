@@ -21,3 +21,13 @@ export function priceLabel(price: number): string {
 export function capacityLabel(capacity: number): string {
   return `${capacity} ${capacity === 1 ? "ticket" : "tickets"}`;
 }
+
+/** Shorten a bech32 address for display: `kaspatest:qpz…mua7l`. */
+export function shortAddress(address: string): string {
+  if (address.length <= 24) return address;
+  const sep = address.indexOf(":");
+  const prefix = sep >= 0 ? address.slice(0, sep + 1) : "";
+  const body = sep >= 0 ? address.slice(sep + 1) : address;
+  if (body.length <= 20) return address;
+  return `${prefix}${body.slice(0, 9)}…${body.slice(-6)}`;
+}

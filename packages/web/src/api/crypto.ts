@@ -1,3 +1,6 @@
+import { organizerAddressFromPubkeyHex } from "@kticket/kit";
+import type { AddressNetwork } from "@kticket/kit";
+
 const COMPRESSED_PUBKEY_LEN = 66;
 const COMPRESSED_PREFIX_HEX_CHARS = 2;
 const OP_PUSH_32 = "20";
@@ -16,6 +19,19 @@ export function organizerPkh(publicKeyHex: string): string {
     return key.slice(COMPRESSED_PREFIX_HEX_CHARS);
   }
   return key;
+}
+
+/**
+ * The organizer's bech32 P2PK address (the trust anchor the API reports as
+ * `organizer_address`). Derived from the 32-byte pubkey x-coordinate — the same
+ * value the funding UTXO locks to, so a user can eyeball-match it against the
+ * artist's known address out-of-band.
+ */
+export function organizerAddressFromPublicKey(
+  publicKeyHex: string,
+  network: AddressNetwork = "testnet10",
+): string {
+  return organizerAddressFromPubkeyHex(organizerPkh(publicKeyHex), network);
 }
 
 /**

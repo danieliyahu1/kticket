@@ -16,6 +16,10 @@ import {
   buildRedeemScript,
   encodeAddress,
   injectState,
+  p2pkAddress,
+  p2pkAddressFromScript,
+  P2PK_ADDRESS_VERSION,
+  pubkeyFromP2pkScript,
   pushData,
   readStateFromRedeem,
   scriptHash,
@@ -33,6 +37,7 @@ import {
 } from "./runtime/builder.js";
 import { covenantId } from "./runtime/covenant.js";
 import { computeFee, relayFloor, requiredInput } from "./runtime/fee.js";
+import { eventCommitmentMatches, eventOutputScript, organizerAddressFromPubkeyHex, organizerPkh, orgSpkFromPublicKey, recoverEventCapacity } from "./runtime/provenance.js";
 import {
   decodeConstants,
   decodePreimage,
@@ -72,6 +77,7 @@ export type {
   AddressOptions,
   RedeemScript,
 } from "./runtime/address.js";
+export type { EventState } from "./runtime/provenance.js";
 export type {
   BuyInput,
   DeployInput,
@@ -125,16 +131,26 @@ export {
   encodeVarint,
   estimatedSerializedSize,
   EVENT_ARTIFACT,
+  eventCommitmentMatches,
+  eventOutputScript,
   getNetworkConfig,
   injectState,
   isKaspaNetwork,
   KASPA_NETWORK_IDS,
   MAX_EVENT_CAPACITY,
   NETWORKS,
+  organizerAddressFromPubkeyHex,
+  organizerPkh,
+  orgSpkFromPublicKey,
+  p2pkAddress,
+  p2pkAddressFromScript,
+  P2PK_ADDRESS_VERSION,
   p2shScript,
   payloadDigest,
+  pubkeyFromP2pkScript,
   pushData,
   readStateFromRedeem,
+  recoverEventCapacity,
   relayFloor,
   RESULT_CODES,
   requiredInput,

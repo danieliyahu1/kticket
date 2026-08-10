@@ -285,6 +285,44 @@ const OP_EQUAL = 0x87;
 /** P2SH push length opcode for a 32-byte script hash. */
 const PUSH32 = 0x20;
 
+/** AddressVersion.PubKey — P2PK (schnorr) addresses derived from an x-coordinate. */
+export const P2PK_ADDRESS_VERSION = 1;
+
+/**
+ * Derive the P2PK bech32 address for a 32-byte schnorr pubkey x-coordinate
+ * (`kaspatest:q...`), the address an organizer's funding UTXO locks to. This is
+ * the "organizer address" trust anchor: the covenant owner pubkey recovered from
+ * the deploy input-0 funding UTXO maps to this address on chain.
+ */
+export function p2pkAddress(pubkey: Uint8Array, network: AddressNetwork): string {
+  if (pubkey.length !== HASH_LENGTH) {
+    throw new PreimageError(`pubkey must be 32 bytes, got ${pubkey.length}`);
+  }
+  const payload = new Uint8Array(1 + HASH_LENGTH);
+  payload[0] = P2PK_ADDRESS_VERSION;
+  payload.set(pubkey, 1);
+  return encodeAddress(NETWORK_PREFIXES[network], payload);
+}
+
+/**
+ * Parse a P2PK output script (`20 <32-byte x> ac`) back into the 32-byte pubkey.
+ * Returns `null` when the script is not the standard P2PK form.
+ */
+export function pubkeyFromP2pkScript(scriptHex: string): Uint8Array | null {
+  const script = hexToBytes(scriptHex);
+  const expectedLength = 1 + HASH_LENGTH + 1;
+  if (script.length !== expectedLength || script[0] !== 0x20 || script[expectedLength - 1] !== 0xac) {
+    return null;
+  }
+  return script.slice(1, 1 + HASH_LENGTH);
+}
+
+/** P2PK address for a P2PK output script, or `null` if the script is not P2PK. */
+export function p2pkAddressFromScript(scriptHex: string, network: AddressNetwork): string | null {
+  const pubkey = pubkeyFromP2pkScript(scriptHex);
+  return pubkey ? p2pkAddress(pubkey, network) : null;
+}
+
 /**
  * P2SH address for an on-chain covenant output script. The chain stores the
  * standard `aa20 <hash> 87` script form (`p2shScript`), so the address is the

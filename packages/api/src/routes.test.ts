@@ -2,15 +2,15 @@ import {
   addressFromScriptHash,
   buildBuy,
   buildDeploy,
-  DUST,
+  p2pkAddress,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app";
-import { compileBurnArtifact, compileEventArtifact, eventScript } from "./compiler";
+import { compileBurnArtifact, compileEventArtifact } from "./compiler";
 import { loadConfig } from "./config";
-import { EventStore, type StoredEventInternal } from "./eventstore";
+import { EventStore, type StoredEvent } from "./eventstore";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_OK } from "./http-status.js";
 
 vi.mock("./wrpc-client.js", () => ({
@@ -21,7 +21,6 @@ import { submitTransactionOverWrpc } from "./wrpc-client.js";
 
 const mockedSubmit = vi.mocked(submitTransactionOverWrpc);
 
-import { covenantId } from "@kticket/kit";
 import type { KaspaClientLike } from "./kaspa-client";
 import type {
   FeeEstimateResponse,
@@ -44,65 +43,70 @@ const AUTH_TXID = "ab".repeat(TXID_BYTE_LENGTH);
 
 const AUTH_TXID_HEX = AUTH_TXID;
 const ORG_PKH_HEX = "01".repeat(TXID_BYTE_LENGTH);
-const ORG_SPK_HEX = "21020001";
+const ORG_SPK_HEX = `20${ORG_PKH_HEX}ac`;
 const BURN_TEMPLATE_HASH = bytesToHex(
   Uint8Array.from(compileBurnArtifact(AUTH_TXID_HEX).template_hash),
 );
 
+const EVENT_NAME = "Testnet Rave";
+const EVENT_DATE = "2026-12-31";
+const EVENT_PRICE = 1_000;
+const EVENT_CAPACITY = 2;
+
 function eventArtifact() {
   return compileEventArtifact({
     authorizingTxId: AUTH_TXID_HEX,
-    price: 1_000,
+    price: EVENT_PRICE,
     orgSpk: ORG_SPK_HEX,
     burnTemplateHash: BURN_TEMPLATE_HASH,
   });
 }
 
-function makeStoredEvent(overrides: Partial<StoredEventInternal> = {}): StoredEventInternal {
-  return {
-    covenantId: computeTestCovenantId(),
-    genesisTxId: G_ID,
-    orgPkh: ORG_PKH_HEX,
-    orgSpk: ORG_SPK_HEX,
-    burnTemplateHash: BURN_TEMPLATE_HASH,
-    name: "Testnet Rave",
-    date: "2026-12-31",
-    price: 1_000,
-    capacity: 2,
-    authorizingTxId: AUTH_TXID_HEX,
-    ...overrides,
-  };
-}
-
 function computeTestCovenantId(): string {
   const artifact = eventArtifact();
-  const script = eventScript(artifact, { owner: ORG_PKH_HEX, amount: 2 });
-  return bytesToHex(
-    covenantId(
-      { txId: hexToBytes(AUTH_TXID_HEX), index: 0 },
-      [{ index: 0, value: DUST, version: 0, script: hexToBytes(script.script) }],
-    ),
-  );
+  const { eventCovenantId } = buildDeploy({
+    authorizingOutpoint: { txId: hexToBytes(AUTH_TXID_HEX), index: 0 },
+    organizerUtxos: [],
+    organizerUtxoValues: [UTXO_VALUE],
+    organizer: hexToBytes(ORG_PKH_HEX),
+    capacity: EVENT_CAPACITY,
+    eventArtifact: artifact,
+    changeScript: { version: 0, script: "51" },
+    fee: 1_000,
+    network: NETWORK,
+  });
+  return eventCovenantId;
 }
 
 const TEST_COVENANT_ID = computeTestCovenantId();
 
-const EVENT = makeStoredEvent();
+function makeStoredEvent(overrides: Partial<StoredEvent> = {}): StoredEvent {
+  return {
+    covenantId: TEST_COVENANT_ID,
+    deployTxId: G_ID,
+    organizerAddress: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
+    ...overrides,
+  };
+}
 
 function deployTxWithCapacity(capacity: number): TxModel {
   const { tx } = buildDeploy({
-    authorizingOutpoint: {
-      txId: Uint8Array.from(Buffer.from(AUTH_TXID_HEX, "hex")),
-      index: 0,
-    },
+    authorizingOutpoint: { txId: hexToBytes(AUTH_TXID_HEX), index: 0 },
     organizerUtxos: [],
     organizerUtxoValues: [UTXO_VALUE],
-    organizer: Uint8Array.from(Buffer.from(EVENT.orgPkh, "hex")),
+    organizer: hexToBytes(ORG_PKH_HEX),
     capacity,
     eventArtifact: eventArtifact(),
     changeScript: { version: 0, script: "51" },
     fee: 1_000,
     network: NETWORK,
+    metadata: {
+      name: EVENT_NAME,
+      date: EVENT_DATE,
+      priceKAS: EVENT_PRICE / 100_000_000,
+      orgSpk: ORG_SPK_HEX,
+      burnTemplateHash: BURN_TEMPLATE_HASH,
+    },
   });
   return {
     transaction_id: G_ID,
@@ -119,12 +123,29 @@ function deployTxWithCapacity(capacity: number): TxModel {
       amount: output.value,
       script_public_key: output.scriptPublicKey.script,
       covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
+      covenant_id: output.covenant?.covenantId ?? null,
     })),
+    payload: tx.payload,
+  };
+}
+
+function fundingTx(): TxModel {
+  return {
+    transaction_id: AUTH_TXID,
+    inputs: [],
+    outputs: [
+      {
+        transaction_id: AUTH_TXID,
+        index: 0,
+        amount: UTXO_VALUE,
+        script_public_key: ORG_SPK_HEX,
+      },
+    ],
   };
 }
 
 function deployTx(): TxModel {
-  return deployTxWithCapacity(EVENT.capacity);
+  return deployTxWithCapacity(EVENT_CAPACITY);
 }
 
 function deployScript(): string {
@@ -147,23 +168,24 @@ function buyTxModelFrom(tx: UnsignedTransaction): TxModel {
       amount: output.value,
       script_public_key: output.scriptPublicKey.script,
       covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
+      covenant_id: output.covenant?.covenantId ?? null,
     })),
   };
 }
 
 function buyTx(): TxModel {
   const tx = buildBuy({
-    eventOutpoint: { txId: Uint8Array.from(Buffer.from(G_ID, "hex")), index: 0 },
+    eventOutpoint: { txId: hexToBytes(G_ID), index: 0 },
     eventCovenantId: TEST_COVENANT_ID,
-    eventOwner: Uint8Array.from(Buffer.from(EVENT.orgPkh, "hex")),
+    eventOwner: hexToBytes(ORG_PKH_HEX),
     eventArtifact: eventArtifact(),
     buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
     buyerUtxos: [{ txId: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_UTXO_BYTE), index: 0 }],
     buyerUtxoValues: [UTXO_VALUE],
-    orgScript: { version: 0, script: EVENT.orgSpk },
+    orgScript: { version: 0, script: ORG_SPK_HEX },
     changeScript: { version: 0, script: "51" },
-    remaining: EVENT.capacity,
-    price: EVENT.price,
+    remaining: EVENT_CAPACITY,
+    price: EVENT_PRICE,
     network: NETWORK,
     fee: 400,
   });
@@ -176,7 +198,7 @@ function config() {
 
 function makeEventStore(): EventStore {
   const store = new EventStore(`test-events-${Date.now()}.json`);
-  store.register(EVENT);
+  store.register(makeStoredEvent());
   return store;
 }
 
@@ -189,18 +211,37 @@ function readerApp(kaspa: KaspaClientLike, events: EventStore = makeEventStore()
   });
 }
 
-describe("reader routes (KTK-5)", () => {
-  it("GET /v1/events lists the registered directory", async () => {
+function seedVerifiedEvent(kaspa: FakeKaspa): void {
+  kaspa.transactions.set(AUTH_TXID, fundingTx());
+  kaspa.transactions.set(G_ID, deployTx());
+}
+
+describe("reader routes (KTK-89 stateless directory)", () => {
+  it("GET /v1/events lists identifiers from the registry (details fetched on demand)", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    const app = await readerApp(kaspa);
+    const res = await app.inject({ method: "GET", url: "/v1/events" });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual([
+      {
+        covenant_id: TEST_COVENANT_ID,
+        deploy_txid: G_ID,
+        organizer_address: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
+      },
+    ]);
+    await app.close();
+  });
+
+  it("GET /v1/events returns the registry identifiers even before the tx is verifiable", async () => {
     const app = await readerApp(new FakeKaspa());
     const res = await app.inject({ method: "GET", url: "/v1/events" });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual([
       {
-        covenant_id: EVENT.covenantId,
-        genesis_txid: EVENT.genesisTxId,
-        name: EVENT.name,
-        date: EVENT.date,
-        price: EVENT.price,
+        covenant_id: TEST_COVENANT_ID,
+        deploy_txid: G_ID,
+        organizer_address: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
       },
     ]);
     await app.close();
@@ -218,11 +259,10 @@ describe("reader routes (KTK-5)", () => {
   });
 });
 
-describe("reader routes (KTK-5) — event availability", () => {
-  it("GET /v1/events/{id} returns event + availability", async () => {
+describe("reader routes (KTK-89) — event availability", () => {
+  it("GET /v1/events/{id} returns verified event + availability", async () => {
     const kaspa = new FakeKaspa();
-    const genesis = deployTx();
-    kaspa.transactions.set(G_ID, genesis);
+    seedVerifiedEvent(kaspa);
     const buy = buyTx();
     const deployAddress = addressFromScriptHash(deployScript(), NETWORK);
     kaspa.txMap.set(deployAddress, [buy]);
@@ -244,31 +284,40 @@ describe("reader routes (KTK-5) — event availability", () => {
     ]);
 
     const app = await readerApp(kaspa);
-    const res = await app.inject({ method: "GET", url: `/v1/events/${EVENT.covenantId}` });
+    const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toMatchObject({
       event: {
-        covenant_id: EVENT.covenantId,
-        name: EVENT.name,
-        date: EVENT.date,
-        price: EVENT.price,
+        covenant_id: TEST_COVENANT_ID,
+        deploy_txid: G_ID,
+        name: EVENT_NAME,
+        date: EVENT_DATE,
+        price: EVENT_PRICE,
+        capacity: EVENT_CAPACITY,
+        verified: true,
       },
       availability: { capacity: 2, sold: 1, left: 1 },
       buy_info: {
-        event_owner: EVENT.orgPkh,
-        org_spk: EVENT.orgSpk,
-        burn_template_hash: EVENT.burnTemplateHash,
+        event_owner: ORG_PKH_HEX,
+        org_spk: ORG_SPK_HEX,
+        burn_template_hash: BURN_TEMPLATE_HASH,
         remaining: 1,
+      },
+      raw_chain: {
+        deploy_txid: G_ID,
+        authorizing_txid: AUTH_TXID,
+        maker_address: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
+        decoded_state: { owner: ORG_PKH_HEX, capacity: 2 },
       },
     });
     await app.close();
   });
 });
 
-describe("reader routes (KTK-5) — event validation", () => {
+describe("reader routes (KTK-89) — event validation", () => {
   it("GET /v1/events/{id} treats a missing deploy tx as invalid (400)", async () => {
     const app = await readerApp(new FakeKaspa());
-    const res = await app.inject({ method: "GET", url: `/v1/events/${EVENT.covenantId}` });
+    const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
     expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
     expect(res.json().error.retryable).toBe(false);
@@ -276,9 +325,10 @@ describe("reader routes (KTK-5) — event validation", () => {
   });
 });
 
-describe("reader routes (KTK-5) — tickets", () => {
+describe("reader routes (KTK-89) — tickets", () => {
   it("GET /v1/tickets/{id} returns alive for an unspent ticket", async () => {
     const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
     const buy = buyTx();
     kaspa.transactions.set(B0_ID, buy);
     const ticketScript = buy.outputs?.[0]?.script_public_key as string;
@@ -296,30 +346,28 @@ describe("reader routes (KTK-5) — tickets", () => {
       },
     ]);
 
-    const events = new EventStore(`test-events-${Date.now()}-tickets.json`);
-    events.register(makeStoredEvent({ genesisTxId: B0_ID }));
-    const app = await readerApp(kaspa, events);
+    const app = await readerApp(kaspa);
     const res = await app.inject({ method: "GET", url: `/v1/tickets/${B0_ID}:0` });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json().state).toBe("alive");
-    expect(res.json().event.authorizing_txid).toBe(EVENT.authorizingTxId);
-    expect(res.json().price).toBe(EVENT.price);
+    expect(res.json().event.authorizing_txid).toBe(AUTH_TXID);
+    expect(res.json().price).toBe(EVENT_PRICE);
     await app.close();
   });
 });
 
-describe("reader routes (KTK-5) — unknown tickets", () => {
+describe("reader routes (KTK-89) — unknown tickets", () => {
   it("GET /v1/tickets/{id} returns unknown with a cause (never guessed)", async () => {
     const kaspa = new FakeKaspa();
-    kaspa.transactions.set(G_ID, deployTx());
+    seedVerifiedEvent(kaspa);
     const app = await readerApp(kaspa);
     const res = await app.inject({ method: "GET", url: `/v1/tickets/${G_ID}:0` });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual({
       state: "unknown",
       cause: "unresolved-spend",
-      event: { authorizing_txid: EVENT.authorizingTxId, name: EVENT.name, date: EVENT.date },
-      price: 1_000,
+      event: { authorizing_txid: AUTH_TXID, name: EVENT_NAME, date: EVENT_DATE },
+      price: EVENT_PRICE,
     });
     await app.close();
   });
@@ -346,11 +394,11 @@ const deployBody = {
   capacity: 2,
   constants: {
     authorizing_txid: AUTH_TXID,
-    price: 1_000,
-    org_spk: "21020001",
-    burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
+    price: EVENT_PRICE,
+    org_spk: ORG_SPK_HEX,
+    burn_template_hash: BURN_TEMPLATE_HASH,
   },
-  organizer: "01".repeat(TXID_BYTE_LENGTH),
+  organizer: ORG_PKH_HEX,
   authorizing_outpoint: {
     transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
     index: 0,
@@ -531,8 +579,7 @@ describe("tx routes (KTK-6) — broadcast validation", () => {
 describe("reader routes — POST /v1/events", () => {
   it("registers an event after deploy and returns covenant_id", async () => {
     const kaspa = new FakeKaspa();
-    const genesis = deployTx();
-    kaspa.transactions.set(G_ID, genesis);
+    seedVerifiedEvent(kaspa);
     const events = new EventStore(`test-events-${Date.now()}-post.json`);
     const app = await buildApp(config(), {
       kaspa,
@@ -544,17 +591,7 @@ describe("reader routes — POST /v1/events", () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/events",
-      payload: {
-        genesis_txid: G_ID,
-        org_pkh: EVENT.orgPkh,
-        name: EVENT.name,
-        date: EVENT.date,
-        price: EVENT.price,
-        capacity: EVENT.capacity,
-        org_spk: EVENT.orgSpk,
-        burn_template_hash: EVENT.burnTemplateHash,
-        authorizing_txid: AUTH_TXID,
-      },
+      payload: { deploy_txid: G_ID },
     });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual({ covenant_id: TEST_COVENANT_ID });
@@ -573,16 +610,204 @@ describe("reader routes — POST /v1/events", () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/events",
+      payload: { deploy_txid: G_ID },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+
+  it("rejects POST /v1/events when the deploy is not a verifiable event", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transactions.set(AUTH_TXID, fundingTx());
+    kaspa.transactions.set(G_ID, deployTxWithCapacity(EVENT_CAPACITY));
+    // Tamper: the covenant output no longer matches the artifact constants.
+    const tampered = kaspa.transactions.get(G_ID);
+    if (tampered && tampered.outputs?.[0]) {
+      tampered.outputs[0] = {
+        ...tampered.outputs[0],
+        script_public_key: "51",
+      };
+    }
+    const events = new EventStore(`test-events-${Date.now()}-tampered.json`);
+    const app = await buildApp(config(), {
+      kaspa,
+      events,
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events",
+      payload: { deploy_txid: G_ID },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+});
+
+describe("POST /v1/events/deploy — prepare", () => {
+  const ORG_PUBKEY_HEX = `02${ORG_PKH_HEX}`;
+  const ORG_ADDRESS = p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK);
+
+  function fundOrganizer(kaspa: FakeKaspa): void {
+    kaspa.utxoMap.set(ORG_ADDRESS, [
+      {
+        outpoint: { transactionId: "cc".repeat(TXID_BYTE_LENGTH), index: 0 },
+        utxoEntry: {
+          amount: String(1_000_000_000),
+          scriptPublicKey: { scriptPublicKey: ORG_SPK_HEX },
+          blockDaaScore: "536453032",
+          isCoinbase: false,
+        },
+      },
+    ]);
+  }
+
+  it("returns a signing template the wallet can sign", async () => {
+    const kaspa = new FakeKaspa();
+    fundOrganizer(kaspa);
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy",
       payload: {
-        genesis_txid: G_ID,
-        org_pkh: EVENT.orgPkh,
-        name: EVENT.name,
-        date: EVENT.date,
-        price: EVENT.price,
-        capacity: EVENT.capacity,
-        org_spk: EVENT.orgSpk,
-        burn_template_hash: EVENT.burnTemplateHash,
-        authorizing_txid: AUTH_TXID,
+        phase: "prepare",
+        capacity: EVENT_CAPACITY,
+        price: EVENT_PRICE,
+        publicKey: ORG_PUBKEY_HEX,
+        address: ORG_ADDRESS,
+        name: EVENT_NAME,
+        date: EVENT_DATE,
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    const body = res.json();
+    expect(typeof body.signing_template).toBe("string");
+    const parsed = JSON.parse(body.signing_template);
+    expect(parsed.version).toBe(1);
+    expect(parsed.inputs).toHaveLength(1);
+    expect(parsed.inputs[0].utxo.scriptPublicKey).toContain("ac");
+    expect(body.event_covenant_id).toMatch(/^[0-9a-f]{64}$/);
+    await app.close();
+  });
+
+  it("rejects a deploy with no spendable UTXOs on the organizer address", async () => {
+    const app = await txApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy",
+      payload: {
+        phase: "prepare",
+        capacity: EVENT_CAPACITY,
+        price: EVENT_PRICE,
+        publicKey: ORG_PUBKEY_HEX,
+        address: ORG_ADDRESS,
+      },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.type).toBe("policy");
+    await app.close();
+  });
+
+  it("rejects an invalid phase", async () => {
+    const app = await txApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy",
+      payload: { phase: "nope" },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+});
+
+describe("POST /v1/events/deploy — finalize", () => {
+  it("broadcasts, confirms, and registers the event identifiers", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    mockedSubmit.mockResolvedValue(G_ID);
+
+    const events = new EventStore(`test-events-${Date.now()}-deploy.json`);
+    const app = await buildApp(config(), {
+      kaspa,
+      events,
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy",
+      payload: {
+        phase: "finalize",
+        template: {
+          version: 1,
+          inputs: [
+            {
+              previous_outpoint: { transaction_id: G_ID, index: 0 },
+              signature_script: "",
+              sequence: 0,
+              sig_op_count: 50,
+            },
+          ],
+          outputs: [
+            {
+              value: 49_000,
+              script_public_key: { version: 0, script: "aa20" + "11".repeat(32) + "87" },
+              covenant: { authorizing_input: 0, covenant_id: TEST_COVENANT_ID },
+            },
+          ],
+          lock_time: 0,
+        },
+        signed: {
+          inputs: [
+            {
+              transactionId: G_ID,
+              index: 0,
+              signatureScript: "01".repeat(SIGNATURE_SCRIPT_BYTE_LENGTH),
+            },
+          ],
+        },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    const body = res.json();
+    expect(body).toEqual({ covenant_id: TEST_COVENANT_ID, deploy_txid: G_ID });
+    expect(events.list()).toEqual([
+      {
+        covenantId: TEST_COVENANT_ID,
+        deployTxId: G_ID,
+        organizerAddress: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
+      },
+    ]);
+    await app.close();
+  });
+
+  it("rejects a template that is not a deploy (no covenant output)", async () => {
+    const app = await txApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy",
+      payload: {
+        phase: "finalize",
+        template: {
+          version: 1,
+          inputs: [],
+          outputs: [
+            { value: 49_000, script_public_key: { version: 0, script: "51" }, covenant: null },
+          ],
+          lock_time: 0,
+        },
+        signed: { inputs: [] },
       },
     });
     expect(res.statusCode).toBe(HTTP_BAD_REQUEST);

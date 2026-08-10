@@ -1,10 +1,13 @@
 import type {
   BroadcastResult,
   BuildResult,
+  DeployPrepareRequest,
+  DeployPrepareResult,
   WireOutpoint,
   WireScriptPublicKey,
   WireUtxo,
   WireUtxoMeta,
+  WireTransaction,
 } from "./types";
 
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
@@ -46,43 +49,22 @@ function parseErrorJson(text: string): { error?: { message?: string } } | null {
   }
 }
 
-export interface DeployBuildRequest {
-  capacity: number;
-  authorizingTxId: string;
-  price: number;
-  orgSpk: string;
-  burnTemplateHash: string;
-  organizer: string;
-  authorizingOutpoint: WireUtxo;
-  organizerUtxos: WireUtxo[];
-  changeSpk: WireScriptPublicKey;
-  inputUtxoMetas: WireUtxoMeta[];
-  name?: string;
-  date?: string;
-}
-
-export function buildDeployTx(req: DeployBuildRequest): Promise<BuildResult> {
-  return apiFetch<BuildResult>("/v1/tx/build", {
-    type: "deploy",
-    capacity: req.capacity,
-    constants: {
-      authorizing_txid: req.authorizingTxId,
-      price: req.price,
-      org_spk: req.orgSpk,
-      burn_template_hash: req.burnTemplateHash,
-    },
-    organizer: req.organizer,
-    authorizing_outpoint: req.authorizingOutpoint,
-    organizer_utxos: req.organizerUtxos,
-    change_spk: req.changeSpk,
-    input_utxo_metas: req.inputUtxoMetas,
-    ...(req.name !== undefined ? { name: req.name } : {}),
-    ...(req.date !== undefined ? { date: req.date } : {}),
-  });
-}
-
 export function broadcastTx(transaction: unknown): Promise<BroadcastResult> {
   return apiFetch<BroadcastResult>("/v1/tx/broadcast", { transaction });
+}
+
+/** prepare: backend fetches UTXOs + builds the unsigned template the wallet signs. */
+export function deployPrepare(req: DeployPrepareRequest): Promise<DeployPrepareResult> {
+  return apiFetch<DeployPrepareResult>("/v1/events/deploy", req);
+}
+
+/** finalize: backend merges the signature, broadcasts, confirms, and registers. */
+export function deployFinalize(req: {
+  phase: "finalize";
+  template: WireTransaction;
+  signed: unknown;
+}): Promise<{ covenant_id: string; deploy_txid: string }> {
+  return apiFetch<{ covenant_id: string; deploy_txid: string }>("/v1/events/deploy", req);
 }
 
 /** Fetch event detail + availability from the API (KTK-89: chain-verified). */
@@ -156,11 +138,7 @@ export function fetchEvent(covenantId: string): Promise<EventDetail> {
 export interface EventListItem {
   covenant_id: string;
   deploy_txid: string;
-  name: string;
-  date: string;
-  price: number;
   organizer_address: string;
-  verified: boolean;
 }
 
 export function fetchEventsList(organizerAddress?: string): Promise<EventListItem[]> {
@@ -168,42 +146,6 @@ export function fetchEventsList(organizerAddress?: string): Promise<EventListIte
     ? `?organizer_address=${encodeURIComponent(organizerAddress)}`
     : "";
   return apiGet<EventListItem[]>(`/v1/events${query}`);
-}
-
-export interface RegisterEventPayload {
-  deploy_txid: string;
-}
-
-export function registerEvent(payload: RegisterEventPayload): Promise<{ covenant_id: string }> {
-  return apiFetch<{ covenant_id: string }>("/v1/events", payload);
-}
-
-const REGISTER_RETRY_DELAY_MS = 1000;
-const REGISTER_MAX_RETRIES = 5;
-
-/**
- * Registration races the deploy tx's chain visibility: the API only registers
- * after verifying the deploy tx on chain, which needs the tx to be mined. Retry
- * with doubling backoff (1s, 2s, 4s, 8s, 16s) so a just-broadcast event becomes
- * discoverable once accepted.
- */
-export async function registerEventWithRetry(
-  payload: RegisterEventPayload,
-): Promise<{ covenant_id: string }> {
-  let delay = REGISTER_RETRY_DELAY_MS;
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= REGISTER_MAX_RETRIES; attempt++) {
-    try {
-      return await registerEvent(payload);
-    } catch (err) {
-      lastErr = err;
-      if (attempt < REGISTER_MAX_RETRIES) {
-        await new Promise((r) => setTimeout(r, delay));
-        delay *= 2;
-      }
-    }
-  }
-  throw lastErr;
 }
 
 export interface BuyBuildRequest {

@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchEventsList, type EventListItem } from "../api/client";
-import { organizerPkh } from "../api/crypto";
+import { fetchEvent, fetchEventsList, type EventListItem } from "../api/client";
+import { organizerAddressFromPublicKey } from "../api/crypto";
 import { useWallet } from "../hooks/use-wallet";
-import { whenLabel } from "../lib/format";
 import { network } from "../network";
 
 export default function DoorPage() {
@@ -11,11 +10,16 @@ export default function DoorPage() {
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{
+    name: string;
+    date: string;
+  } | null>(null);
 
   useEffect(() => {
     if (state.status !== "connected") {
       setEvents([]);
       setSelectedId(null);
+      setSelected(null);
       return;
     }
     const publicKey = state.publicKey;
@@ -23,7 +27,7 @@ export default function DoorPage() {
     async function load() {
       setLoading(true);
       try {
-        const list = await fetchEventsList(organizerPkh(publicKey));
+        const list = await fetchEventsList(organizerAddressFromPublicKey(publicKey));
         if (!cancelled) setEvents(list);
       } catch {
         if (!cancelled) setEvents([]);
@@ -35,10 +39,27 @@ export default function DoorPage() {
     return () => { cancelled = true; };
   }, [state]);
 
-  const selected = useMemo(
-    () => events.find((e) => e.covenant_id === selectedId) ?? null,
-    [events, selectedId],
-  );
+  useEffect(() => {
+    const id = selectedId;
+    if (!id) {
+      setSelected(null);
+      return;
+    }
+    let cancelled = false;
+    async function loadDetail() {
+      try {
+        const detail = await fetchEvent(id as string);
+        if (!cancelled && detail.event.verified) {
+          setSelected({ name: detail.event.name, date: detail.event.date });
+        }
+      } catch {
+        if (!cancelled) setSelected(null);
+      }
+    }
+    setSelected(null);
+    loadDetail();
+    return () => { cancelled = true; };
+  }, [selectedId]);
 
   return (
     <div data-theme="dark" className="door">
@@ -54,7 +75,7 @@ export default function DoorPage() {
               Scanning
             </div>
             <h1 className="door-title">{selected.name}</h1>
-            <p className="door-sub">{whenLabel(selected.date)}</p>
+            <p className="door-sub">{selected.date}</p>
             <div className="door-frame">Scanning for tickets</div>
             <button
               type="button"
@@ -64,7 +85,7 @@ export default function DoorPage() {
               Choose another event
             </button>
           </>
-        ) : state.status === "connected" && loading ? (
+        ) : selectedId ? (
           <>
             <div className="door-status">
               <span className="door-status-dot" aria-hidden="true" />
@@ -89,8 +110,8 @@ export default function DoorPage() {
                   className="door-event-card"
                   onClick={() => setSelectedId(event.covenant_id)}
                 >
-                  <span className="door-event-name">{event.name}</span>
-                  <span className="door-event-date">{whenLabel(event.date)}</span>
+                  <span className="door-event-name">{event.covenant_id.slice(0, 12)}</span>
+                  <span className="door-event-date">Tap to scan</span>
                 </button>
               ))}
             </div>

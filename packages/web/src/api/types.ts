@@ -54,3 +54,23 @@ export interface BuildResult {
 export interface BroadcastResult {
   txid: string;
 }
+
+export interface DeployPrepareRequest {
+  phase: "prepare";
+  capacity: number;
+  /** Ticket price in sompi (the frontend converts KAS → sompi). */
+  price: number;
+  /** Compressed (66-hex) or bare x-coordinate (64-hex) organizer public key. */
+  publicKey: string;
+  /** The organizer's bech32 address — the backend fetches its UTXOs itself. */
+  address: string;
+  name?: string;
+  date?: string;
+}
+
+export interface DeployPrepareResult {
+  signing_template: string;
+  event_covenant_id?: string;
+  /** The unsigned template the wallet signed — relayed back in finalize. */
+  template: WireTransaction;
+}

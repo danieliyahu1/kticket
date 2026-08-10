@@ -2,61 +2,108 @@ import {
   addressFromScriptHash,
   buildBuy,
   buildDeploy,
+  p2pkAddress,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 import { compileBurnArtifact, compileEventArtifact } from "./compiler";
-import { eventAvailability, parseRegisterEventBody } from "./events";
-import type { StoredEventInternal } from "./eventstore";
+import { eventAvailability } from "./events";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
+import { verifyEventFromChain } from "./provenance";
 
 const TXID_BYTE_LENGTH = 32;
-const EVENT_ID_FIRST_BYTE = 0xab;
-const ORG_SPK_VERSION = 0x21;
-const ORG_SPK_FLAG = 0x02;
-const ORG_SPK_ZERO_BYTE = 0x00;
-const ORG_SPK_LENGTH_BYTE = 0x01;
-const ORG_PKH_BYTE = 0x01;
+const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(0x01);
 const BUYER_BYTE = 0x02;
 const UTXO_VALUE = 10_000_000_000;
 
 const NETWORK = "testnet10";
-const EVENT_ID = new Uint8Array(TXID_BYTE_LENGTH).map((_, i) =>
-  i === 0 ? EVENT_ID_FIRST_BYTE : i,
-);
-const ORG_SPK = new Uint8Array([
-  ORG_SPK_VERSION,
-  ORG_SPK_FLAG,
-  ORG_SPK_ZERO_BYTE,
-  ORG_SPK_LENGTH_BYTE,
-]);
-const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(ORG_PKH_BYTE);
+const AUTH_TXID = "ab".repeat(TXID_BYTE_LENGTH);
 const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
-
-const EVENT_ID_HEX = bytesToHex(EVENT_ID);
-const ORG_SPK_HEX = bytesToHex(ORG_SPK);
 const ORG_PKH_HEX = bytesToHex(ORG_PKH);
+const ORG_SPK_HEX = `20${ORG_PKH_HEX}ac`;
 const BURN_TEMPLATE_HASH = bytesToHex(
-  Uint8Array.from(compileBurnArtifact(EVENT_ID_HEX).template_hash),
+  Uint8Array.from(compileBurnArtifact(AUTH_TXID).template_hash),
 );
 
-const EVENT: StoredEventInternal = {
-  covenantId: "cc".repeat(TXID_BYTE_LENGTH),
-  genesisTxId: G_ID,
-  orgPkh: ORG_PKH_HEX,
-  orgSpk: ORG_SPK_HEX,
-  burnTemplateHash: BURN_TEMPLATE_HASH,
-  name: "Testnet Rave",
-  date: "2026-12-31",
-  price: 1_000,
-  capacity: 3,
-  authorizingTxId: EVENT_ID_HEX,
-};
+const NAME = "Testnet Rave";
+const DATE = "2026-12-31";
+const PRICE = 1_000;
+const CAPACITY = 3;
 
 function outpointBytes(txIdHex: string, index: number) {
   return { txId: hexToBytes(txIdHex), index };
+}
+
+function eventArtifact() {
+  return compileEventArtifact({
+    authorizingTxId: AUTH_TXID,
+    price: PRICE,
+    orgSpk: ORG_SPK_HEX,
+    burnTemplateHash: BURN_TEMPLATE_HASH,
+  });
+}
+
+function deployModel(capacity: number): TxModel {
+  const artifact = compileEventArtifact({
+    authorizingTxId: AUTH_TXID,
+    price: PRICE,
+    orgSpk: ORG_SPK_HEX,
+    burnTemplateHash: BURN_TEMPLATE_HASH,
+  });
+  const { tx } = buildDeploy({
+    authorizingOutpoint: outpointBytes(AUTH_TXID, 0),
+    organizerUtxos: [],
+    organizerUtxoValues: [UTXO_VALUE],
+    organizer: ORG_PKH,
+    capacity,
+    eventArtifact: artifact,
+    changeScript: { version: 0, script: "51" },
+    fee: 1_000,
+    network: NETWORK,
+    metadata: {
+      name: NAME,
+      date: DATE,
+      priceKAS: PRICE / 100_000_000,
+      orgSpk: ORG_SPK_HEX,
+      burnTemplateHash: BURN_TEMPLATE_HASH,
+    },
+  });
+  return {
+    transaction_id: G_ID,
+    inputs: tx.inputs.map((input, index) => ({
+      transaction_id: input.previousOutpoint.txId,
+      index,
+      previous_outpoint_hash: input.previousOutpoint.txId,
+      previous_outpoint_index: String(input.previousOutpoint.index),
+      signature_script: input.signatureScript,
+    })),
+    outputs: tx.outputs.map((output, index) => ({
+      transaction_id: G_ID,
+      index,
+      amount: output.value,
+      script_public_key: output.scriptPublicKey.script,
+      covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
+      covenant_id: output.covenant?.covenantId ?? null,
+    })),
+    payload: tx.payload,
+  };
+}
+
+function fundingModel(): TxModel {
+  return {
+    transaction_id: AUTH_TXID,
+    inputs: [],
+    outputs: [
+      {
+        transaction_id: AUTH_TXID,
+        index: 0,
+        amount: UTXO_VALUE,
+        script_public_key: ORG_SPK_HEX,
+      },
+    ],
+  };
 }
 
 function buyTxModel(tx: UnsignedTransaction, txId: string): TxModel {
@@ -71,46 +118,6 @@ function buyTxModel(tx: UnsignedTransaction, txId: string): TxModel {
     })),
     outputs: tx.outputs.map((output, index) => ({
       transaction_id: txId,
-      index,
-      amount: output.value,
-      script_public_key: output.scriptPublicKey.script,
-      covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
-    })),
-  };
-}
-
-function eventArtifact() {
-  return compileEventArtifact({
-    authorizingTxId: EVENT_ID_HEX,
-    price: 1_000,
-    orgSpk: ORG_SPK_HEX,
-    burnTemplateHash: BURN_TEMPLATE_HASH,
-  });
-}
-
-function deployModel(capacity: number): TxModel {
-  const { tx } = buildDeploy({
-    authorizingOutpoint: outpointBytes("11".repeat(TXID_BYTE_LENGTH), 0),
-    organizerUtxos: [outpointBytes("22".repeat(TXID_BYTE_LENGTH), 0)],
-    organizerUtxoValues: [UTXO_VALUE, UTXO_VALUE],
-    organizer: ORG_PKH,
-    capacity,
-    eventArtifact: eventArtifact(),
-    changeScript: { version: 0, script: "51" },
-    fee: 1_000,
-    network: NETWORK,
-  });
-  return {
-    transaction_id: G_ID,
-    inputs: tx.inputs.map((input, index) => ({
-      transaction_id: input.previousOutpoint.txId,
-      index,
-      previous_outpoint_hash: input.previousOutpoint.txId,
-      previous_outpoint_index: String(input.previousOutpoint.index),
-      signature_script: input.signatureScript,
-    })),
-    outputs: tx.outputs.map((output, index) => ({
-      transaction_id: G_ID,
       index,
       amount: output.value,
       script_public_key: output.scriptPublicKey.script,
@@ -143,7 +150,10 @@ class FakeKaspa implements KaspaClientLike {
   }
 
   async getTransaction(txId: string): Promise<TxModel | null> {
-    return txId.toLowerCase() === this.genesis.transaction_id ? this.genesis : null;
+    const lower = txId.toLowerCase();
+    if (lower === this.genesis.transaction_id) return this.genesis;
+    if (lower === AUTH_TXID) return fundingModel();
+    return this.addressTxs.get(lower)?.find((t) => t.transaction_id === lower) ?? null;
   }
 
   async getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]> {
@@ -171,112 +181,114 @@ class FakeKaspa implements KaspaClientLike {
   }
 }
 
-describe("parseRegisterEventBody (POST /v1/events)", () => {
-  it("parses a valid registration body", () => {
-    const parsed = parseRegisterEventBody({
-      genesis_txid: G_ID,
-      org_pkh: bytesToHex(ORG_PKH),
-      name: "Testnet Rave",
-      date: "2026-12-31",
-      price: 1_000,
-      capacity: 3,
-      org_spk: bytesToHex(ORG_SPK),
-      burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
-      authorizing_txid: bytesToHex(EVENT_ID),
-    });
-    expect(parsed).toEqual({
-      genesisTxId: G_ID,
-      orgPkh: bytesToHex(ORG_PKH),
-      name: "Testnet Rave",
-      date: "2026-12-31",
-      price: 1_000,
-      capacity: 3,
-      orgSpk: bytesToHex(ORG_SPK),
-      burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
-      authorizingTxId: bytesToHex(EVENT_ID),
-    });
-  });
-
-  it("rejects missing fields", () => {
-    const base = {
-      genesis_txid: G_ID,
-      org_pkh: bytesToHex(ORG_PKH),
-      name: "x",
-      date: "d",
-      price: 1,
-      capacity: 2,
-      org_spk: bytesToHex(ORG_SPK),
-      burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
-      authorizing_txid: bytesToHex(EVENT_ID),
-    };
-    expect(() => parseRegisterEventBody({ ...base, genesis_txid: "short" })).toThrow(
-      /genesis_txid/,
-    );
-    expect(() => parseRegisterEventBody({ ...base, org_pkh: "short" })).toThrow(
-      /org_pkh/,
-    );
-    expect(() => parseRegisterEventBody({ ...base, capacity: 200 })).toThrow(
-      /capacity/,
-    );
-    expect(() => parseRegisterEventBody({ ...base, price: -1 })).toThrow(/price/);
-    expect(() => parseRegisterEventBody({ ...base, name: "" })).toThrow(/name/);
-  });
-});
-
 function deploySpk(genesis: TxModel): string {
   const spk = genesis.outputs?.[0]?.script_public_key;
   if (typeof spk !== "string") throw new Error("fixture missing deploy covenant script");
   return spk;
 }
 
-function buyDeploy() {
-  return buildDeploy({
-    authorizingOutpoint: outpointBytes("11".repeat(TXID_BYTE_LENGTH), 0),
+function buyModel(): TxModel {
+  const artifact = compileEventArtifact({
+    authorizingTxId: AUTH_TXID,
+    price: PRICE,
+    orgSpk: ORG_SPK_HEX,
+    burnTemplateHash: BURN_TEMPLATE_HASH,
+  });
+  const deploy = buildDeploy({
+    authorizingOutpoint: outpointBytes(AUTH_TXID, 0),
     organizerUtxos: [],
     organizerUtxoValues: [UTXO_VALUE],
     organizer: ORG_PKH,
-    capacity: 3,
-    eventArtifact: eventArtifact(),
+    capacity: CAPACITY,
+    eventArtifact: artifact,
     changeScript: { version: 0, script: "51" },
     fee: 1_000,
     network: NETWORK,
   });
-}
-
-function buyModel(): TxModel {
-  const deploy = buyDeploy();
   const buy = buildBuy({
     eventOutpoint: outpointBytes(G_ID, 0),
     eventCovenantId: deploy.eventCovenantId,
     eventOwner: ORG_PKH,
-    eventArtifact: eventArtifact(),
+    eventArtifact: artifact,
     buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
     buyerUtxos: [outpointBytes("33".repeat(TXID_BYTE_LENGTH), 0)],
     buyerUtxoValues: [UTXO_VALUE],
-    orgScript: { version: 0, script: "51" },
+    orgScript: { version: 0, script: ORG_SPK_HEX },
     changeScript: { version: 0, script: "51" },
-    remaining: 3,
-    price: 1_000,
+    remaining: CAPACITY,
+    price: PRICE,
     network: NETWORK,
     fee: 400,
   });
   return buyTxModel(buy, G_ID);
 }
 
-describe("eventAvailability (GET /v1/events/{covenant_id})", () => {
+describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
+  it("recovers name/date/price/owner/capacity from the deploy tx", async () => {
+    const deploy = deployModel(CAPACITY);
+    const kaspa = new FakeKaspa(deploy);
+    const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
+    expect(verified).toMatchObject({
+      deploy_txid: G_ID,
+      name: NAME,
+      date: DATE,
+      price: PRICE,
+      capacity: CAPACITY,
+      organizer_address: p2pkAddress(ORG_PKH, NETWORK),
+      owner_pkh: ORG_PKH_HEX,
+      org_spk: ORG_SPK_HEX,
+      authorizing_txid: AUTH_TXID,
+    });
+    expect(verified.raw_chain).toMatchObject({
+      deploy_txid: G_ID,
+      authorizing_txid: AUTH_TXID,
+      maker_address: p2pkAddress(ORG_PKH, NETWORK),
+      decoded_state: { owner: ORG_PKH_HEX, capacity: CAPACITY },
+    });
+  });
+
+  it("treats a missing deploy tx as invalid, not an upstream outage", async () => {
+    const kaspa = new FakeKaspa({
+      transaction_id: "ff".repeat(TXID_BYTE_LENGTH),
+      inputs: [],
+      outputs: [],
+    });
+    await expect(verifyEventFromChain(kaspa, NETWORK, G_ID)).rejects.toMatchObject({
+      type: "invalid",
+      statusCode: 400,
+    });
+  });
+
+  it("fails verification when the covenant output does not commit to the constants", async () => {
+    const deploy = deployModel(CAPACITY);
+    const tampered = {
+      ...deploy,
+      outputs: deploy.outputs?.map((o, i) =>
+        i === 0 ? { ...o, script_public_key: "51" } : o,
+      ),
+    };
+    const kaspa = new FakeKaspa(tampered);
+    await expect(verifyEventFromChain(kaspa, NETWORK, G_ID)).rejects.toMatchObject({
+      type: "invalid",
+    });
+  });
+});
+
+describe("eventAvailability (KTK-89 — chain-derived)", () => {
   it("reports sold 0 / left capacity when the event covenant is unspent", async () => {
-    const deploy = deployModel(EVENT.capacity);
+    const deploy = deployModel(CAPACITY);
     const kaspa = new FakeKaspa(deploy);
     kaspa.utxosAt(addressFromScriptHash(deploySpk(deploy), NETWORK), {
       transactionId: G_ID,
       index: 0,
     });
-    const availability = await eventAvailability(EVENT, kaspa, NETWORK);
-    expect(availability).toMatchObject({ capacity: 3, sold: 0, left: 3 });
+    const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
+    const availability = await eventAvailability(verified, kaspa, NETWORK);
+    expect(availability).toMatchObject({ capacity: CAPACITY, sold: 0, left: CAPACITY });
   });
 
   it("walks the event covenant lineage and counts mints as sold", async () => {
-    const deploy = deployModel(EVENT.capacity);
+    const deploy = deployModel(CAPACITY);
     const kaspa = new FakeKaspa(deploy);
     const buy = buyModel();
     const oldAddress = addressFromScriptHash(deploySpk(deploy), NETWORK);
@@ -287,32 +299,8 @@ describe("eventAvailability (GET /v1/events/{covenant_id})", () => {
     );
     kaspa.utxosAt(newAddress, { transactionId: G_ID, index: 0 });
 
-    const availability = await eventAvailability(EVENT, kaspa, NETWORK);
-    expect(availability).toMatchObject({ capacity: 3, sold: 1, left: 2 });
-  });
-});
-
-describe("eventAvailability (edge cases)", () => {
-  it("handles a capacity-0 event", async () => {
-    const deploy = deployModel(0);
-    const kaspa = new FakeKaspa(deploy);
-    const availability = await eventAvailability(
-      { ...EVENT, capacity: 0 },
-      kaspa,
-      NETWORK,
-    );
-    expect(availability).toMatchObject({ capacity: 0, sold: 0, left: 0 });
-  });
-
-  it("treats a missing deploy tx as an invalid event, not an upstream outage", async () => {
-    const kaspa = new FakeKaspa({
-      transaction_id: "ff".repeat(TXID_BYTE_LENGTH),
-      inputs: [],
-      outputs: [],
-    });
-    await expect(eventAvailability(EVENT, kaspa, NETWORK)).rejects.toMatchObject({
-      type: "invalid",
-      statusCode: 400,
-    });
+    const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
+    const availability = await eventAvailability(verified, kaspa, NETWORK);
+    expect(availability).toMatchObject({ capacity: CAPACITY, sold: 1, left: CAPACITY - 1 });
   });
 });

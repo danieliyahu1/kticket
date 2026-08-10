@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
-import { registerEventWithRetry } from "../api/client";
 import { DeployStatus } from "../components/deploy-dialog";
 import { Empty } from "../components/empty";
 import { EventForm, type EventFormData } from "../components/event-form";
@@ -45,18 +44,8 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
   const [form, setForm] = useState<EventFormData>(EMPTY_FORM);
   const [deploy, setDeploy] = useState<DeployState>({ phase: "idle" });
   const [errors, setErrors] = useState<Partial<Record<keyof EventFormData, string>>>({});
-  const savedRef = useRef(false);
 
   const startDeploy = () => deployEvent(wallet, form, setDeploy);
-
-  useEffect(() => {
-    if (deploy.phase !== "success" || !deploy.txid || !deploy.authorizingTxId || savedRef.current) return;
-    savedRef.current = true;
-    // Discovery-only registration (KTK-89): the backend verifies the event from
-    // the deploy tx on chain and stores just the identifier registry pointers.
-    // The deploy tx may not be mined yet, so retry with backoff until verifiable.
-    registerEventWithRetry({ deploy_txid: deploy.txid });
-  }, [deploy, wallet]);
 
   if (deploy.phase !== "idle") {
     return (
@@ -108,7 +97,7 @@ function deployPhaseStatus(
   phase: DeployState["phase"],
 ): "deploying" | "broadcasting" | "success" | "error" {
   if (phase === "building") return "deploying";
-  if (phase === "broadcasting") return "broadcasting";
+  if (phase === "signing" || phase === "broadcasting") return "broadcasting";
   if (phase === "success") return "success";
   return "error";
 }

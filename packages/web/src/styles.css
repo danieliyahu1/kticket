@@ -341,6 +341,62 @@ button {
   font-size: 0.9375rem;
 }
 
+.event-card-organizer {
+  margin-top: var(--space-1);
+  color: var(--ink-tertiary);
+  font-size: 0.8125rem;
+}
+
+/* ── Trust anchor (KTK-89) ────────────────────────────────── */
+
+.trust-anchor {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--canvas-subtle);
+}
+
+.trust-anchor-unverified {
+  border-color: var(--danger-soft);
+  background: var(--danger-soft);
+}
+
+.trust-anchor-address {
+  color: var(--ink-secondary);
+  font-size: 0.875rem;
+}
+
+.trust-anchor-copy {
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.badge-ok {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .event-card-meta {
   display: flex;
   flex-wrap: wrap;

@@ -14,13 +14,18 @@
 //     addr = successor address; outpoint = successor
 //   -> UNKNOWN { depth-exceeded }
 //
+// The ticket's event is resolved trustlessly: the ticket's genesis output
+// carries the event covenant_id (KIP-20), the identifier registry maps that to
+// the deploy txid (discovery only), and the resolver verifies the event from
+// chain. A poisoned registry entry fails verification and the ticket is reported
+// without fabricated event meta.
+//
 // Invariant (DEC-12): ALIVE only on a live UTXO; GONE only on a burn-owner
 // successor; everything else UNKNOWN (retryable), never fabricated.
 
 import { addressFromScriptHash, p2shScript, type KaspaNetwork } from "@kticket/kit";
 import { compileBurnArtifact } from "./compiler.js";
 import { invalidError } from "./errors.js";
-import type { StoredEventInternal } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { findSpend, findSuccessor, type OutpointRef } from "./lineage.js";
 
@@ -28,6 +33,13 @@ export const MAX_LINEAGE_DEPTH = 16;
 
 export type TicketState = "alive" | "gone" | "unknown";
 export type UnknownCause = "unresolved-spend" | "no-successor" | "unknown-event" | "depth-exceeded";
+
+export interface ResolvedEvent {
+  authorizingTxId: string;
+  name: string;
+  date: string;
+  price: number;
+}
 
 export interface VerifyResult {
   state: TicketState;
@@ -40,7 +52,10 @@ export interface VerifyResult {
 
 export interface ReaderContext {
   kaspa: KaspaClientLike;
-  events: { byGenesisTxId(txId: string): StoredEventInternal | undefined };
+  /** Resolve an event's display facts from its covenant_id (chain-verified). */
+  events: {
+    resolve(covenantId: string): Promise<ResolvedEvent | undefined>;
+  };
   network: KaspaNetwork;
 }
 
@@ -56,7 +71,11 @@ export function parseTicketId(raw: string): { txId: string; index: number } {
   return { txId: txId.toLowerCase(), index: Number(indexStr) };
 }
 
-async function loadGenesis(ctx: ReaderContext, txId: string, index: number) {
+async function loadGenesis(
+  ctx: ReaderContext,
+  txId: string,
+  index: number,
+): Promise<{ spk: string; covenantId?: string }> {
   const genesis = await ctx.kaspa.getTransaction(txId);
   if (!genesis) throw invalidError(`genesis transaction ${txId} not found`);
 
@@ -67,12 +86,12 @@ async function loadGenesis(ctx: ReaderContext, txId: string, index: number) {
   if (typeof spk !== "string" || !(HEX64.test(spk) || P2SH_SCRIPT.test(spk))) {
     throw invalidError("output is not a kticket covenant output");
   }
-  return spk;
+  return { spk, covenantId: output.covenant_id?.toLowerCase() ?? undefined };
 }
 
 function liveResult(
   utxos: readonly { outpoint: OutpointRef }[],
-  event: StoredEventInternal | undefined,
+  event: ResolvedEvent | undefined,
 ): VerifyResult | undefined {
   const live = utxos[0];
   if (!live) return undefined;
@@ -86,7 +105,7 @@ function liveResult(
   };
 }
 
-function isBurnSuccessor(event: StoredEventInternal | undefined, scriptPublicKey: string): boolean {
+function isBurnSuccessor(event: ResolvedEvent | undefined, scriptPublicKey: string): boolean {
   if (event === undefined) return false;
   const burn = compileBurnArtifact(event.authorizingTxId);
   const hash = p2shScript(Uint8Array.from(burn.bytecode)).script;
@@ -101,7 +120,7 @@ async function advance(
   ctx: ReaderContext,
   address: string,
   outpoint: OutpointRef,
-  event: StoredEventInternal | undefined,
+  event: ResolvedEvent | undefined,
 ): Promise<AdvanceOutcome> {
   const utxos = await ctx.kaspa.getUtxos(address);
   const alive = liveResult(utxos, event);
@@ -145,9 +164,12 @@ async function advance(
 
 export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<VerifyResult> {
   const { txId, index } = parseTicketId(raw);
-  const spk = await loadGenesis(ctx, txId, index);
+  const { spk, covenantId } = await loadGenesis(ctx, txId, index);
 
-  const event = ctx.events.byGenesisTxId(txId);
+  const event = covenantId
+    ? await ctx.events.resolve(covenantId)
+    : undefined;
+
   let address = addressFromScriptHash(spk, ctx.network);
   let outpoint: OutpointRef = { transactionId: txId, index };
 
@@ -161,7 +183,7 @@ export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<Ver
   return { state: "unknown", cause: "depth-exceeded", ...eventMeta(event) };
 }
 
-function eventMeta(event: StoredEventInternal | undefined) {
+function eventMeta(event: ResolvedEvent | undefined) {
   if (!event) return {};
   return {
     event: { authorizing_txid: event.authorizingTxId, name: event.name, date: event.date },

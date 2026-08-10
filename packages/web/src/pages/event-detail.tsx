@@ -3,7 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { fetchEvent, type EventDetail } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
 import { useWallet } from "../hooks/use-wallet";
-import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
+import { anchorUrl, saveAnchor } from "../lib/anchors";
+import { capacityLabel, priceLabel, shortAddress, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
   const { covenantId } = useParams<{ covenantId: string }>();
@@ -12,6 +13,7 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [buy, setBuy] = useState<BuyState>({ phase: "idle" });
+  const [copied, setCopied] = useState(false);
   const pendingBuy = useRef(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -22,6 +24,14 @@ export default function EventDetailPage() {
     try {
       const e = await fetchEvent(covenantId);
       setEvent(e);
+      if (e.event.verified) {
+        saveAnchor({
+          covenantId: e.event.covenant_id,
+          deployTxid: e.event.deploy_txid,
+          name: e.event.name,
+          savedAt: Date.now(),
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       setError(msg.includes("not found") ? "Event does not exist." : "Could not load event.");
@@ -59,6 +69,17 @@ export default function EventDetailPage() {
     connect();
   }, [connect]);
 
+  const handleCopyAnchor = useCallback(() => {
+    if (!covenantId) return;
+    navigator.clipboard?.writeText(anchorUrl(covenantId)).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  }, [covenantId]);
+
   if (loading) {
     return (
       <section>
@@ -91,6 +112,7 @@ export default function EventDetailPage() {
 
   const connected = state.status === "connected";
   const soldOut = event.availability.left === 0;
+  const verified = event.event.verified;
 
   return (
     <section>
@@ -101,8 +123,37 @@ export default function EventDetailPage() {
       <h2 className="page-heading">{event.event.name}</h2>
       <p className="page-sub">{whenLabel(event.event.date)}</p>
 
+      {verified ? (
+        <div className="trust-anchor">
+          <span className="badge badge-ok" aria-label="verified">
+            Verified on-chain
+          </span>
+          <span className="trust-anchor-address">
+            Organized by <span className="mono">{shortAddress(event.event.organizer_address)}</span>
+          </span>
+          <button
+            type="button"
+            className="btn btn-link btn-sm btn-link-clean"
+            onClick={handleCopyAnchor}
+          >
+            {copied ? "Anchor copied" : "Copy anchor link"}
+          </button>
+        </div>
+      ) : (
+        <div className="trust-anchor trust-anchor-unverified">
+          <span className="badge badge-error">Unverified</span>
+          <span className="trust-anchor-copy">
+            This event could not be verified against the chain.
+          </span>
+        </div>
+      )}
+
       <div className="buy-cta">
-        {buy.phase === "success" ? (
+        {!verified ? (
+          <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
+            Cannot buy — unverified event
+          </button>
+        ) : buy.phase === "success" ? (
           <div className="status">
             <div className="status-icon status-icon-ok">
               <span>&#10003;</span>

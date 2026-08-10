@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fetchEventsList, fetchMyTicketsWithRetry, type EventListItem, type TicketEntry } from "../api/client";
-import { organizerPkh } from "../api/crypto";
+import {
+  fetchEventsList,
+  fetchMyTicketsWithRetry,
+  type EventListItem,
+  type TicketEntry,
+} from "../api/client";
+import { organizerAddressFromPublicKey } from "../api/crypto";
 import { Empty } from "../components/empty";
 import { TicketsSection } from "../components/tickets-section";
 import { useWallet } from "../hooks/use-wallet";
-import { priceLabel, whenLabel } from "../lib/format";
+import { listAnchors, removeAnchor } from "../lib/anchors";
+import { shortAddress } from "../lib/format";
 
-type Segment = "all" | "created" | "tickets";
+type Segment = "all" | "created" | "tickets" | "saved";
 
 const SEGMENTS: Array<{ id: Segment; label: string }> = [
   { id: "all", label: "Browse" },
+  { id: "saved", label: "Saved" },
   { id: "created", label: "Created" },
   { id: "tickets", label: "Tickets" },
 ];
@@ -79,6 +86,17 @@ function TicketsEmptyDisconnected({ onConnect }: { onConnect: () => void }) {
   );
 }
 
+function SavedEmpty() {
+  return (
+    <Empty
+      title="No saved events."
+      sub="Open an event and its anchor link is saved here for next time."
+      actionLabel="Browse events"
+      actionTo="/"
+    />
+  );
+}
+
 function Segmented({ current, onChange }: { current: Segment; onChange: (s: Segment) => void }) {
   return (
     <div className="segmented" role="group" aria-label="Filter events" style={{ "--seg": SEGMENTS.findIndex((s) => s.id === current) } as React.CSSProperties}>
@@ -102,11 +120,11 @@ function EventCard({ event }: { event: EventListItem }) {
     <Link to={`/events/${event.covenant_id}`} className="card event-card">
       <span
         className="event-card-accent"
-        style={{ background: `hsl(${hashHue(event.name)}, 45%, 48%)` }}
+        style={{ background: `hsl(${hashHue(event.covenant_id)}, 45%, 48%)` }}
       />
-      <h3 className="event-card-name">{event.name}</h3>
-      <p className="event-card-line">
-        {priceLabel(event.price)} &middot; {whenLabel(event.date)}
+      <h3 className="event-card-name">{shortAddress(event.covenant_id)}</h3>
+      <p className="event-card-line event-card-organizer">
+        by {shortAddress(event.organizer_address)}
       </p>
     </Link>
   );
@@ -116,6 +134,10 @@ const HERO: Record<Segment, { title: string; sub: string }> = {
   all: {
     title: "Real tickets. On the chain.",
     sub: "Tickets that can't be faked, duplicated, or taken from you.",
+  },
+  saved: {
+    title: "Events you've anchored.",
+    sub: "Your saved anchor links — every one verifiable on-chain.",
   },
   created: {
     title: "Events you've put on the chain.",
@@ -130,6 +152,7 @@ const HERO: Record<Segment, { title: string; sub: string }> = {
 function segmentFromParam(param: string | null): Segment {
   if (param === "created") return "created";
   if (param === "tickets") return "tickets";
+  if (param === "saved") return "saved";
   return "all";
 }
 
@@ -144,11 +167,14 @@ export default function EventsPage() {
   const initialSegment = segmentFromParam(searchParams.get("filter"));
   const [segment, setSegment] = useState<Segment>(initialSegment);
   const [events, setEvents] = useState<EventListItem[]>([]);
+  const [savedEvents, setSavedEvents] = useState<EventListItem[]>([]);
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const connected = state.status === "connected";
-  const filterOrgPkh =
-    segment === "created" && connected ? organizerPkh(state.publicKey) : undefined;
+  const filterOrganizer =
+    segment === "created" && connected
+      ? organizerAddressFromPublicKey(state.publicKey)
+      : undefined;
 
   const loadTickets = useCallback(async () => {
     if (state.status !== "connected") return;
@@ -180,7 +206,7 @@ export default function EventsPage() {
     async function load() {
       setLoading(true);
       try {
-        const list = await fetchEventsList(filterOrgPkh);
+        const list = await fetchEventsList(filterOrganizer);
         if (!cancelled) setEvents(list);
       } catch {
         if (!cancelled) setEvents([]);
@@ -192,9 +218,38 @@ export default function EventsPage() {
     return () => {
       cancelled = true;
     };
-  }, [filterOrgPkh, segment]);
+  }, [filterOrganizer, segment]);
 
-  const visible = events;
+  useEffect(() => {
+    if (segment !== "saved") return;
+    let cancelled = false;
+    async function loadSaved() {
+      setLoading(true);
+      try {
+        const anchors = listAnchors();
+        // An anchor is a local identifier pointer — clicking it fetches the full
+        // event data from the chain. Nothing here re-verifies on the list.
+        setSavedEvents(
+          anchors.map((anchor) => ({
+            covenant_id: anchor.covenantId,
+            deploy_txid: anchor.deployTxid,
+            organizer_address: "",
+          })),
+        );
+      } catch {
+        if (!cancelled) setSavedEvents([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadSaved();
+    return () => {
+      cancelled = true;
+    };
+  }, [segment]);
+
+  const visible =
+    segment === "saved" ? savedEvents : events;
 
   return (
     <section>
@@ -232,6 +287,8 @@ export default function EventsPage() {
             <EventCard key={event.covenant_id} event={event} />
           ))}
         </div>
+      ) : segment === "saved" ? (
+        <SavedEmpty />
       ) : segment === "created" ? (
         connected ? (
           <CreatedEmptyConnected />
@@ -240,6 +297,18 @@ export default function EventsPage() {
         )
       ) : (
         <BrowseEmpty />
+      )}
+      {segment === "saved" && savedEvents.length > 0 && (
+        <button
+          type="button"
+          className="btn btn-link btn-sm"
+          onClick={() => {
+            savedEvents.forEach((e) => removeAnchor(e.covenant_id));
+            setSavedEvents([]);
+          }}
+        >
+          Clear saved anchors
+        </button>
       )}
     </section>
   );

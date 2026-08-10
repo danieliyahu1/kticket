@@ -7,9 +7,26 @@ by event organisers and bought / held by attendees — all on chain.
 
 | Package | Path | Stack | Responsibility |
 | --- | --- | --- | --- |
-| `@kticket/kit` | `packages/kit` | TypeScript (over `kaspa-wasm` + SilverScript artifacts) | Covenant WASM kit — on-chain ticket rules, tx building, covenant state decoding. Shared by api / web. |
-| `@kticket/api` | `packages/api` | Node.js + TypeScript (Fastify) | Stateless API — reads / build / broadcast via `api-tn10.kaspa.org`. |
-| `@kticket/web` | `packages/web` | React + Vite + TypeScript | Monolith SPA — buyer, organiser, and door scanner flows. |
+| `@kticket/kit` | `packages/kit` | TypeScript (over `kaspa-wasm` + SilverScript artifacts) | Covenant WASM kit — on-chain ticket rules, tx building, covenant state decoding, provenance helpers. Shared by api / web. |
+| `@kticket/api` | `packages/api` | Node.js + TypeScript (Fastify) | Stateless API — every read re-verifies event data from the chain; only an identifier registry (`deploy_txid`, `covenant_id`, `organizer_address`) is stored, for discovery. |
+| `@kticket/web` | `packages/web` | React + Vite + TypeScript | Monolith SPA — buyer, organiser, and door scanner flows, with a trust-anchor "Organized by" UI and anchor-based discovery links. |
+
+## Stateless backend & trustless provenance (KTK-89)
+
+The chain is the source of truth; the app is a thin wrapper:
+
+- The identifier registry stores only `{ deploy_txid, covenant_id, organizer_address }`
+  for discovery — never authoritative.
+- `GET /v1/events/{covenant_id}` verifies the event from the chain on each read:
+  it fetches the deploy tx, decodes the KCC-0021 payload, checks the maker
+  (the deploy funding UTXO owner pubkey), and verifies the address commitment
+  (`P2SH(blake3(redeem))` reproduces the on-chain covenant output, which also
+  recovers capacity). Events that fail verification are hidden.
+- Responses carry raw chain facts (`deploy_txid`, `authorizing_txid`,
+  `maker_address`, decoded constants + state, payload) so any displayed value
+  can be independently re-checked.
+- The frontend shows **"Organized by: <address>"** as the trust anchor with a
+  **verified** badge, and saves opened events as local anchor links.
 
 ## Prerequisites
 

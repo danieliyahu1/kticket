@@ -10,10 +10,9 @@ import {
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 import { compileBurnArtifact } from "./compiler";
-import type { StoredEventInternal } from "./eventstore";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
-import { MAX_LINEAGE_DEPTH, parseTicketId, verifyTicket } from "./reader";
+import { MAX_LINEAGE_DEPTH, parseTicketId, type ResolvedEvent, verifyTicket } from "./reader";
 
 const NETWORK = "testnet10" as const;
 const TXID_BYTE_LENGTH = 32;
@@ -152,13 +151,14 @@ class FakeKaspa implements KaspaClientLike {
 }
 
 interface FixtureStore {
-  byGenesisTxId(txId: string): StoredEventInternal | undefined;
+  resolve(covenantId: string): Promise<ResolvedEvent | undefined>;
 }
 
 interface Fixtures {
   kaspa: FakeKaspa;
   registry: FixtureStore;
-  event: StoredEventInternal;
+  covenantId: string;
+  event: ResolvedEvent;
   address: (k: number) => string;
 }
 
@@ -176,36 +176,18 @@ function buildDeployResult(capacity: number) {
   });
 }
 
-function makeStore(capacity: number, genesisTxId: string = B0_ID): FixtureStore {
-  const event: StoredEventInternal = {
-    covenantId: "cc".repeat(TXID_BYTE_LENGTH),
-    genesisTxId,
-    orgPkh: bytesToHex(ORG_PKH),
-    orgSpk: bytesToHex(ORG_SPK),
-    burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
-    name: "Testnet Rave",
-    date: "2026-12-31",
-    price: 1_000,
-    capacity,
-    authorizingTxId: bytesToHex(EVENT_ID),
-  };
-  const byGenesisTxId = new Map<string, StoredEventInternal>();
-  byGenesisTxId.set(genesisTxId.toLowerCase(), event);
-  return { byGenesisTxId: (id: string) => byGenesisTxId.get(id.toLowerCase()) };
+function makeStore(covenantId: string, event: ResolvedEvent): FixtureStore {
+  const byCovenantId = new Map<string, ResolvedEvent>();
+  byCovenantId.set(covenantId.toLowerCase(), event);
+  return { resolve: (id) => Promise.resolve(byCovenantId.get(id.toLowerCase())) };
 }
 
-function makeEvent(capacity: number): StoredEventInternal {
+function makeEvent(capacity: number): ResolvedEvent {
   return {
-    covenantId: "cc".repeat(TXID_BYTE_LENGTH),
-    genesisTxId: G_ID,
-    orgPkh: bytesToHex(ORG_PKH),
-    orgSpk: bytesToHex(ORG_SPK),
-    burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
+    authorizingTxId: bytesToHex(EVENT_ID),
     name: "Testnet Rave",
     date: "2026-12-31",
     price: 1_000,
-    capacity,
-    authorizingTxId: bytesToHex(EVENT_ID),
   };
 }
 
@@ -291,10 +273,12 @@ function buildFixtures(capacity = 3, chain = true): Fixtures {
     buildHandoverModel(kaspa, deploy.eventCovenantId, owner2Address);
   }
 
+  const event = makeEvent(capacity);
   return {
     kaspa,
-    registry: makeStore(capacity, B0_ID),
-    event: makeEvent(capacity),
+    registry: makeStore(deploy.eventCovenantId, event),
+    covenantId: deploy.eventCovenantId,
+    event,
     address,
   };
 }
@@ -370,8 +354,8 @@ describe("verifyTicket — unresolved / depth-exceeded", () => {
 
   it("returns UNKNOWN depth-exceeded after MAX_LINEAGE_DEPTH hops", async () => {
     const kaspa = new FakeKaspa();
-    const mintId = buildDepthChain(kaspa);
-    const registry = makeDepthStore(mintId);
+    const { mintId, covenantId } = buildDepthChain(kaspa);
+    const registry = makeDepthStore(covenantId);
 
     const result = await verifyTicket(`${mintId}:0`, {
       kaspa,
@@ -386,7 +370,7 @@ describe("verifyTicket — unresolved / depth-exceeded", () => {
 describe("verifyTicket — unregistered events", () => {
   it("returns UNKNOWN unknown-event for a spent ticket of an unregistered event", async () => {
     const f = buildFixtures();
-    const emptyStore: FixtureStore = { byGenesisTxId: () => undefined };
+    const emptyStore: FixtureStore = { resolve: async () => undefined };
     const result = await verifyTicket(`${B0_ID}:0`, ctx(f, { events: emptyStore }));
     expect(result.state).toBe("unknown");
     expect(result.cause).toBe("unknown-event");
@@ -396,7 +380,7 @@ describe("verifyTicket — unregistered events", () => {
   it("still returns ALIVE for an unspent ticket of an unregistered event", async () => {
     const f = buildFixtures();
     f.kaspa.utxo(f.address(0), { transactionId: B0_ID, index: 0 });
-    const emptyStore: FixtureStore = { byGenesisTxId: () => undefined };
+    const emptyStore: FixtureStore = { resolve: async () => undefined };
     const result = await verifyTicket(`${B0_ID}:0`, ctx(f, { events: emptyStore }));
     expect(result.state).toBe("alive");
     expect(result.event).toBeUndefined();
@@ -455,7 +439,7 @@ describe("verifyTicket — rejections", () => {
   });
 });
 
-function buildDepthChain(kaspa: FakeKaspa): string {
+function buildDepthChain(kaspa: FakeKaspa): { mintId: string; covenantId: string } {
   const deploy = buildDeployResult(1);
   const gid = "e1".repeat(TXID_BYTE_LENGTH);
   kaspa.transactions.set(gid, toTxModel(deploy.tx, gid));
@@ -482,7 +466,7 @@ function buildDepthChain(kaspa: FakeKaspa): string {
   kaspa.txAt(addr0, mintModel);
 
   chainDepthTransfers(kaspa, deploy.eventCovenantId, mintId, addr0);
-  return mintId;
+  return { mintId, covenantId: deploy.eventCovenantId };
 }
 
 function depthTransfer(
@@ -528,20 +512,14 @@ function chainDepthTransfers(
   }
 }
 
-function makeDepthStore(mintId: string): FixtureStore {
-  const event: StoredEventInternal = {
-    covenantId: "dd".repeat(TXID_BYTE_LENGTH),
-    genesisTxId: mintId,
-    orgPkh: bytesToHex(ORG_PKH),
-    orgSpk: bytesToHex(ORG_SPK),
-    burnTemplateHash: "77".repeat(TXID_BYTE_LENGTH),
+function makeDepthStore(covenantId: string): FixtureStore {
+  const event: ResolvedEvent = {
+    authorizingTxId: bytesToHex(EVENT_ID),
     name: "Long",
     date: "2026-01-01",
     price: 1_000,
-    capacity: 1,
-    authorizingTxId: bytesToHex(EVENT_ID),
   };
-  const byGenesisTxId = new Map<string, StoredEventInternal>();
-  byGenesisTxId.set(mintId.toLowerCase(), event);
-  return { byGenesisTxId: (id: string) => byGenesisTxId.get(id.toLowerCase()) };
+  const byCovenantId = new Map<string, ResolvedEvent>();
+  byCovenantId.set(covenantId.toLowerCase(), event);
+  return { resolve: (id) => Promise.resolve(byCovenantId.get(id.toLowerCase())) };
 }
