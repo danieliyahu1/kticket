@@ -2,16 +2,18 @@
 //
 //   artifact.bytecode = template_prefix | state_slot | template_suffix
 //   redeem_script(k, state) = bytecode with the state slot replaced
-//   address(k, state) = P2SH(blake3(redeem_script))
+//   address(k, state) = P2SH(blake2b_256(redeem_script))
 //
 // The address scheme is Kaspa's native P2SH (`AddressVersion.ScriptHash` = 8),
 // encoded with the bech32-style base32check scheme (`prefix:payload`). The
-// script hash is BLAKE3-32 of the redeem script — matching rusty-kaspa's
-// `pay_to_script_hash_script`. The per-event constants are baked into the
+// script hash is BLAKE2b-256 of the redeem script — the node's P2SH output
+// script is `OP_BLAKE2B <hash> OP_EQUAL`, which re-hashes the revealed redeem
+// with blake2b-256 at spend time (KTK-102 follow-up: blake3 was a mismatch and
+// every covenant spend failed). The per-event constants are baked into the
 // bytecode at compile time (constructor args), so only the mutable state slot
 // is injected at runtime.
 
-import { blake3 } from "@noble/hashes/blake3.js";
+import { blake2b } from "@noble/hashes/blake2.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import type { CompiledContractArtifact } from "../contracts/artifact.js";
 import type { DecodedConstants, DecodedState } from "./preimage.js";
@@ -153,9 +155,9 @@ export function buildBurnRedeemScript(artifact: CompiledContractArtifact): Uint8
 
 // --- hashing ---------------------------------------------------------------
 
-/** BLAKE3-32 script hash, matching rusty-kaspa P2SH script-hash computation. */
+/** BLAKE2b-256 script hash, matching the node's P2SH `OP_BLAKE2B` (blake2b-256). */
 export function scriptHash(redeemScript: Uint8Array): Uint8Array {
-  return blake3(redeemScript);
+  return blake2b(redeemScript, { dkLen: HASH_LENGTH });
 }
 
 // --- base32check (bech32 address encoding) ---------------------------------

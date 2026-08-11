@@ -1,4 +1,4 @@
-import { blake3 } from "@noble/hashes/blake3.js";
+import { blake2b } from "@noble/hashes/blake2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 import { EVENT_ARTIFACT } from "../contracts/artifacts";
@@ -79,10 +79,10 @@ describe("redeem script assembly (bytecode with state injected into the slot)", 
   });
 });
 
-describe("scriptHash (blake3-32)", () => {
-  it("equals BLAKE3 of the redeem script", () => {
+describe("scriptHash (blake2b-256)", () => {
+  it("equals BLAKE2b-256 of the redeem script (the node's OP_BLAKE2B P2SH)", () => {
     const redeem = buildRedeemScript(EVENT_ARTIFACT, ticketState(ZERO_OWNER));
-    expect([...scriptHash(redeem)]).toEqual([...blake3(redeem)]);
+    expect([...scriptHash(redeem)]).toEqual([...blake2b(redeem, { dkLen: HASH_LENGTH })]);
     expect(scriptHash(redeem)).toHaveLength(HASH_LENGTH);
   });
 });
