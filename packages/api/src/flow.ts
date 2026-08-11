@@ -5,6 +5,7 @@
 
 import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import { throwRejectionError } from "./broadcast.js";
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
 import type { WireTransaction } from "./wire.js";
 
@@ -85,7 +86,14 @@ export async function broadcastAndConfirm(
 ): Promise<string> {
   const merged = mergeSignatures(template, signed);
   validate(merged);
-  const txid = await submitTransactionOverWrpc(ctx.networkId, merged);
+  let txid: string;
+  try {
+    txid = await submitTransactionOverWrpc(ctx.networkId, merged);
+  } catch (err) {
+    // Surface the node's raw rejection instead of leaking a generic 500 — the
+    // route handler logs it via the ApiError detail (KTK buy/transfer).
+    throwRejectionError(err instanceof Error ? err.message : String(err));
+  }
   const id = txid.toLowerCase();
   await waitForTransaction(ctx.kaspa, id);
   return id;
