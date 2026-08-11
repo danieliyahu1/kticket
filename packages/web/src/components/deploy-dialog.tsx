@@ -1,34 +1,4 @@
 import { Link } from "react-router-dom";
-import { network } from "../network";
-
-export interface DeployDialogProps {
-  eventName: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-export function DeployDialog({ eventName, onConfirm, onCancel }: DeployDialogProps) {
-  return (
-    <section>
-      <div className="card">
-        <h2 className="status-title">Put it on the chain?</h2>
-        <p className="status-copy">
-          {eventName} goes on Kaspa and stays there forever — no edits, no cancellation. Your wallet
-          will ask you to approve it.
-        </p>
-        <div className="ticket-actions">
-          <button type="button" className="btn btn-primary" onClick={onConfirm}>
-            Deploy
-          </button>
-          <button type="button" className="btn btn-link" onClick={onCancel}>
-            Go back
-          </button>
-        </div>
-        <p className="note">On {network.label}.</p>
-      </div>
-    </section>
-  );
-}
 
 export interface DeployStatusProps {
   status: "deploying" | "broadcasting" | "success" | "error";

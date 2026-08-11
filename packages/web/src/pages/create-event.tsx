@@ -20,7 +20,7 @@ function RequireWallet() {
   const { connect } = useWallet();
   return (
     <section>
-      <PageHeader caption="Step 1 of 2 · Details" title="Create an event" />
+      <h2 className="page-heading">Create an event</h2>
       <Empty
         title="Connect your wallet to create an event."
         sub="Events are put on Kaspa from your own wallet."
@@ -28,15 +28,6 @@ function RequireWallet() {
         onAction={connect}
       />
     </section>
-  );
-}
-
-function PageHeader({ caption, title }: { caption: string; title: string }) {
-  return (
-    <header>
-      <p className="step">{caption}</p>
-      <h2 className="page-heading">{title}</h2>
-    </header>
   );
 }
 
@@ -49,16 +40,16 @@ function CreateForm({ wallet }: { wallet: ConnectedWallet }) {
 
   if (deploy.phase !== "idle") {
     return (
-      <section key="deploy" className="step-enter">
-        <PageHeader caption="Step 2 of 2 · Deploying" title="Create an event" />
+      <section>
+        <h2 className="page-heading">Create an event</h2>
         <DeployResult deploy={deploy} onRetry={startDeploy} />
       </section>
     );
   }
 
   return (
-    <section key="form" className="step-enter">
-      <PageHeader caption="Step 1 of 2 · Details" title="Create an event" />
+    <section>
+      <h2 className="page-heading">Create an event</h2>
       <EventForm
         initial={form}
         onSubmit={(data) => {
