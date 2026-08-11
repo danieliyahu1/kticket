@@ -1,15 +1,6 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { network } from "../network";
 import { HeaderActions } from "./header-actions";
-
-function PageTransition({ children }: { children: React.ReactNode }) {
-  const { key } = useLocation();
-  return (
-    <div className="page-transition" key={key}>
-      {children}
-    </div>
-  );
-}
 
 export function Layout() {
   return (
@@ -24,9 +15,7 @@ export function Layout() {
       </header>
       <main className="page">
         <div className="container">
-          <PageTransition>
-            <Outlet />
-          </PageTransition>
+          <Outlet />
         </div>
       </main>
       <footer className="footer">

@@ -116,21 +116,6 @@ function EventCard({ event }: { event: EventListItem }) {
   );
 }
 
-const HERO: Record<Segment, { title: string; sub: string }> = {
-  all: {
-    title: "Real tickets. On the chain.",
-    sub: "Tickets that can't be faked, duplicated, or taken from you.",
-  },
-  created: {
-    title: "Events you've put on the chain.",
-    sub: "Bring people together — on Kaspa.",
-  },
-  tickets: {
-    title: "Tickets you hold.",
-    sub: "Your passes to everything you've signed up for.",
-  },
-};
-
 function segmentFromParam(param: string | null): Segment {
   if (param === "created") return "created";
   if (param === "tickets") return "tickets";
@@ -204,8 +189,8 @@ export default function EventsPage() {
   return (
     <section>
       <div className="hero">
-        <h1 className="hero-title">{HERO[segment].title}</h1>
-        <p className="hero-sub">{HERO[segment].sub}</p>
+        <h1 className="hero-title">Real tickets. On the chain.</h1>
+        <p className="hero-sub">Tickets that can't be faked, duplicated, or taken from you.</p>
       </div>
       <Segmented
         current={segment}
