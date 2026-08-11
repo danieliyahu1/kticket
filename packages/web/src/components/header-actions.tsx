@@ -1,19 +1,19 @@
-import { Link } from "react-router-dom";
 import { useWallet } from "../hooks/use-wallet";
+import { useCreateDialog } from "./create-dialog-context";
 
 const INSTALL_URL = "https://kasware.xyz";
-const ADDR_PREFIX_LEN = 6;
-const ADDR_SUFFIX_LEN = 4;
-const ADDR_PREFIX_LEN_SHORT = 4;
+const ADDR_KEEP = 6;
+const ADDR_TAIL = 4;
 
 export function HeaderActions() {
   const { state, connect, disconnect } = useWallet();
+  const { openCreate } = useCreateDialog();
 
   if (state.status === "not-installed") {
     return (
       <a
         href={INSTALL_URL}
-        className="btn btn-primary btn-sm"
+        className="button button-primary button-sm"
         target="_blank"
         rel="noopener noreferrer"
       >
@@ -24,9 +24,8 @@ export function HeaderActions() {
 
   if (state.status === "connecting") {
     return (
-      <button type="button" className="btn btn-secondary btn-sm" disabled>
-        <span className="spinner" aria-hidden="true" />
-        Connecting
+      <button type="button" className="button button-secondary button-sm" disabled>
+        Connecting…
       </button>
     );
   }
@@ -35,41 +34,35 @@ export function HeaderActions() {
     const address = state.accounts[0];
     return (
       <div className="header-actions">
-        <Link to="/create" className="btn btn-primary btn-sm">
-          <span className="create-label">Create event</span>
-          <span className="create-label-short">Create</span>
-        </Link>
+        <button type="button" className="button button-secondary button-sm" onClick={openCreate}>
+          Create
+        </button>
+        <span className="wallet-address" title={address}>
+          {address ? shortAddress(address) : "Connected"}
+        </span>
         <button
           type="button"
-          className="connected-chip"
+          className="button button-link button-sm"
           onClick={disconnect}
-          title="Disconnect"
         >
-          <span className="dot" aria-hidden="true" />
-          {address ? (
-            <>
-              <span className="address-full">{shortAddress(address)}</span>
-              <span className="address-short">{shortAddressShort(address)}</span>
-            </>
-          ) : (
-            "Connected"
-          )}
+          Disconnect
         </button>
       </div>
     );
   }
 
   return (
-    <button type="button" className="btn btn-primary btn-sm" onClick={connect}>
-      Connect wallet
-    </button>
+    <div className="header-actions">
+      <button type="button" className="button button-secondary button-sm" onClick={openCreate}>
+        Create
+      </button>
+      <button type="button" className="button button-primary button-sm" onClick={connect}>
+        Connect wallet
+      </button>
+    </div>
   );
 }
 
 function shortAddress(address: string): string {
-  return `${address.slice(0, ADDR_PREFIX_LEN)}...${address.slice(-ADDR_SUFFIX_LEN)}`;
-}
-
-function shortAddressShort(address: string): string {
-  return `${address.slice(0, ADDR_PREFIX_LEN_SHORT)}...${address.slice(-ADDR_SUFFIX_LEN)}`;
+  return `${address.slice(0, ADDR_KEEP)}...${address.slice(-ADDR_TAIL)}`;
 }

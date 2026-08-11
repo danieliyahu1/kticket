@@ -1,10 +1,9 @@
-import { Link } from "react-router-dom";
-
 export interface DeployStatusProps {
   status: "deploying" | "broadcasting" | "success" | "error";
   error?: string;
   txid?: string;
   onRetry?: () => void;
+  onDone?: () => void;
 }
 
 const TXID_KEEP = 18;
@@ -22,7 +21,7 @@ function Progress({ copy }: { copy: string }) {
   );
 }
 
-function Success({ txid }: { txid?: string }) {
+function Success({ txid, onDone }: { txid?: string; onDone?: () => void }) {
   return (
     <div className="status">
       <div className="status-icon status-icon-ok" aria-hidden="true">
@@ -35,11 +34,13 @@ function Success({ txid }: { txid?: string }) {
           {shortTxid(txid)}
         </p>
       )}
-      <div className="ticket-actions">
-        <Link to="/?filter=created" className="btn btn-primary">
-          View my events &rarr;
-        </Link>
-      </div>
+      {onDone && (
+        <div className="form-actions">
+          <button type="button" className="button button-primary" onClick={onDone}>
+            View my events
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -52,21 +53,21 @@ function ErrorState({ message, onRetry }: { message: string; onRetry?: () => voi
       </div>
       <p className="status-title">It didn't go through.</p>
       <p className="status-copy">{message}</p>
-      <div className="ticket-actions">
+      <div className="form-actions">
         {onRetry && (
-          <button type="button" className="btn btn-primary" onClick={onRetry}>
+          <button type="button" className="button button-primary" onClick={onRetry}>
             Try again
           </button>
         )}
       </div>
-      <p className="note">Nothing was created. Your event is not on the chain.</p>
+      <p className="note">Nothing was created.</p>
     </div>
   );
 }
 
-export function DeployStatus({ status, error, txid, onRetry }: DeployStatusProps) {
+export function DeployStatus({ status, error, txid, onRetry, onDone }: DeployStatusProps) {
   if (status === "deploying") return <Progress copy="Creating your event…" />;
   if (status === "broadcasting") return <Progress copy="Putting it on the chain…" />;
-  if (status === "success") return <Success txid={txid} />;
+  if (status === "success") return <Success txid={txid} onDone={onDone} />;
   return <ErrorState message={error ?? "Deploy failed."} onRetry={onRetry} />;
 }

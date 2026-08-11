@@ -3,8 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { fetchEvent, ServerError, type EventDetail } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
 import { useWallet } from "../hooks/use-wallet";
-import { OfflineEmpty } from "../components/empty";
-import { capacityLabel, priceLabel, shortAddress, whenLabel } from "../lib/format";
+import { OfflineEmpty, Empty } from "../components/empty";
+import { priceLabel, shortAddress, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
   const { covenantId } = useParams<{ covenantId: string }>();
@@ -47,9 +47,6 @@ export default function EventDetailPage() {
     fetchEvent(covenantId)
       .then((e) => {
         if (cancelled) return;
-        console.log(
-          `[event-detail] refreshed availability after buy: ${e.availability.sold} sold, ${e.availability.left} left`,
-        );
         setEvent(e);
       })
       .catch((err) => {
@@ -88,38 +85,25 @@ export default function EventDetailPage() {
 
   if (loading) {
     return (
-      <section>
-        <div className="skeleton skeleton-heading" aria-hidden="true" />
-        <div className="skeleton skeleton-text" aria-hidden="true" />
-        <div className="buy-cta">
-          <div className="skeleton skeleton-btn-block" aria-hidden="true" />
-        </div>
-        <div className="stat-cards">
-          <div className="skeleton skeleton-stat-card" aria-hidden="true" />
-          <div className="skeleton skeleton-stat-card" aria-hidden="true" />
-          <div className="skeleton skeleton-stat-card" aria-hidden="true" />
-        </div>
-      </section>
+      <div>
+        <div className="skeleton skeleton-title" aria-hidden="true" />
+        <div className="skeleton skeleton-line" aria-hidden="true" />
+        <div className="skeleton skeleton-row" aria-hidden="true" />
+      </div>
     );
   }
 
   if (error || !event) {
     if (offline) {
-      return (
-        <section>
-          <OfflineEmpty onRetry={load} />
-        </section>
-      );
+      return <OfflineEmpty onRetry={load} />;
     }
     return (
-      <section>
-        <p className="empty-title">{error ?? "Event not found."}</p>
-        <div className="empty-actions empty-actions-start">
-          <Link to="/" className="btn btn-secondary btn-sm">
-            Back to events
-          </Link>
-        </div>
-      </section>
+      <Empty
+        title={error ?? "Event not found."}
+        sub="It may have been removed or isn't on this network."
+        actionLabel="Back to events"
+        actionTo="/"
+      />
     );
   }
 
@@ -128,51 +112,43 @@ export default function EventDetailPage() {
   const verified = event.event.verified;
 
   return (
-    <section>
-      <Link to="/" className="btn btn-link btn-sm btn-link-clean">
+    <article>
+      <Link to="/" className="page-back">
         &larr; All events
       </Link>
 
-      <h2 className="page-heading">{event.event.name}</h2>
-      <p className="page-sub">{whenLabel(event.event.date, event.event.time || undefined)}</p>
+      <header className="token-hero">
+        <h1 className="token-name">{event.event.name}</h1>
+        <p className="token-when">{whenLabel(event.event.date, event.event.time || undefined)}</p>
 
-      {verified ? (
-        <div className="trust-anchor">
-          <span className="badge badge-ok" aria-label="verified">
+        {verified ? (
+          <p className="token-status">
+            <span className="token-status-dot" aria-hidden="true" />
             Verified on-chain
-          </span>
-          <span className="trust-anchor-address">
-            Organized by <span className="mono">{shortAddress(event.event.organizer_address)}</span>
-          </span>
-        </div>
-      ) : (
-        <div className="trust-anchor trust-anchor-unverified">
-          <span className="badge badge-error">Unverified</span>
-          <span className="trust-anchor-copy">
-            This event could not be verified against the chain.
-          </span>
-        </div>
-      )}
+          </p>
+        ) : (
+          <p className="token-status token-status-pending">
+            <span className="token-status-dot" aria-hidden="true" />
+            Unverified
+          </p>
+        )}
+      </header>
 
       <div className="buy-cta">
         {!verified ? (
-          <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
-            Cannot buy — unverified event
+          <button type="button" className="button button-full" disabled>
+            Cannot buy
           </button>
         ) : buy.phase === "success" ? (
           <div className="status">
             <div className="status-icon status-icon-ok">
               <span>&#10003;</span>
             </div>
-            <p className="status-title">You're in. Ticket received.</p>
-            <p className="status-copy">{event.event.name} &middot; {whenLabel(event.event.date, event.event.time || undefined)}</p>
-            <p className="status-detail mono">TX: {buy.txid}</p>
+            <p className="status-title">You're in.</p>
+            <p className="status-copy">Your ticket is on the chain.</p>
             <div className="form-actions">
-              <Link to="/tickets" className="btn btn-primary">
+              <Link to="/tickets" className="button button-primary">
                 View my tickets
-              </Link>
-              <Link to="/" className="btn btn-secondary">
-                Browse events
               </Link>
             </div>
           </div>
@@ -184,39 +160,30 @@ export default function EventDetailPage() {
             <p className="status-title">{buy.message}</p>
             <p className="status-copy">No ticket was issued.</p>
           </div>
-        ) : buy.phase === "building" ? (
+        ) : buy.phase === "building" || buy.phase === "broadcasting" ? (
           <div className="status">
             <div className="spinner" />
-            <p className="status-copy">Building transaction...</p>
-          </div>
-        ) : buy.phase === "broadcasting" ? (
-          <div className="status">
-            <div className="spinner" />
-            <p className="status-copy">Sending to Kaspa...</p>
+            <p className="status-copy">
+              {buy.phase === "building" ? "Confirming in your wallet…" : "Putting it on the chain…"}
+            </p>
           </div>
         ) : soldOut ? (
-          <button type="button" className="btn btn-primary btn-lg btn-sold-out" disabled>
+          <button type="button" className="button button-full" disabled>
             Sold out
           </button>
         ) : connected ? (
-          <>
-            <button
-              type="button"
-              className="btn btn-primary btn-lg btn-block"
-              onClick={handleBuy}
-              disabled={buying}
-            >
-              {buying ? "Buying ticket…" : "Buy ticket"}
-            </button>
-            <p className="note">
-              {priceLabel(event.event.price)} per ticket. Your wallet shows the full
-              change UTXO being re-sent — you're only spending the ticket price.
-            </p>
-          </>
+          <button
+            type="button"
+            className="button button-primary button-full"
+            onClick={handleBuy}
+            disabled={buying}
+          >
+            {buying ? "Buying…" : `Buy ticket · ${priceLabel(event.event.price)}`}
+          </button>
         ) : (
           <button
             type="button"
-            className="btn btn-primary btn-lg btn-block"
+            className="button button-primary button-full"
             onClick={handleConnectThenBuy}
           >
             Connect wallet to buy
@@ -224,20 +191,26 @@ export default function EventDetailPage() {
         )}
       </div>
 
-      <div className="stat-cards">
-        <div className="card stat-card">
-          <p className="stub-label">Price</p>
-          <p className="stub-value">{priceLabel(event.event.price)}</p>
+      <dl className="token-details">
+        <div className="token-detail">
+          <dt>When</dt>
+          <dd className="token-detail-plain">
+            {whenLabel(event.event.date, event.event.time || undefined)}
+          </dd>
         </div>
-        <div className="card stat-card">
-          <p className="stub-label">Capacity</p>
-          <p className="stub-value">{capacityLabel(event.event.capacity)}</p>
+        <div className="token-detail">
+          <dt>Price</dt>
+          <dd className="token-detail-plain">{priceLabel(event.event.price)}</dd>
         </div>
-        <div className="card stat-card">
-          <p className="stub-label">Available</p>
-          <p className="stub-value">{event.availability.left} left</p>
+        <div className="token-detail">
+          <dt>Tickets left</dt>
+          <dd className="token-detail-plain">{event.availability.left}</dd>
         </div>
-      </div>
-    </section>
+        <div className="token-detail">
+          <dt>Organized by</dt>
+          <dd>{shortAddress(event.event.organizer_address)}</dd>
+        </div>
+      </dl>
+    </article>
   );
 }

@@ -51,7 +51,7 @@ function NameField({ initial, errors, onChange }: EventFormProps) {
         value={initial.name}
         onChange={(e) => onChange({ ...initial, name: e.target.value })}
         aria-invalid={errors.name ? true : undefined}
-        required
+
       />
     </Field>
   );
@@ -68,7 +68,7 @@ function WhenField({ initial, errors, onChange }: EventFormProps) {
           value={initial.date}
           onChange={(e) => onChange({ ...initial, date: e.target.value })}
           aria-invalid={errors.date ? true : undefined}
-          required
+
         />
       </Field>
       <Field label="Time" htmlFor="event-time" error={errors.time}>
@@ -79,7 +79,7 @@ function WhenField({ initial, errors, onChange }: EventFormProps) {
           value={initial.time}
           onChange={(e) => onChange({ ...initial, time: e.target.value })}
           aria-invalid={errors.time ? true : undefined}
-          required
+
         />
       </Field>
     </div>
@@ -103,7 +103,7 @@ function CapacityField({ initial, errors, onChange }: EventFormProps) {
         value={initial.capacity}
         onChange={(e) => onChange({ ...initial, capacity: toNum(e.target.value) })}
         aria-invalid={errors.capacity ? true : undefined}
-        required
+
       />
     </Field>
   );
@@ -111,12 +111,7 @@ function CapacityField({ initial, errors, onChange }: EventFormProps) {
 
 function PriceField({ initial, errors, onChange }: EventFormProps) {
   return (
-    <Field
-      label="Price"
-      htmlFor="event-price"
-      hint="In KAS."
-      error={errors.price}
-    >
+    <Field label="Price" htmlFor="event-price" hint="In KAS." error={errors.price}>
       <input
         id="event-price"
         className="input"
@@ -126,7 +121,7 @@ function PriceField({ initial, errors, onChange }: EventFormProps) {
         value={initial.price}
         onChange={(e) => onChange({ ...initial, price: toNum(e.target.value) })}
         aria-invalid={errors.price ? true : undefined}
-        required
+
       />
     </Field>
   );
@@ -137,8 +132,8 @@ function LivePreview({ data }: { data: EventFormData }) {
   const hasDate = data.date.length > 0;
 
   return (
-    <div className="live-preview">
-      <p className="stub-label">Preview</p>
+    <div>
+      <p className="section-title">Preview</p>
       <div className="ticket">
         <div className="ticket-main">
           <h2 className="ticket-name">{hasName ? data.name : "Event name"}</h2>
@@ -181,8 +176,8 @@ export function EventForm({ initial, onSubmit, errors, onChange }: EventFormProp
         <CapacityField {...p} />
         <PriceField {...p} />
         <div className="form-actions">
-          <button type="submit" className="btn btn-primary">
-            Deploy event
+          <button type="submit" className="button button-primary button-full">
+            Create event
           </button>
         </div>
       </form>

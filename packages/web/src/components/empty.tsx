@@ -10,11 +10,11 @@ export interface EmptyProps {
 
 export function Empty({ title, sub, actionLabel, actionTo, onAction }: EmptyProps) {
   const action = actionTo ? (
-    <Link to={actionTo} className="btn btn-primary">
+    <Link to={actionTo} className="button button-primary">
       {actionLabel}
     </Link>
   ) : (
-    <button type="button" className="btn btn-primary" onClick={onAction}>
+    <button type="button" className="button button-primary" onClick={onAction}>
       {actionLabel}
     </button>
   );
