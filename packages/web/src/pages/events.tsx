@@ -19,15 +19,6 @@ const SEGMENTS: Array<{ id: Segment; label: string }> = [
   { id: "tickets", label: "Tickets" },
 ];
 
-function hashHue(name: string): number {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    hash |= 0;
-  }
-  return Math.abs(hash) % 360;
-}
-
 function BrowseEmpty() {
   return (
     <Empty
@@ -104,10 +95,6 @@ function Segmented({ current, onChange }: { current: Segment; onChange: (s: Segm
 function EventCard({ event }: { event: EventListItem }) {
   return (
     <Link to={`/events/${event.covenant_id}`} className="card event-card">
-      <span
-        className="event-card-accent"
-        style={{ background: `hsl(${hashHue(event.covenant_id)}, 45%, 48%)` }}
-      />
       <h3 className="event-card-name">{shortAddress(event.covenant_id)}</h3>
       <p className="event-card-line event-card-organizer">
         by {shortAddress(event.organizer_address)}
