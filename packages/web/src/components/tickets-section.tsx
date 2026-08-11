@@ -9,7 +9,7 @@ function TicketCard({ ticket, onTransfer }: { ticket: TicketEntry; onTransfer: (
     <div className="ticket">
       <div className="ticket-main">
         <h3 className="ticket-name">{ticket.event_name}</h3>
-        <p className="ticket-line">{whenLabel(ticket.event_date)}</p>
+        <p className="ticket-line">{whenLabel(ticket.event_date, ticket.event_time || undefined)}</p>
         <div className="ticket-line-price" />
       </div>
       <div className="ticket-perforation" />
@@ -48,7 +48,7 @@ function TransferOverlay({
           <>
             <p className="modal-heading">Transfer this ticket?</p>
             <p className="modal-sub">
-              {ticket.event_name} &middot; {whenLabel(ticket.event_date)}
+              {ticket.event_name} &middot; {whenLabel(ticket.event_date, ticket.event_time || undefined)}
             </p>
             <p className="modal-sub">This is one-way and cannot be undone.</p>
             <div className="modal-actions">

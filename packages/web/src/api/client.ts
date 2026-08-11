@@ -120,6 +120,7 @@ export interface EventDetail {
     deploy_txid: string;
     name: string;
     date: string;
+    time: string;
     price: number;
     capacity: number;
     organizer_address: string;
@@ -201,6 +202,7 @@ export interface TicketEntry {
   covenant_id: string;
   event_name: string;
   event_date: string;
+  event_time: string;
 }
 
 /** Fetch the connected user's on-chain tickets. Confirmation already happened backend-side. */

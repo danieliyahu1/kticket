@@ -53,6 +53,8 @@ export interface VerifiedEvent {
   covenant_id: string;
   name: string;
   date: string;
+  /** Local wall-clock start time (HH:MM), decoded from the payload; "" when absent. */
+  time: string;
   /** Price per ticket in sompi — recovered from covenant constants (verified). */
   price: number;
   capacity: number;
@@ -126,10 +128,11 @@ export async function verifyEventFromChain(
   }
   const organizerAddress = p2pkAddress(ownerPubkey, network);
 
-  // Decode KCC-0021 payload → name / date / price-label.
+  // Decode KCC-0021 payload → name / date / time / price-label.
   const meta = decodeMetadataFromPayload(deploy.payload);
   const name = meta?.name ?? "";
   const date = meta?.date ?? "";
+  const time = meta?.time ?? "";
   const price = meta ? decodePriceLabel(meta.priceKAS) : 0;
   const orgSpk = (meta?.orgSpk || fundingScript).toLowerCase();
   // The burn template hash is derived at compile time (authorizing_txid baked),
@@ -171,6 +174,7 @@ export async function verifyEventFromChain(
     covenant_id: covenantIdHex,
     name,
     date,
+    time,
     price,
     capacity,
     organizer_address: organizerAddress,

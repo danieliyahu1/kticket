@@ -17,6 +17,7 @@ export interface DeployParams {
   address: string;
   name?: string;
   date?: string;
+  time?: string;
 }
 
 function errorMsg(err: unknown): string {
@@ -61,6 +62,7 @@ export async function executeDeploy(
     address: params.address,
     ...(params.name !== undefined ? { name: params.name } : {}),
     ...(params.date !== undefined ? { date: params.date } : {}),
+    ...(params.time !== undefined ? { time: params.time } : {}),
   };
 
   let prepared;

@@ -38,13 +38,15 @@ export interface ResolvedEvent {
   authorizingTxId: string;
   name: string;
   date: string;
+  /** Local wall-clock start time (HH:MM); "" when absent. */
+  time: string;
   price: number;
 }
 
 export interface VerifyResult {
   state: TicketState;
   cause?: UnknownCause;
-  event?: { authorizing_txid: string; name: string; date: string };
+  event?: { authorizing_txid: string; name: string; date: string; time: string };
   price?: number;
   liveOutpoint?: { transaction_id: string; index: number };
   atTx?: string;
@@ -186,7 +188,12 @@ export async function verifyTicket(raw: string, ctx: ReaderContext): Promise<Ver
 function eventMeta(event: ResolvedEvent | undefined) {
   if (!event) return {};
   return {
-    event: { authorizing_txid: event.authorizingTxId, name: event.name, date: event.date },
+    event: {
+      authorizing_txid: event.authorizingTxId,
+      name: event.name,
+      date: event.date,
+      time: event.time,
+    },
     price: event.price,
   };
 }

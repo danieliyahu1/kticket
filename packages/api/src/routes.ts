@@ -121,6 +121,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         deploy_txid: verified.deploy_txid,
         name: verified.name,
         date: verified.date,
+        time: verified.time,
         price: verified.price,
         capacity: verified.capacity,
         organizer_address: verified.organizer_address,
@@ -173,6 +174,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
           covenant_id: verified.covenant_id,
           event_name: verified.name,
           event_date: verified.date,
+          event_time: verified.time,
         });
       }
     }
@@ -195,6 +197,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
               authorizingTxId: verified.authorizing_txid,
               name: verified.name,
               date: verified.date,
+              time: verified.time,
               price: verified.price,
             };
           } catch {

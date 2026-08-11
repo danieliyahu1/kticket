@@ -187,6 +187,7 @@ function makeEvent(capacity: number): ResolvedEvent {
     authorizingTxId: bytesToHex(EVENT_ID),
     name: "Testnet Rave",
     date: "2026-12-31",
+    time: "20:00",
     price: 1_000,
   };
 }
@@ -328,6 +329,7 @@ describe("verifyTicket — happy paths (HLD v0.22 §2.2)", () => {
       authorizing_txid: f.event.authorizingTxId,
       name: f.event.name,
       date: f.event.date,
+      time: f.event.time,
     });
     expect(result.price).toBe(f.event.price);
   });

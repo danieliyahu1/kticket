@@ -6,10 +6,24 @@ export const WHEN_FORMAT = {
   minute: "2-digit",
 } as const;
 
+/** Date-only formatter — used when an event has no start time (legacy deploys). */
+export const WHEN_DATE_ONLY_FORMAT = {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+} as const;
+
+/**
+ * Format an event's start date (+ optional local wall-clock time).
+ * Without a time, renders the date only — never invents a time-of-day.
+ */
 export function whenLabel(date: string, time?: string): string {
   if (!date) return "";
-  const dt = time ? new Date(`${date}T${time}`) : new Date(date);
-  return new Intl.DateTimeFormat("en", WHEN_FORMAT).format(dt);
+  if (time) {
+    const dt = new Date(`${date}T${time}`);
+    return new Intl.DateTimeFormat("en", WHEN_FORMAT).format(dt);
+  }
+  return new Intl.DateTimeFormat("en", WHEN_DATE_ONLY_FORMAT).format(new Date(`${date}T12:00:00`));
 }
 
 export function priceLabel(price: number): string {

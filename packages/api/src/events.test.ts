@@ -29,6 +29,7 @@ const BURN_TEMPLATE_HASH = bytesToHex(
 
 const NAME = "Testnet Rave";
 const DATE = "2026-12-31";
+const TIME = "20:00";
 const PRICE = 1_000;
 const CAPACITY = 3;
 
@@ -65,6 +66,7 @@ function deployModel(capacity: number): TxModel {
     metadata: {
       name: NAME,
       date: DATE,
+      time: TIME,
       priceKAS: PRICE / 100_000_000,
       orgSpk: ORG_SPK_HEX,
       burnTemplateHash: BURN_TEMPLATE_HASH,
@@ -224,7 +226,7 @@ function buyModel(): TxModel {
 }
 
 describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
-  it("recovers name/date/price/owner/capacity from the deploy tx", async () => {
+  it("recovers name/date/time/price/owner/capacity from the deploy tx", async () => {
     const deploy = deployModel(CAPACITY);
     const kaspa = new FakeKaspa(deploy);
     const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
@@ -232,6 +234,7 @@ describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
       deploy_txid: G_ID,
       name: NAME,
       date: DATE,
+      time: TIME,
       price: PRICE,
       capacity: CAPACITY,
       organizer_address: p2pkAddress(ORG_PKH, NETWORK),

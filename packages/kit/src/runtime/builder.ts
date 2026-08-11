@@ -40,6 +40,8 @@ const TEXT_DECODER = new TextDecoder();
 export interface EventMetadata {
   name: string;
   date: string;
+  /** Local wall-clock start time (HH:MM) — optional for legacy events. */
+  time?: string;
   priceKAS: number;
   orgSpk: string;
   burnTemplateHash: string;
@@ -53,6 +55,7 @@ export function encodeMetadataPayload(meta: EventMetadata): string {
   const json = JSON.stringify({
     name: meta.name,
     date: meta.date,
+    ...(meta.time !== undefined ? { time: meta.time } : {}),
     priceKAS: meta.priceKAS,
     orgSpk: meta.orgSpk,
     burnTemplateHash: meta.burnTemplateHash,
@@ -85,6 +88,7 @@ export function decodeMetadataFromPayload(payloadHex: string | null | undefined)
       return {
         name: parsed.name,
         date: parsed.date,
+        ...(typeof parsed.time === "string" ? { time: parsed.time } : {}),
         priceKAS: parsed.priceKAS,
         orgSpk: parsed.orgSpk,
         burnTemplateHash: parsed.burnTemplateHash,

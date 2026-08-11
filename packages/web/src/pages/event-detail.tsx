@@ -100,7 +100,7 @@ export default function EventDetailPage() {
       </Link>
 
       <h2 className="page-heading">{event.event.name}</h2>
-      <p className="page-sub">{whenLabel(event.event.date)}</p>
+      <p className="page-sub">{whenLabel(event.event.date, event.event.time || undefined)}</p>
 
       {verified ? (
         <div className="trust-anchor">
@@ -131,7 +131,7 @@ export default function EventDetailPage() {
               <span>&#10003;</span>
             </div>
             <p className="status-title">You're in. Ticket received.</p>
-            <p className="status-copy">{event.event.name} &middot; {whenLabel(event.event.date)}</p>
+            <p className="status-copy">{event.event.name} &middot; {whenLabel(event.event.date, event.event.time || undefined)}</p>
             <p className="status-detail mono">TX: {buy.txid}</p>
             <div className="form-actions">
               <Link to="/tickets" className="btn btn-primary">

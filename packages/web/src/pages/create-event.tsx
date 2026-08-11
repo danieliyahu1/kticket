@@ -89,6 +89,7 @@ function deployEvent(
     address: wallet.accounts[0] ?? "",
     name: form.name,
     date: form.date,
+    time: form.time || undefined,
   };
   executeDeploy(setDeploy, params);
 }

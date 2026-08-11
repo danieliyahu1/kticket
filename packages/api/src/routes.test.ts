@@ -50,6 +50,7 @@ const BURN_TEMPLATE_HASH = bytesToHex(
 
 const EVENT_NAME = "Testnet Rave";
 const EVENT_DATE = "2026-12-31";
+const EVENT_TIME = "20:00";
 const EVENT_PRICE = 1_000;
 const EVENT_CAPACITY = 2;
 
@@ -103,6 +104,7 @@ function deployTxWithCapacity(capacity: number): TxModel {
     metadata: {
       name: EVENT_NAME,
       date: EVENT_DATE,
+      time: EVENT_TIME,
       priceKAS: EVENT_PRICE / 100_000_000,
       orgSpk: ORG_SPK_HEX,
       burnTemplateHash: BURN_TEMPLATE_HASH,
@@ -292,6 +294,7 @@ describe("reader routes (KTK-89) — event availability", () => {
         deploy_txid: G_ID,
         name: EVENT_NAME,
         date: EVENT_DATE,
+        time: EVENT_TIME,
         price: EVENT_PRICE,
         capacity: EVENT_CAPACITY,
         verified: true,
@@ -396,6 +399,7 @@ describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
         covenant_id: TEST_COVENANT_ID,
         event_name: EVENT_NAME,
         event_date: EVENT_DATE,
+        event_time: EVENT_TIME,
       },
     ]);
     await app.close();
@@ -417,6 +421,7 @@ describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
         covenant_id: TEST_COVENANT_ID,
         event_name: EVENT_NAME,
         event_date: EVENT_DATE,
+        event_time: EVENT_TIME,
       },
     ]);
     await app.close();
@@ -433,7 +438,12 @@ describe("reader routes (KTK-89) — unknown tickets", () => {
     expect(res.json()).toEqual({
       state: "unknown",
       cause: "unresolved-spend",
-      event: { authorizing_txid: AUTH_TXID, name: EVENT_NAME, date: EVENT_DATE },
+      event: {
+        authorizing_txid: AUTH_TXID,
+        name: EVENT_NAME,
+        date: EVENT_DATE,
+        time: EVENT_TIME,
+      },
       price: EVENT_PRICE,
     });
     await app.close();
@@ -889,6 +899,7 @@ describe("POST /v1/events/deploy — prepare", () => {
         address: ORG_ADDRESS,
         name: EVENT_NAME,
         date: EVENT_DATE,
+        time: EVENT_TIME,
       },
     });
     expect(res.statusCode).toBe(HTTP_OK);

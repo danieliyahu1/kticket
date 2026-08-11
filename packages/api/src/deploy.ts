@@ -50,6 +50,8 @@ export interface DeployPrepareRequest {
   address: string;
   name?: string;
   date?: string;
+  /** Local wall-clock start time (HH:MM). */
+  time?: string;
 }
 
 export interface DeployFinalizeRequest {
@@ -124,8 +126,12 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
   const address = str(raw.address, "address");
   const name = raw.name === undefined ? undefined : str(raw.name, "name");
   const date = raw.date === undefined ? undefined : str(raw.date, "date");
+  const time = raw.time === undefined ? undefined : str(raw.time, "time");
   if ((name === undefined) !== (date === undefined)) {
     throw invalidError("name and date must be provided together");
+  }
+  if (time !== undefined && date === undefined) {
+    throw invalidError("time requires a date");
   }
   return {
     phase: "prepare",
@@ -135,6 +141,7 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
     address,
     ...(name ? { name } : {}),
     ...(date ? { date } : {}),
+    ...(time ? { time } : {}),
   };
 }
 
@@ -185,6 +192,7 @@ function deployBuildRequest(req: DeployPrepareRequest, utxos: UtxoResponse[]): B
     input_utxo_metas: metas,
     ...(req.name !== undefined ? { name: req.name } : {}),
     ...(req.date !== undefined ? { date: req.date } : {}),
+    ...(req.time !== undefined ? { time: req.time } : {}),
   };
 }
 

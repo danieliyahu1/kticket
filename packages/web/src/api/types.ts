@@ -66,6 +66,8 @@ export interface DeployPrepareRequest {
   address: string;
   name?: string;
   date?: string;
+  /** Local wall-clock start time (HH:MM). */
+  time?: string;
 }
 
 export interface DeployPrepareResult {

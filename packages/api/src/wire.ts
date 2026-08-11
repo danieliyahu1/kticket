@@ -93,6 +93,8 @@ export type BuildRequest =
       /** KCC-20 metadata — encoded as a data output in the deploy tx. */
       name?: string;
       date?: string;
+      /** Local wall-clock start time (HH:MM). */
+      time?: string;
     }
   | {
       type: "buy";
@@ -227,7 +229,12 @@ function parseDeploy(raw: Record<string, unknown>): BuildRequest {
   };
   if (raw.name !== undefined) {
     if (raw.date === undefined) throw invalidError("date is required when name is set");
-    return { ...base, name: str(raw.name, "name"), date: str(raw.date, "date") };
+    return {
+      ...base,
+      name: str(raw.name, "name"),
+      date: str(raw.date, "date"),
+      ...(raw.time !== undefined ? { time: str(raw.time, "time") } : {}),
+    };
   }
   return base;
 }

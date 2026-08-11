@@ -72,6 +72,7 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
       ? {
           name: req.name,
           date: req.date,
+          ...(req.time !== undefined ? { time: req.time } : {}),
           priceKAS: req.constants.price / 100_000_000,
           orgSpk: req.constants.org_spk,
           burnTemplateHash: burnHash,
