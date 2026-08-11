@@ -1,8 +1,10 @@
-// Deploy flow (POST /v1/events/deploy) — one logical endpoint, two stateless
-// calls, all logic on the backend:
+// Deploy flow (POST /v1/events/deploy/prepare + /deploy/finalize) — two
+// stateless calls, all logic on the backend:
 //
 //   prepare  — backend fetches the organizer's UTXOs, validates, builds the
 //              unsigned deploy template, and returns what the wallet must sign.
+//              Issues a `deploy_id` the client echoes on finalize so ops can
+//              spot abandoned prepares.
 //   finalize — backend MERGES the wallet's signatures into the exact template
 //              that was signed, validates it is a deploy, broadcasts, waits
 //              for chain confirmation, then registers the event identifiers
@@ -12,6 +14,7 @@
 // template to the wallet, and send back the template + the wallet's output
 // (finalize). It never merges, retries, or owns pipeline state.
 
+import { randomUUID } from "node:crypto";
 import { BURN_ARTIFACT, kasToSompi, MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey } from "@kticket/kit";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { KaspaNetwork } from "@kticket/kit";
@@ -40,7 +43,6 @@ export interface DeployContext extends TxContext {
 }
 
 export interface DeployPrepareRequest {
-  phase: "prepare";
   capacity: number;
   /** Ticket price in KAS (the backend converts KAS → sompi itself). */
   price_kas: number;
@@ -55,7 +57,8 @@ export interface DeployPrepareRequest {
 }
 
 export interface DeployFinalizeRequest {
-  phase: "finalize";
+  /** Correlation id issued by prepare — lets ops detect abandoned prepares. */
+  deploy_id: string;
   /** The unsigned template returned by prepare (must be the exact one signed). */
   template: WireTransaction;
   /** The wallet's output from signing the template (signatures per input). */
@@ -63,6 +66,8 @@ export interface DeployFinalizeRequest {
 }
 
 export interface DeployPrepareResult {
+  /** Correlation id the client echoes back on finalize (see DeployFinalizeRequest). */
+  deploy_id: string;
   signing_template: string;
   event_covenant_id?: string;
   /** The unsigned template the wallet signed — relayed back in finalize. */
@@ -134,7 +139,6 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
     throw invalidError("time requires a date");
   }
   return {
-    phase: "prepare",
     capacity,
     price_kas: raw.price_kas,
     publicKey,
@@ -148,6 +152,7 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
 /** Parse + validate the finalize body. */
 function parseFinalize(raw: unknown): DeployFinalizeRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
+  const deploy_id = str(raw.deploy_id, "deploy_id");
   if (!isRecord(raw.template)) throw invalidError("template must be an object");
   const template = raw.template as unknown as WireTransaction;
   if (!Array.isArray(template.inputs) || !Array.isArray(template.outputs)) {
@@ -156,7 +161,7 @@ function parseFinalize(raw: unknown): DeployFinalizeRequest {
   if (typeof raw.signed !== "string" && typeof raw.signed !== "object") {
     throw invalidError("signed must be the wallet's signing output");
   }
-  return { phase: "finalize", template, signed: raw.signed };
+  return { deploy_id, template, signed: raw.signed };
 }
 
 /** Build the deploy `BuildRequest` from organizer inputs + fetched UTXOs. */
@@ -216,6 +221,7 @@ export async function deployPrepare(
     throw invalidError("could not build a signing template for the deploy");
   }
   return {
+    deploy_id: randomUUID(),
     signing_template: result.signing_template,
     template: result.template,
     ...(result.event_covenant_id ? { event_covenant_id: result.event_covenant_id } : {}),

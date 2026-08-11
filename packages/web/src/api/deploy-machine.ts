@@ -36,7 +36,8 @@ function logStep(step: string, detail?: unknown): void {
 }
 
 /**
- * The whole deploy flow is owned by the backend (`POST /v1/events/deploy`):
+ * The whole deploy flow is owned by the backend (`POST /v1/events/deploy/prepare`
+ * and `/deploy/finalize`):
  *   prepare  → backend fetches UTXOs + builds the unsigned template
  *   wallet   → signs the template (the one thing only it can do)
  *   finalize → backend merges the signature, broadcasts, waits for
@@ -55,7 +56,6 @@ export async function executeDeploy(
   logStep("start", params);
 
   const prepareReq: DeployPrepareRequest = {
-    phase: "prepare",
     capacity: params.capacity,
     price_kas: params.priceKas,
     publicKey: params.publicKey,
@@ -69,6 +69,7 @@ export async function executeDeploy(
   try {
     prepared = await deployPrepare(prepareReq);
     logStep("prepared", {
+      deployId: prepared.deploy_id,
       eventCovenantId: prepared.event_covenant_id,
       signingTemplateLen: prepared.signing_template.length,
     });
@@ -92,7 +93,7 @@ export async function executeDeploy(
   setState({ phase: "broadcasting" });
   try {
     const result = await deployFinalize({
-      phase: "finalize",
+      deploy_id: prepared.deploy_id,
       template: prepared.template,
       signed,
     });

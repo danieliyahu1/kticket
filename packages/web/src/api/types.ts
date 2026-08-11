@@ -56,7 +56,6 @@ export interface BroadcastResult {
 }
 
 export interface DeployPrepareRequest {
-  phase: "prepare";
   capacity: number;
   /** Ticket price in KAS (the backend converts KAS → sompi). */
   price_kas: number;
@@ -71,6 +70,8 @@ export interface DeployPrepareRequest {
 }
 
 export interface DeployPrepareResult {
+  /** Correlation id echoed back on finalize so the backend can spot abandoned prepares. */
+  deploy_id: string;
   signing_template: string;
   event_covenant_id?: string;
   /** The unsigned template the wallet signed — relayed back in finalize. */

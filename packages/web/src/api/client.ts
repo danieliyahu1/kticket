@@ -56,19 +56,21 @@ function parseErrorJson(text: string): { message?: string; type?: string; retrya
 
 /** prepare: backend fetches UTXOs + builds the unsigned template the wallet signs. */
 export function deployPrepare(req: DeployPrepareRequest): Promise<DeployPrepareResult> {
-  return apiFetch<DeployPrepareResult>("/v1/events/deploy", req);
+  return apiFetch<DeployPrepareResult>("/v1/events/deploy/prepare", req);
 }
 
 /** finalize: backend merges the signature, broadcasts, confirms, and registers. */
 export function deployFinalize(req: {
-  phase: "finalize";
+  deploy_id: string;
   template: WireTransaction;
   signed: unknown;
 }): Promise<{ covenant_id: string; deploy_txid: string }> {
-  return apiFetch<{ covenant_id: string; deploy_txid: string }>("/v1/events/deploy", req);
+  return apiFetch<{ covenant_id: string; deploy_txid: string }>("/v1/events/deploy/finalize", req);
 }
 
 export interface BuyPrepareResult {
+  /** Correlation id echoed back on finalize so the backend can spot abandoned buys. */
+  buy_id: string;
   signing_template: string;
   template: WireTransaction;
   sign_inputs: { index: number }[];
@@ -78,17 +80,17 @@ export interface BuyPrepareResult {
 /** prepare: backend verifies the event + fetches the buyer's UTXOs + builds the template. */
 export function buyPrepare(
   covenantId: string,
-  req: { phase: "prepare"; publicKey: string; address: string },
+  req: { publicKey: string; address: string },
 ): Promise<BuyPrepareResult> {
-  return apiFetch<BuyPrepareResult>(`/v1/events/${covenantId}/buy`, req);
+  return apiFetch<BuyPrepareResult>(`/v1/events/${covenantId}/buy/prepare`, req);
 }
 
 /** finalize: backend merges, broadcasts, and waits for confirmation. */
 export function buyFinalize(
   covenantId: string,
-  req: { phase: "finalize"; template: WireTransaction; signed: unknown },
+  req: { buy_id: string; template: WireTransaction; signed: unknown },
 ): Promise<{ txid: string }> {
-  return apiFetch<{ txid: string }>(`/v1/events/${covenantId}/buy`, req);
+  return apiFetch<{ txid: string }>(`/v1/events/${covenantId}/buy/finalize`, req);
 }
 
 /** Fetch event detail + availability from the API (KTK-89: chain-verified). */

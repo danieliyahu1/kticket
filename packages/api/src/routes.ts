@@ -1,10 +1,12 @@
 // kticket API routes (HLD v0.27 §2.2):
-//   GET  /v1/events                   — directory of verified events (from the registry)
-//   POST /v1/events                   — register an event after deploy (discovery only)
-//   GET  /v1/events/{covenant_id}     — verified event + availability + raw chain facts
-//   POST /v1/events/deploy            — backend-owned deploy flow (prepare/finalize)
-//   POST /v1/events/{covenant_id}/buy — backend-owned buy flow (prepare/finalize)
-//   GET  /v1/tickets                  — user's on-chain tickets (?owner_pkh=)
+//   GET  /v1/events                              — directory of verified events (from the registry)
+//   POST /v1/events                              — register an event after deploy (discovery only)
+//   GET  /v1/events/{covenant_id}                — verified event + availability + raw chain facts
+//   POST /v1/events/deploy/prepare               — backend-owned deploy: build the unsigned template
+//   POST /v1/events/deploy/finalize              — backend-owned deploy: merge, broadcast, register
+//   POST /v1/events/{covenant_id}/buy/prepare    — backend-owned buy: verify event, build template
+//   POST /v1/events/{covenant_id}/buy/finalize   — backend-owned buy: merge, broadcast, confirm
+//   GET  /v1/tickets                             — user's on-chain tickets (?owner_pkh=)
 //
 // KTK-89 (stateless backend): the identifier registry holds only
 // `{deploy_txid, covenant_id, organizer_address}` for discovery. Every event
@@ -51,36 +53,30 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post("/v1/events/deploy", async (req) => {
-    try {
-      const body = req.body;
-      const phase =
-        typeof body === "object" && body !== null && "phase" in body
-          ? (body as { phase: unknown }).phase
-          : undefined;
-      if (phase === "prepare") {
-        return await deployPrepare(body, {
-          kaspa: ctx.kaspa,
-          networkId: ctx.networkId,
-          network: ctx.network,
-          register: (e) => ctx.events.register(e),
-        });
-      }
-      if (phase === "finalize") {
-        return await deployFinalize(body, {
-          kaspa: ctx.kaspa,
-          networkId: ctx.networkId,
-          network: ctx.network,
-          register: (e) => ctx.events.register(e),
-        });
-      }
-      throw invalidError("phase must be prepare|finalize");
-    } catch (err) {
-      if (isApiError(err)) {
-        req.log.error({ detail: err.detail }, "deploy failed");
-      }
-      throw err;
-    }
+  const deployCtx = {
+    kaspa: ctx.kaspa,
+    networkId: ctx.networkId,
+    network: ctx.network,
+    register: (e: { deployTxId: string; covenantId: string; organizerAddress: string }) =>
+      ctx.events.register(e),
+  };
+
+  app.post("/v1/events/deploy/prepare", async (req) => {
+    const result = await deployPrepare(req.body, deployCtx);
+    req.log.info(
+      { deploy_id: result.deploy_id, template_inputs: result.template.inputs.length },
+      "deploy prepare",
+    );
+    return result;
+  });
+
+  app.post("/v1/events/deploy/finalize", async (req) => {
+    const result = await deployFinalize(req.body, deployCtx);
+    req.log.info(
+      { deploy_id: (req.body as { deploy_id?: unknown })?.deploy_id, covenant_id: result.covenant_id },
+      "deploy finalize",
+    );
+    return result;
   });
 
   app.post("/v1/events", async (req) => {
@@ -178,30 +174,43 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     return tickets;
   });
 
+  const buyCtx = {
+    kaspa: ctx.kaspa,
+    networkId: ctx.networkId,
+    network: ctx.network,
+    byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
+  };
+
   app.post<{ Params: { covenantId: string } }>(
-    "/v1/events/:covenantId/buy",
+    "/v1/events/:covenantId/buy/prepare",
     async (req) => {
-      try {
-        const body = req.body;
-        const phase =
-          typeof body === "object" && body !== null && "phase" in body
-            ? (body as { phase: unknown }).phase
-            : undefined;
-        const ctxFor = {
-          kaspa: ctx.kaspa,
-          networkId: ctx.networkId,
-          network: ctx.network,
-          byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
-        };
-        if (phase === "prepare") return await buyPrepare(req.params.covenantId, body, ctxFor);
-        if (phase === "finalize") return await buyFinalize(body, ctxFor);
-        throw invalidError("phase must be prepare|finalize");
-      } catch (err) {
-        if (isApiError(err)) {
-          req.log.error({ detail: err.detail }, "buy failed");
-        }
-        throw err;
-      }
+      const result = await buyPrepare(req.params.covenantId, req.body, buyCtx);
+      req.log.info(
+        {
+          buy_id: result.buy_id,
+          covenant_id: req.params.covenantId,
+          sign_inputs: result.sign_inputs.length,
+          price: result.price,
+        },
+        "buy prepare",
+      );
+      return result;
+    },
+  );
+
+  app.post<{ Params: { covenantId: string } }>(
+    "/v1/events/:covenantId/buy/finalize",
+    async (req) => {
+      const result = await buyFinalize(req.body, buyCtx);
+      req.log.info(
+        {
+          buy_id: (req.body as { buy_id?: unknown })?.buy_id,
+          covenant_id: req.params.covenantId,
+          txid: result.txid,
+        },
+        "buy finalize",
+      );
+      return result;
     },
   );
 

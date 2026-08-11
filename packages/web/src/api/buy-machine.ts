@@ -33,7 +33,8 @@ function logStep(step: string, detail?: unknown): void {
 }
 
 /**
- * The buy flow is owned by the backend (`POST /v1/events/{covenantId}/buy`):
+ * The buy flow is owned by the backend (`POST /v1/events/{covenantId}/buy/prepare`
+ * and `/buy/finalize`):
  *   prepare  → backend verifies the event + fetches the buyer's UTXOs + builds
  *              the unsigned template
  *   wallet   → signs the inputs the backend listed
@@ -70,11 +71,10 @@ export async function executeBuy(
   let prepared: BuyPrepareResult;
   try {
     prepared = await buyPrepare(params.covenantId, {
-      phase: "prepare",
       publicKey: params.publicKey,
       address: params.address,
     });
-    logStep("prepared", { price: prepared.price, signInputs: prepared.sign_inputs });
+    logStep("prepared", { buyId: prepared.buy_id, price: prepared.price, signInputs: prepared.sign_inputs });
   } catch (err) {
     logError("prepare", err);
     setState({ phase: "error", message: errorMsg(err) });
@@ -86,7 +86,7 @@ export async function executeBuy(
   try {
     const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
     const result = await buyFinalize(params.covenantId, {
-      phase: "finalize",
+      buy_id: prepared.buy_id,
       template: prepared.template,
       signed,
     });

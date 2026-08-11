@@ -1,15 +1,18 @@
-// Buy flow (POST /v1/events/{covenantId}/buy) — one logical endpoint, two
+// Buy flow (POST /v1/events/{covenantId}/buy/prepare + /buy/finalize) — two
 // stateless calls, all logic on the backend:
 //
 //   prepare  — backend verifies the event from the chain, computes
 //              availability, fetches the buyer's UTXOs itself, and builds the
-//              unsigned buy template -> what the wallet must sign.
+//              unsigned buy template -> what the wallet must sign. Issues a
+//              `buy_id` the client echoes on finalize so ops can spot
+//              abandoned prepares (a prepared buy whose finalize never came).
 //   finalize — backend merges the wallet's signatures, validates it is a buy,
 //              broadcasts, waits for chain confirmation -> { txid }.
 //
 // The frontend only relays: the covenant id + the buyer's pubkey/address, then
 // the template + the wallet's output. It never merges, retries, or owns state.
 
+import { randomUUID } from "node:crypto";
 import { MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey } from "@kticket/kit";
 import type { KaspaNetwork } from "@kticket/kit";
 import { invalidError, policyError } from "./errors.js";
@@ -31,19 +34,21 @@ export interface BuyContext {
 }
 
 export interface BuyPrepareRequest {
-  phase: "prepare";
   publicKey: string;
   /** The buyer's bech32 address — the backend fetches its UTXOs itself. */
   address: string;
 }
 
 export interface BuyFinalizeRequest {
-  phase: "finalize";
+  /** Correlation id issued by prepare — lets ops detect abandoned prepares. */
+  buy_id: string;
   template: WireTransaction;
   signed: unknown;
 }
 
 export interface BuyPrepareResult {
+  /** Correlation id the client echoes back on finalize (see BuyFinalizeRequest). */
+  buy_id: string;
   signing_template: string;
   template: WireTransaction;
   /** Inputs the wallet must sign (excludes the covenant spend at index 0). */
@@ -72,7 +77,6 @@ function validatePublicKey(publicKey: unknown, label = "publicKey"): string {
 function parsePrepare(raw: unknown): BuyPrepareRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
   return {
-    phase: "prepare",
     publicKey: validatePublicKey(raw.publicKey),
     address: str(raw.address, "address"),
   };
@@ -80,6 +84,7 @@ function parsePrepare(raw: unknown): BuyPrepareRequest {
 
 function parseFinalize(raw: unknown): BuyFinalizeRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
+  const buy_id = str(raw.buy_id, "buy_id");
   if (!isRecord(raw.template)) throw invalidError("template must be an object");
   const template = raw.template as unknown as WireTransaction;
   if (!Array.isArray(template.inputs) || !Array.isArray(template.outputs)) {
@@ -88,7 +93,7 @@ function parseFinalize(raw: unknown): BuyFinalizeRequest {
   if (typeof raw.signed !== "string" && typeof raw.signed !== "object") {
     throw invalidError("signed must be the wallet's signing output");
   }
-  return { phase: "finalize", template, signed: raw.signed };
+  return { buy_id, template, signed: raw.signed };
 }
 
 function toWireUtxo(u: UtxoResponse): WireUtxo {
@@ -175,6 +180,7 @@ export async function buyPrepare(
     throw invalidError("could not build a signing template for the buy");
   }
   return {
+    buy_id: randomUUID(),
     signing_template: result.signing_template,
     template: result.template,
     sign_inputs: result.template.inputs.slice(1).map((_, i) => ({ index: i + 1 })),

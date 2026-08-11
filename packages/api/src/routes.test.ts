@@ -523,7 +523,7 @@ class FakeKaspa implements KaspaClientLike {
   }
 }
 
-describe("POST /v1/events/{covenantId}/buy — prepare", () => {
+describe("POST /v1/events/{covenantId}/buy/prepare", () => {
   const BUYER_PKH_HEX = "03".repeat(TXID_BYTE_LENGTH);
   const BUYER_PUBKEY_HEX = `02${BUYER_PKH_HEX}`;
   const BUYER_ADDRESS = p2pkAddress(hexToBytes(BUYER_PKH_HEX), NETWORK);
@@ -554,11 +554,12 @@ describe("POST /v1/events/{covenantId}/buy — prepare", () => {
     });
     const res = await app.inject({
       method: "POST",
-      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
-      payload: { phase: "prepare", publicKey: BUYER_PUBKEY_HEX, address: BUYER_ADDRESS },
+      url: `/v1/events/${TEST_COVENANT_ID}/buy/prepare`,
+      payload: { publicKey: BUYER_PUBKEY_HEX, address: BUYER_ADDRESS },
     });
     expect(res.statusCode).toBe(HTTP_OK);
     const body = res.json();
+    expect(typeof body.buy_id).toBe("string");
     expect(typeof body.signing_template).toBe("string");
     const parsed = JSON.parse(body.signing_template);
     expect(parsed.version).toBe(1);
@@ -578,8 +579,8 @@ describe("POST /v1/events/{covenantId}/buy — prepare", () => {
     });
     const res = await app.inject({
       method: "POST",
-      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
-      payload: { phase: "prepare", publicKey: BUYER_PUBKEY_HEX, address: BUYER_ADDRESS },
+      url: `/v1/events/${TEST_COVENANT_ID}/buy/prepare`,
+      payload: { publicKey: BUYER_PUBKEY_HEX, address: BUYER_ADDRESS },
     });
     expect(res.statusCode).toBe(422);
     expect(res.json().error.type).toBe("policy");
@@ -587,7 +588,7 @@ describe("POST /v1/events/{covenantId}/buy — prepare", () => {
   });
 });
 
-describe("POST /v1/events/{covenantId}/buy — finalize", () => {
+describe("POST /v1/events/{covenantId}/buy/finalize", () => {
   it("merges, broadcasts, and confirms the buy", async () => {
     const kaspa = new FakeKaspa();
     seedVerifiedEvent(kaspa);
@@ -603,9 +604,9 @@ describe("POST /v1/events/{covenantId}/buy — finalize", () => {
     });
     const res = await app.inject({
       method: "POST",
-      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
+      url: `/v1/events/${TEST_COVENANT_ID}/buy/finalize`,
       payload: {
-        phase: "finalize",
+        buy_id: "buy-123",
         template: {
           version: 1,
           inputs: [
@@ -647,9 +648,9 @@ describe("POST /v1/events/{covenantId}/buy — finalize", () => {
     const app = await txApp();
     const res = await app.inject({
       method: "POST",
-      url: `/v1/events/${TEST_COVENANT_ID}/buy`,
+      url: `/v1/events/${TEST_COVENANT_ID}/buy/finalize`,
       payload: {
-        phase: "finalize",
+        buy_id: "buy-456",
         template: {
           version: 1,
           inputs: [],
@@ -739,7 +740,7 @@ describe("reader routes — POST /v1/events", () => {
   });
 });
 
-describe("POST /v1/events/deploy — prepare", () => {
+describe("POST /v1/events/deploy/prepare", () => {
   const ORG_PUBKEY_HEX = `02${ORG_PKH_HEX}`;
   const ORG_ADDRESS = p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK);
 
@@ -768,9 +769,8 @@ describe("POST /v1/events/deploy — prepare", () => {
     });
     const res = await app.inject({
       method: "POST",
-      url: "/v1/events/deploy",
+      url: "/v1/events/deploy/prepare",
       payload: {
-        phase: "prepare",
         capacity: EVENT_CAPACITY,
         price_kas: EVENT_PRICE / 100_000_000,
         publicKey: ORG_PUBKEY_HEX,
@@ -782,6 +782,7 @@ describe("POST /v1/events/deploy — prepare", () => {
     });
     expect(res.statusCode).toBe(HTTP_OK);
     const body = res.json();
+    expect(typeof body.deploy_id).toBe("string");
     expect(typeof body.signing_template).toBe("string");
     const parsed = JSON.parse(body.signing_template);
     expect(parsed.version).toBe(1);
@@ -795,9 +796,8 @@ describe("POST /v1/events/deploy — prepare", () => {
     const app = await txApp();
     const res = await app.inject({
       method: "POST",
-      url: "/v1/events/deploy",
+      url: "/v1/events/deploy/prepare",
       payload: {
-        phase: "prepare",
         capacity: EVENT_CAPACITY,
         price_kas: EVENT_PRICE / 100_000_000,
         publicKey: ORG_PUBKEY_HEX,
@@ -808,21 +808,9 @@ describe("POST /v1/events/deploy — prepare", () => {
     expect(res.json().error.type).toBe("policy");
     await app.close();
   });
-
-  it("rejects an invalid phase", async () => {
-    const app = await txApp();
-    const res = await app.inject({
-      method: "POST",
-      url: "/v1/events/deploy",
-      payload: { phase: "nope" },
-    });
-    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
-    expect(res.json().error.type).toBe("invalid");
-    await app.close();
-  });
 });
 
-describe("POST /v1/events/deploy — finalize", () => {
+describe("POST /v1/events/deploy/finalize", () => {
   it("broadcasts, confirms, and registers the event identifiers", async () => {
     const kaspa = new FakeKaspa();
     seedVerifiedEvent(kaspa);
@@ -838,9 +826,9 @@ describe("POST /v1/events/deploy — finalize", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: "/v1/events/deploy",
+      url: "/v1/events/deploy/finalize",
       payload: {
-        phase: "finalize",
+        deploy_id: "deploy-123",
         template: {
           version: 1,
           inputs: [
@@ -888,9 +876,9 @@ describe("POST /v1/events/deploy — finalize", () => {
     const app = await txApp();
     const res = await app.inject({
       method: "POST",
-      url: "/v1/events/deploy",
+      url: "/v1/events/deploy/finalize",
       payload: {
-        phase: "finalize",
+        deploy_id: "deploy-456",
         template: {
           version: 1,
           inputs: [],
