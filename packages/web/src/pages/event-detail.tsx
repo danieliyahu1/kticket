@@ -13,7 +13,7 @@ export default function EventDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [buy, setBuy] = useState<BuyState>({ phase: "idle" });
   const pendingBuy = useRef(false);
-  const [confirming, setConfirming] = useState(false);
+  const buying = buy.phase === "loading" || buy.phase === "building" || buy.phase === "broadcasting";
 
   const load = useCallback(async () => {
     if (!covenantId) return;
@@ -51,8 +51,8 @@ export default function EventDetailPage() {
       return;
     }
     pendingBuy.current = false;
-    setConfirming(true);
-  }, [state.status, event]);
+    handleBuy();
+  }, [state.status, event, handleBuy]);
 
   const handleConnectThenBuy = useCallback(() => {
     pendingBuy.current = true;
@@ -164,37 +164,20 @@ export default function EventDetailPage() {
           <button type="button" className="btn btn-primary btn-lg btn-sold-out" disabled>
             Sold out
           </button>
-        ) : connected && confirming ? (
-          <div className="buy-confirm">
-            <p className="buy-confirm-body">
-              1 ticket to {event.event.name} for {priceLabel(event.event.price)}. Proceed?
-            </p>
-            <div className="buy-confirm-actions">
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleBuy}
-              >
-                Confirm
-              </button>
-              <button
-                type="button"
-                className="btn btn-link"
-                onClick={() => setConfirming(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
         ) : connected ? (
           <>
             <button
               type="button"
               className="btn btn-primary btn-lg btn-block"
-              onClick={() => setConfirming(true)}
+              onClick={handleBuy}
+              disabled={buying}
             >
-              Buy ticket
+              {buying ? "Buying ticket…" : "Buy ticket"}
             </button>
+            <p className="note">
+              {priceLabel(event.event.price)} per ticket. Your wallet shows the full
+              change UTXO being re-sent — you're only spending the ticket price.
+            </p>
           </>
         ) : (
           <button
