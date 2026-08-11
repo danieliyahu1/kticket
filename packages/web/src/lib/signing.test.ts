@@ -18,7 +18,7 @@ describe("signTemplate — signInputs exclusion (Bug: covenant input was signed)
   it("passes signInputs to signPskt when provided", async () => {
     const result = await signTemplate(SIGNED_JSON, [{ index: 1 }]);
     const parsed = JSON.parse(result as string);
-    expect(parsed._args.options.signInputs).toEqual([{ index: 1 }]);
+    expect(parsed._args.options.signInputs).toEqual([{ index: 1, sighashType: 1 }]);
   });
 
   it("does not pass options when signInputs is not provided", async () => {
