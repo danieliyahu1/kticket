@@ -223,7 +223,7 @@ function config() {
 }
 
 function makeEventStore(): EventStore {
-  const store = new EventStore(`test-events-${Date.now()}.json`);
+  const store = new EventStore();
   store.register(makeStoredEvent());
   return store;
 }
@@ -672,7 +672,7 @@ describe("reader routes — POST /v1/events", () => {
   it("registers an event after deploy and returns covenant_id", async () => {
     const kaspa = new FakeKaspa();
     seedVerifiedEvent(kaspa);
-    const events = new EventStore(`test-events-${Date.now()}-post.json`);
+    const events = new EventStore();
     const app = await buildApp(config(), {
       kaspa,
       events,
@@ -691,7 +691,7 @@ describe("reader routes — POST /v1/events", () => {
   });
 
   it("rejects POST /v1/events when the deploy tx is not on chain", async () => {
-    const events = new EventStore(`test-events-${Date.now()}-missing.json`);
+    const events = new EventStore();
     const app = await buildApp(config(), {
       kaspa: new FakeKaspa(),
       events,
@@ -721,7 +721,7 @@ describe("reader routes — POST /v1/events", () => {
         script_public_key: "51",
       };
     }
-    const events = new EventStore(`test-events-${Date.now()}-tampered.json`);
+    const events = new EventStore();
     const app = await buildApp(config(), {
       kaspa,
       events,
@@ -816,7 +816,7 @@ describe("POST /v1/events/deploy/finalize", () => {
     seedVerifiedEvent(kaspa);
     mockedSubmit.mockResolvedValue(G_ID);
 
-    const events = new EventStore(`test-events-${Date.now()}-deploy.json`);
+    const events = new EventStore();
     const app = await buildApp(config(), {
       kaspa,
       events,

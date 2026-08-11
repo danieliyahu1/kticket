@@ -37,17 +37,18 @@ function requireString(value: unknown, label: string): string {
 }
 
 export class EventStore {
-  readonly #idsPath: string;
+  readonly #idsPath?: string;
   #byCovenantId: Map<string, StoredEvent>;
   #byDeployTxId: Map<string, StoredEvent>;
   #events: StoredEvent[];
 
-  constructor(idsPath: string) {
-    this.#idsPath = resolve(idsPath);
+  /** Pass a file path to persist the registry; omit it for an in-memory store. */
+  constructor(idsPath?: string) {
+    this.#idsPath = idsPath ? resolve(idsPath) : undefined;
     this.#byCovenantId = new Map();
     this.#byDeployTxId = new Map();
     this.#events = [];
-    this.#loadIds();
+    if (this.#idsPath) this.#loadIds();
   }
 
   #loadIds(): void {
@@ -118,6 +119,7 @@ export class EventStore {
   }
 
   #saveIds(): void {
+    if (!this.#idsPath) return;
     const json: IdsJSON = this.#events.map((e) => ({
       deploy_txid: e.deployTxId,
       covenant_id: e.covenantId,

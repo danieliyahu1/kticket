@@ -1,0 +1,17 @@
+[
+  {
+    "deploy_txid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "covenant_id": "234f446748ff76774c8ca9c99531a34111066f902daa95663a399f4a2893a3ba",
+    "organizer_address": "kaspatest:qqqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszapw00vun"
+  },
+  {
+    "deploy_txid": "1111111111111111111111111111111111111111111111111111111111111111",
+    "covenant_id": "0b2df8a07a8b3f6e4c2e9d5f1a7c8b3d9e0f4a6b1c2d3e4f5a6b7c8d9e0f1a2b",
+    "organizer_address": "kaspatest:qqg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zjwjmnu2y"
+  },
+  {
+    "deploy_txid": "2222222222222222222222222222222222222222222222222222222222222222",
+    "covenant_id": "5c1e9b3a7d2f8c4e6a0b1d3f5c7e9a2b4d6f8c0e1a3b5d7f9c2e4a6b8d0f1c3e",
+    "organizer_address": "kaspatest:qq3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zy09kj3t9w"
+  }
+]
