@@ -171,22 +171,14 @@ export default function EventDetailPage() {
           <button type="button" className="button button-full" disabled>
             Sold out
           </button>
-        ) : connected ? (
-          <button
-            type="button"
-            className="button button-primary button-full"
-            onClick={handleBuy}
-            disabled={buying}
-          >
-            {buying ? "Buying…" : `Buy ticket · ${priceLabel(event.event.price)}`}
-          </button>
         ) : (
           <button
             type="button"
             className="button button-primary button-full"
-            onClick={handleConnectThenBuy}
+            onClick={connected ? handleBuy : handleConnectThenBuy}
+            disabled={buying}
           >
-            Connect wallet to buy
+            {buying ? "Buying…" : `Buy ticket · ${priceLabel(event.event.price)}`}
           </button>
         )}
       </div>
