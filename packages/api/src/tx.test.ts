@@ -324,7 +324,7 @@ describe("buildTransaction (KTK-55) — buy signing template alignment", () => {
     expect(outputTotal).toBeLessThan(EVENT_VALUE + UTXO_VALUE);
   });
 
-  it("fills covenant input signature_script with pushData-wrapped redeem script", async () => {
+  it("fills covenant input with mint args + pushData-wrapped redeem script", async () => {
     const kaspa = new FakeKaspa();
     kaspa.transaction = eventTx();
 
@@ -334,18 +334,22 @@ describe("buildTransaction (KTK-55) — buy signing template alignment", () => {
       ctx(kaspa),
     );
 
-    // Input 0 (covenant) must have a non-empty redeem script, not a Schnorr sig
+    // Input 0 (covenant) must carry the mint call args (push(buyer_pkh) +
+    // selector) followed by the pushData-wrapped redeem script, not a Schnorr sig.
     const sigScript = result.template.inputs[0]?.signature_script ?? "";
     expect(sigScript.length).toBeGreaterThan(0);
-    // Must start with a pushData opcode (0x4c = OP_PUSHDATA1 / 0x4d = OP_PUSHDATA2
-    // for the full redeem script), not 0x41 (sighash)
-    expect(sigScript.slice(0, 2)).toMatch(/^(4c|4d)$/);
+    const buyerPkh = "42".repeat(TXID_BYTE_LENGTH);
+    expect(sigScript.slice(0, 2)).toBe("20"); // OP_PUSHBYTES_32
+    expect(sigScript.slice(0, 2 + buyerPkh.length)).toBe(`20${buyerPkh}`);
+    // Redeem reveal follows the args (0x4c = OP_PUSHDATA1 / 0x4d = OP_PUSHDATA2)
+    expect(sigScript.slice(2 + buyerPkh.length + 2)).toMatch(/^(4c|4d)/);
 
-    // Signing template also has the redeem script
+    // Signing template also has the covenant spend script
     expect(result.signing_template).toBeDefined();
     const signing = JSON.parse(result.signing_template!);
     const inputs = signing.inputs as Array<{ signatureScript: string }>;
-    expect(inputs[0]?.signatureScript.slice(0, 2)).toMatch(/^(4c|4d)$/);
+    expect(inputs[0]?.signatureScript.slice(0, 2)).toBe("20");
+    expect(inputs[0]?.signatureScript.slice(2 + buyerPkh.length + 2)).toMatch(/^(4c|4d)/);
   });
 
   it("continuation outputs keep the genesis covenant id from the buy request", async () => {

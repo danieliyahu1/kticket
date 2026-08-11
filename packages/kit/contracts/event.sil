@@ -32,10 +32,11 @@ contract Event(
 
     // Mint-on-sale (FR-8/27): the event covenant splits into a ticket
     // (amount = 1, owner = buyer) and the remaining event (amount - 1).
-    // The organizer authorizes with their signature. Oversell is rejected.
+    // The covenant is the authority: anyone who pays the price mints — no
+    // organizer co-signature needed (the deploy already committed the supply).
+    // Oversell is rejected.
     #[covenant(binding = auth, from = 1, to = 2, mode = transition)]
-    function mint(State prev_state, sig s, byte[32] buyer_pkh) : State[] {
-        require(checkSig(s, pubkey(prev_state.owner)));
+    function mint(State prev_state, byte[32] buyer_pkh) : State[] {
         require(prev_state.amount > 0);
         if (price > 0) {
             require(hasPayout());

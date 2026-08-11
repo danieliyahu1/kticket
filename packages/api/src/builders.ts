@@ -18,7 +18,7 @@ import {
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
-import { burnTemplateHashOf, compileBurnArtifact, compileEventArtifact } from "./compiler.js";
+import { burnTemplateHashOf, compileBurnArtifact, compileEventArtifact, eventMintSigScript } from "./compiler.js";
 import type { BuildRequest, WireUtxo, WireUtxoMeta } from "./wire.js";
 import { orgPayoutSpk, toCompilerConstants, toOutpoint, toSpk } from "./wire.js";
 
@@ -142,7 +142,12 @@ async function buyBuild(
         network: TESTNET10,
         fee,
       });
-      return { tx, covenantRedeemScript: bytesToHex(pushData(eventRedeemPush(eventArtifact, req))) };
+      return {
+        tx,
+        covenantRedeemScript:
+          eventMintSigScript(toCompilerConstants(req.constants), req.buyer) +
+          bytesToHex(pushData(eventRedeemPush(eventArtifact, req))),
+      };
     },
   };
 }

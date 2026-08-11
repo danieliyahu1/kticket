@@ -69,6 +69,38 @@ export function compileBurnArtifact(authorizingTxId: string): CompiledContractAr
   return compileContract("burn", [byteArrayArg(FIXED32, authorizingTxId)]);
 }
 
+/**
+ * The event contract constructor args — authorizing_txid, price, org_spk,
+ * burn_template_hash, and the burn template prefix/suffix (derived from the
+ * burn compile). Shared by `compileEventArtifact` and the covenant `sigscript`
+ * builder so both compile the identical bytecode.
+ */
+function eventConstructorArgs(constants: {
+  authorizingTxId: string;
+  price: number;
+  orgSpk: string;
+  burnTemplateHash: string;
+}): unknown[] {
+  const burn = compileBurnArtifact(constants.authorizingTxId);
+  const { start, len } = burn.state_layout;
+  const prefix = burn.bytecode.slice(0, start);
+  const suffix = burn.bytecode.slice(start + len);
+  const hash = burn.template_hash;
+  // `org_spk` is baked as the full script public key bytes (`<u16 version LE> ||
+  // script`). The covenant VM's `tx.outputs[i].scriptPubKey` introspection
+  // returns exactly this serialized form, so `hasPayout()` only matches when the
+  // constant carries the version prefix too (KTK-102 follow-up).
+  const orgSpkFull = `0000${constants.orgSpk}`;
+  return [
+    byteArrayArg(FIXED32, constants.authorizingTxId),
+    intArg(constants.price),
+    byteArrayArg(DYNAMIC, orgSpkFull),
+    byteArrayArg(FIXED32, bytesToHex(Uint8Array.from(hash))),
+    byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(prefix))),
+    byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(suffix))),
+  ];
+}
+
 /** Compile the event contract for one event's constants (per-event compile). */
 export function compileEventArtifact(constants: {
   authorizingTxId: string;
@@ -76,20 +108,45 @@ export function compileEventArtifact(constants: {
   orgSpk: string;
   burnTemplateHash: string;
 }): CompiledContractArtifact {
-  const burn = compileBurnArtifact(constants.authorizingTxId);
-  const { start, len } = burn.state_layout;
-  const prefix = burn.bytecode.slice(0, start);
-  const suffix = burn.bytecode.slice(start + len);
-  const hash = burn.template_hash;
+  return compileContract("event", eventConstructorArgs(constants));
+}
 
-  return compileContract("event", [
-    byteArrayArg(FIXED32, constants.authorizingTxId),
-    intArg(constants.price),
-    byteArrayArg(DYNAMIC, constants.orgSpk),
-    byteArrayArg(FIXED32, bytesToHex(Uint8Array.from(hash))),
-    byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(prefix))),
-    byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(suffix))),
-  ]);
+/**
+ * The covenant spend script for the `mint` entrypoint (buy): `push(buyer_pkh)
+ * || pushData(redeem)`. Built by silverc's `build_sig_script_for_covenant_decl`
+ * so the arg encoding matches what the node's covenant VM expects — the
+ * on-chain event covenant only knows the P2SH hash, so the spend must reveal
+ * both the `buyer_pkh` call argument and the redeem script with the live state.
+ */
+export function eventMintSigScript(
+  constants: {
+    authorizingTxId: string;
+    price: number;
+    orgSpk: string;
+    burnTemplateHash: string;
+  },
+  buyerPkhHex: string,
+): string {
+  const ctor = eventConstructorArgs(constants);
+  const args = [byteArrayArg(FIXED32, buyerPkhHex)];
+  const dir = mkdtempSync(join(tmpdir(), "kticket-sig-"));
+  const ctorFile = join(dir, "ctor.json");
+  const argsFile = join(dir, "args.json");
+  writeFileSync(ctorFile, JSON.stringify(ctor));
+  writeFileSync(argsFile, JSON.stringify(args));
+  try {
+    return runRust([
+      "sigscript",
+      "--ctor",
+      ctorFile,
+      "--args",
+      argsFile,
+      join(CONTRACTS_DIR, "event.sil"),
+      "mint",
+    ]).trim();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** The authoritative burn template hash for an event (derived at compile time). */

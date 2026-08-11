@@ -86,7 +86,10 @@ function eventCtorArgs(txidHex) {
   return [
     byteArrayArg(FIXED32, txidHex),
     intArg(REFERENCE_PRICE),
-    byteArrayArg(DYNAMIC, REFERENCE_ORG_SPK_HEX),
+    // `org_spk` is baked as the full script public key bytes (u16 LE version
+    // prefix + script) to match the covenant VM's `tx.outputs[i].scriptPubKey`
+    // introspection (KTK-102 follow-up).
+    byteArrayArg(DYNAMIC, `0000${REFERENCE_ORG_SPK_HEX}`),
     byteArrayArg(FIXED32, Buffer.from(hash).toString("hex")),
     byteArrayArg(DYNAMIC, Buffer.from(prefix).toString("hex")),
     byteArrayArg(DYNAMIC, Buffer.from(suffix).toString("hex")),
