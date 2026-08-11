@@ -195,11 +195,6 @@ export default function EventDetailPage() {
             >
               Buy ticket
             </button>
-            {event.event.price > 0 && (
-              <p className="note">
-                Price: {priceLabel(event.event.price)} per ticket. Payment from your wallet.
-              </p>
-            )}
           </>
         ) : (
           <button

@@ -91,7 +91,7 @@ function CapacityField({ initial, errors, onChange }: EventFormProps) {
     <Field
       label="Capacity"
       htmlFor="event-capacity"
-      hint="How many tickets to sell — up to 100."
+      hint="Up to 100 tickets."
       error={errors.capacity}
     >
       <input
@@ -114,7 +114,7 @@ function PriceField({ initial, errors, onChange }: EventFormProps) {
     <Field
       label="Price"
       htmlFor="event-price"
-      hint="In KAS. Set to 0 for a free event."
+      hint="In KAS."
       error={errors.price}
     >
       <input
