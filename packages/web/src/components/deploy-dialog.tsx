@@ -66,7 +66,7 @@ function Success({ txid }: { txid?: string }) {
         </p>
       )}
       <div className="ticket-actions">
-        <Link to="/?filter=mine" className="btn btn-primary">
+        <Link to="/?filter=created" className="btn btn-primary">
           View my events &rarr;
         </Link>
       </div>
