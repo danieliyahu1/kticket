@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 .playwright/
+.playwright-mcp/
 *.log
 
 # Local environment files
