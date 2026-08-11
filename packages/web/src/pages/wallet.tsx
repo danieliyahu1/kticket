@@ -28,11 +28,13 @@ function TicketCard({ ticket }: { ticket: TicketEntry }) {
 export default function WalletPage() {
   const { state, connect } = useWallet();
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
   const [offline, setOffline] = useState(false);
 
   const loadTickets = useCallback(async () => {
     if (state.status !== "connected") return;
     setOffline(false);
+    setTicketsLoading(true);
     try {
       const list = await fetchMyTickets(state.publicKey);
       setTickets(list);
@@ -43,6 +45,8 @@ export default function WalletPage() {
       } else {
         setTickets([]);
       }
+    } finally {
+      setTicketsLoading(false);
     }
   }, [state.status, state.status === "connected" ? state.publicKey : undefined]);
 
@@ -66,6 +70,12 @@ export default function WalletPage() {
         />
       ) : offline ? (
         <OfflineEmpty onRetry={loadTickets} />
+      ) : ticketsLoading ? (
+        <div className="event-list">
+          {Array.from({ length: 6 }, (_, i) => (
+            <div key={i} className="skeleton skeleton-card" aria-hidden="true" />
+          ))}
+        </div>
       ) : tickets.length === 0 ? (
         <Empty
           title="No tickets yet."

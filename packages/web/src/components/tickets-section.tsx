@@ -24,12 +24,9 @@ function TicketCard({ ticket }: { ticket: TicketEntry }) {
 
 export interface TicketsSectionProps {
   tickets: TicketEntry[];
-  onRefetch: () => Promise<void>;
 }
 
 export function TicketsSection({ tickets }: TicketsSectionProps) {
-  if (tickets.length === 0) return null;
-
   const grouped = groupByEvent(tickets);
 
   return (

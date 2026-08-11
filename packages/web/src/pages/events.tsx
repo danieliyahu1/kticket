@@ -123,6 +123,7 @@ export default function EventsPage() {
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
   const [offline, setOffline] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const connected = state.status === "connected";
@@ -132,6 +133,7 @@ export default function EventsPage() {
   const loadTickets = useCallback(async () => {
     if (state.status !== "connected") return;
     setOffline(false);
+    setTicketsLoading(true);
     try {
       const list = await fetchMyTickets(state.publicKey);
       setTickets(list);
@@ -142,6 +144,8 @@ export default function EventsPage() {
       } else {
         setTickets([]);
       }
+    } finally {
+      setTicketsLoading(false);
     }
   }, [state.status, state.status === "connected" ? state.publicKey : undefined]);
 
@@ -151,6 +155,7 @@ export default function EventsPage() {
         loadTickets();
       } else {
         setOffline(false);
+        setTicketsLoading(false);
       }
       setLoading(false);
       setEvents([]);
@@ -159,6 +164,7 @@ export default function EventsPage() {
 
     if (segment === "created" && !connected) {
       setOffline(false);
+      setTicketsLoading(false);
       setLoading(false);
       setEvents([]);
       return;
@@ -212,8 +218,16 @@ export default function EventsPage() {
         connected ? (
           offline ? (
             <OfflineEmpty onRetry={() => setRetryKey((k) => k + 1)} />
+          ) : ticketsLoading ? (
+            <div className="event-list">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="skeleton skeleton-card" aria-hidden="true" />
+              ))}
+            </div>
+          ) : tickets.length > 0 ? (
+            <TicketsSection tickets={tickets} />
           ) : (
-            <TicketsSection tickets={tickets} onRefetch={loadTickets} />
+            <TicketsEmptyConnected />
           )
         ) : (
           <TicketsEmptyDisconnected onConnect={connect} />
