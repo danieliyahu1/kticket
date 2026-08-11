@@ -18,6 +18,14 @@ export class ApiError extends Error {
   }
 }
 
+/** The server could not complete the request — unreachable, or it failed (any 5xx). */
+export class ServerError extends Error {
+  constructor() {
+    super("The server isn't responding.");
+    this.name = "ServerError";
+  }
+}
+
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   const url = path;
   console.log(`[api] POST ${url}`, JSON.stringify(body));
@@ -30,12 +38,15 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
     });
   } catch (err) {
     console.error(`[api] fetch failed: ${url}`, err);
-    throw new Error("No connection");
+    throw new ServerError();
   }
 
   if (!res.ok) {
     const text = await res.text();
     console.error(`[api] ${res.status} ${url}`, text);
+    if (res.status >= 500) {
+      throw new ServerError();
+    }
     const err = parseErrorJson(text);
     throw new ApiError(err?.message ?? `API error ${res.status}`, err?.type, err?.retryable);
   }
@@ -145,11 +156,14 @@ async function apiGet<T>(path: string): Promise<T> {
     res = await fetch(path);
   } catch (err) {
     console.error(`[api] fetch GET failed: ${path}`, err);
-    throw new Error("No connection");
+    throw new ServerError();
   }
   if (!res.ok) {
     const text = await res.text();
     console.error(`[api] ${res.status} ${path}`, text);
+    if (res.status >= 500) {
+      throw new ServerError();
+    }
     const err = parseErrorJson(text);
     throw new ApiError(err?.message ?? `API error ${res.status}`, err?.type, err?.retryable);
   }

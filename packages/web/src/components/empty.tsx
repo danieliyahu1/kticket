@@ -26,3 +26,14 @@ export function Empty({ title, sub, actionLabel, actionTo, onAction }: EmptyProp
     </div>
   );
 }
+
+export function OfflineEmpty({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Empty
+      title="The server isn't responding."
+      sub="Try again in a moment."
+      actionLabel="Try again"
+      onAction={onRetry}
+    />
+  );
+}

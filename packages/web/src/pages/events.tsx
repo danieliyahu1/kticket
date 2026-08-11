@@ -3,10 +3,11 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   fetchEventsList,
   fetchMyTickets,
+  ServerError,
   type EventListItem,
   type TicketEntry,
 } from "../api/client";
-import { Empty } from "../components/empty";
+import { Empty, OfflineEmpty } from "../components/empty";
 import { TicketsSection } from "../components/tickets-section";
 import { useWallet } from "../hooks/use-wallet";
 import { shortAddress } from "../lib/format";
@@ -122,18 +123,25 @@ export default function EventsPage() {
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const connected = state.status === "connected";
   const filterOrganizer =
     segment === "created" && connected ? (state.accounts[0] ?? undefined) : undefined;
 
   const loadTickets = useCallback(async () => {
     if (state.status !== "connected") return;
+    setOffline(false);
     try {
       const list = await fetchMyTickets(state.publicKey);
       setTickets(list);
     } catch (err) {
       console.error("[tickets] failed to load", err);
-      setTickets([]);
+      if (err instanceof ServerError) {
+        setOffline(true);
+      } else {
+        setTickets([]);
+      }
     }
   }, [state.status, state.status === "connected" ? state.publicKey : undefined]);
 
@@ -141,6 +149,8 @@ export default function EventsPage() {
     if (segment === "tickets") {
       if (connected) {
         loadTickets();
+      } else {
+        setOffline(false);
       }
       setLoading(false);
       setEvents([]);
@@ -148,6 +158,7 @@ export default function EventsPage() {
     }
 
     if (segment === "created" && !connected) {
+      setOffline(false);
       setLoading(false);
       setEvents([]);
       return;
@@ -155,12 +166,18 @@ export default function EventsPage() {
 
     let cancelled = false;
     async function load() {
+      setOffline(false);
       setLoading(true);
       try {
         const list = await fetchEventsList(filterOrganizer);
         if (!cancelled) setEvents(list);
-      } catch {
-        if (!cancelled) setEvents([]);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ServerError) {
+          setOffline(true);
+        } else {
+          setEvents([]);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -169,7 +186,7 @@ export default function EventsPage() {
     return () => {
       cancelled = true;
     };
-  }, [filterOrganizer, segment, loadTickets]);
+  }, [filterOrganizer, segment, loadTickets, retryKey]);
 
   const visible = events;
 
@@ -193,7 +210,11 @@ export default function EventsPage() {
       />
       {segment === "tickets" ? (
         connected ? (
-          <TicketsSection tickets={tickets} onRefetch={loadTickets} />
+          offline ? (
+            <OfflineEmpty onRetry={() => setRetryKey((k) => k + 1)} />
+          ) : (
+            <TicketsSection tickets={tickets} onRefetch={loadTickets} />
+          )
         ) : (
           <TicketsEmptyDisconnected onConnect={connect} />
         )
@@ -203,6 +224,8 @@ export default function EventsPage() {
             <div key={i} className="skeleton skeleton-card" aria-hidden="true" />
           ))}
         </div>
+      ) : offline ? (
+        <OfflineEmpty onRetry={() => setRetryKey((k) => k + 1)} />
       ) : visible.length > 0 ? (
         <div className="event-list">
           {visible.map((event) => (

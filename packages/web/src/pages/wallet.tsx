@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "../hooks/use-wallet";
-import { fetchMyTickets, type TicketEntry } from "../api/client";
+import { fetchMyTickets, ServerError, type TicketEntry } from "../api/client";
 import { whenLabel } from "../lib/format";
-import { Empty } from "../components/empty";
+import { Empty, OfflineEmpty } from "../components/empty";
 
 function TicketCard({ ticket }: { ticket: TicketEntry }) {
   return (
@@ -28,15 +28,21 @@ function TicketCard({ ticket }: { ticket: TicketEntry }) {
 export default function WalletPage() {
   const { state, connect } = useWallet();
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
+  const [offline, setOffline] = useState(false);
 
   const loadTickets = useCallback(async () => {
     if (state.status !== "connected") return;
+    setOffline(false);
     try {
       const list = await fetchMyTickets(state.publicKey);
       setTickets(list);
     } catch (err) {
       console.error("[tickets] failed to load", err);
-      setTickets([]);
+      if (err instanceof ServerError) {
+        setOffline(true);
+      } else {
+        setTickets([]);
+      }
     }
   }, [state.status, state.status === "connected" ? state.publicKey : undefined]);
 
@@ -58,6 +64,8 @@ export default function WalletPage() {
           actionLabel="Connect wallet"
           onAction={connect}
         />
+      ) : offline ? (
+        <OfflineEmpty onRetry={loadTickets} />
       ) : tickets.length === 0 ? (
         <Empty
           title="No tickets yet."

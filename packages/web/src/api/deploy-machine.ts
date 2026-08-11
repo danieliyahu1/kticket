@@ -1,4 +1,4 @@
-import { deployFinalize, deployPrepare } from "./client";
+import { deployFinalize, deployPrepare, ServerError } from "./client";
 import type { DeployPrepareRequest } from "./types";
 import { signTemplate } from "../lib/signing";
 
@@ -22,7 +22,7 @@ export interface DeployParams {
 
 function errorMsg(err: unknown): string {
   if (!(err instanceof Error)) return "Deploy failed.";
-  if (err.message === "No connection") return "No connection - deploy can't complete.";
+  if (err instanceof ServerError) return "The server isn't responding — deploy can't complete.";
   // The backend owns the message; the frontend relays it.
   return err.message;
 }

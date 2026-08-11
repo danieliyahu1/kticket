@@ -1,4 +1,4 @@
-import { buyFinalize, buyPrepare, fetchEvent, type EventDetail } from "./client";
+import { buyFinalize, buyPrepare, fetchEvent, ServerError, type EventDetail } from "./client";
 import type { BuyPrepareResult } from "./client";
 import { signTemplate } from "../lib/signing";
 
@@ -19,7 +19,7 @@ export interface BuyParams {
 
 function errorMsg(err: unknown): string {
   if (!(err instanceof Error)) return "Purchase failed.";
-  if (err.message === "No connection") return "No connection - purchase can't complete.";
+  if (err instanceof ServerError) return "The server isn't responding — purchase can't complete.";
   // The backend owns the message; the frontend relays it.
   return err.message;
 }

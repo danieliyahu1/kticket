@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { fetchEvent, type EventDetail } from "../api/client";
+import { fetchEvent, ServerError, type EventDetail } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
 import { useWallet } from "../hooks/use-wallet";
+import { OfflineEmpty } from "../components/empty";
 import { capacityLabel, priceLabel, shortAddress, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
@@ -11,6 +12,7 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
   const [buy, setBuy] = useState<BuyState>({ phase: "idle" });
   const pendingBuy = useRef(false);
   const buying = buy.phase === "loading" || buy.phase === "building" || buy.phase === "broadcasting";
@@ -19,12 +21,17 @@ export default function EventDetailPage() {
     if (!covenantId) return;
     setLoading(true);
     setError(null);
+    setOffline(false);
     try {
       const e = await fetchEvent(covenantId);
       setEvent(e);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      setError(msg.includes("not found") ? "Event does not exist." : "Could not load event.");
+      if (err instanceof ServerError) {
+        setOffline(true);
+      } else {
+        const msg = err instanceof Error ? err.message : "";
+        setError(msg.includes("not found") ? "Event does not exist." : "Could not load event.");
+      }
     } finally {
       setLoading(false);
     }
@@ -97,6 +104,13 @@ export default function EventDetailPage() {
   }
 
   if (error || !event) {
+    if (offline) {
+      return (
+        <section>
+          <OfflineEmpty onRetry={load} />
+        </section>
+      );
+    }
     return (
       <section>
         <p className="empty-title">{error ?? "Event not found."}</p>
