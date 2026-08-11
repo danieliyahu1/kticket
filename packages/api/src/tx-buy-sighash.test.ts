@@ -49,6 +49,7 @@ class FakeKaspa implements KaspaClientLike {
   async getUtxosForAddresses(): Promise<never> { throw new Error("not used"); }
   async getFullTransactions(): Promise<never> { throw new Error("not used"); }
   async getTransaction(_txId: string): Promise<TxModel | null> { return this.transaction; }
+  clearCache(): void {}
   async getFeeEstimate(): Promise<FeeEstimateResponse> { return this.feeEstimate; }
   async computeMass(): Promise<TxMass> { return { mass: 1_000, storage_mass: 0, compute_mass: 1_000 }; }
   async broadcastTransaction(_tx: SubmitTxModel): Promise<SubmitTransactionResponse> {

@@ -96,5 +96,9 @@ export async function broadcastAndConfirm(
   }
   const id = txid.toLowerCase();
   await waitForTransaction(ctx.kaspa, id);
+  // KTK-115: the confirmed tx invalidates cached chain reads (the covenant's
+  // UTXOs and the buyer's funding UTXO). Drop them so the next availability
+  // walk or buy prepare sees the post-buy state, not a ≤3s-old snapshot.
+  ctx.kaspa.clearCache();
   return id;
 }

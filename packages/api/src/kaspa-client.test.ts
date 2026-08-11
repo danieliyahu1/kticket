@@ -265,6 +265,21 @@ describe("KaspaClient — caching (KTK-5)", () => {
     await client.getTransaction("ab".repeat(TXID_BYTE_LENGTH));
     expect(urls).toHaveLength(DISTINCT_CACHE_KEYS);
   });
+
+  it("clearCache drops cached entries so the next read refetches", async () => {
+    let calls = 0;
+    const fetchFn = async () => {
+      calls += 1;
+      return jsonResponse(HTTP_OK, [{ address: "kaspatest:a" }]);
+    };
+    const client = makeClient(fetchFn);
+    await client.getUtxos("kaspatest:a");
+    await client.getUtxos("kaspatest:a");
+    expect(calls).toBe(1);
+    client.clearCache();
+    await client.getUtxos("kaspatest:a");
+    expect(calls).toBe(2);
+  });
 });
 
 describe("KaspaClient — fee estimate / mass (KTK-6)", () => {

@@ -38,6 +38,12 @@ export interface KaspaClientLike {
   getFeeEstimate(): Promise<FeeEstimateResponse>;
   computeMass(tx: SubmitTxModel): Promise<TxMass>;
   broadcastTransaction(tx: SubmitTxModel): Promise<SubmitTransactionResponse>;
+  /**
+   * Drop every cached upstream response. A confirmed broadcast changes chain
+   * state, so cached reads (UTXOs, tx lists) may be stale — callers invoke this
+   * after a tx confirms so the next read refetches from the chain (KTK-115).
+   */
+  clearCache(): void;
 }
 
 export interface UpstreamOptions {
@@ -187,6 +193,10 @@ export class KaspaClient implements KaspaClientLike {
     this.#fetch = options.fetch ?? fetch;
     this.#sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.#now = options.now ?? Date.now;
+  }
+
+  clearCache(): void {
+    this.#cache.clear();
   }
 
   async getUtxos(address: string): Promise<UtxoResponse[]> {

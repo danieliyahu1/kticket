@@ -73,6 +73,8 @@ class FakeKaspa implements KaspaClientLike {
     return this.transaction;
   }
 
+  clearCache(): void {}
+
   async getFeeEstimate(): Promise<FeeEstimateResponse> {
     return this.feeEstimate;
   }

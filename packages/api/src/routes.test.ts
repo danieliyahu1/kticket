@@ -488,6 +488,11 @@ class FakeKaspa implements KaspaClientLike {
   };
   mass: TxMass = { mass: 1_000, storage_mass: 0, compute_mass: 1_000 };
   broadcastResponse: SubmitTransactionResponse = { transactionId: "dd".repeat(TXID_BYTE_LENGTH) };
+  clearCalls = 0;
+
+  clearCache(): void {
+    this.clearCalls += 1;
+  }
 
   async getUtxos(address: string): Promise<UtxoResponse[]> {
     return this.utxoMap.get(address) ?? [];
@@ -633,6 +638,8 @@ describe("POST /v1/events/{covenantId}/buy — finalize", () => {
     });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual({ txid: B0_ID });
+    // KTK-115: a confirmed broadcast must drop the stale upstream cache.
+    expect(kaspa.clearCalls).toBe(1);
     await app.close();
   });
 

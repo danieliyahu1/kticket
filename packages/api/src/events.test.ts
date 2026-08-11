@@ -158,6 +158,8 @@ class FakeKaspa implements KaspaClientLike {
     return this.addressTxs.get(lower)?.find((t) => t.transaction_id === lower) ?? null;
   }
 
+  clearCache(): void {}
+
   async getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]> {
     return addresses.flatMap((a) => this.live.get(a) ?? []);
   }
