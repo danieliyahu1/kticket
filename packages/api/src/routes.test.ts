@@ -39,6 +39,7 @@ const BUYER_UTXO_BYTE = 0x03;
 const NETWORK = "testnet10";
 const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
 const B0_ID = "bb".repeat(TXID_BYTE_LENGTH);
+const B1_ID = "bc".repeat(TXID_BYTE_LENGTH);
 const AUTH_TXID = "ab".repeat(TXID_BYTE_LENGTH);
 
 const AUTH_TXID_HEX = AUTH_TXID;
@@ -154,9 +155,9 @@ function deployScript(): string {
   return deployTx().outputs?.[0]?.script_public_key as string;
 }
 
-function buyTxModelFrom(tx: UnsignedTransaction): TxModel {
+function buyTxModelFrom(tx: UnsignedTransaction, txId: string = B0_ID): TxModel {
   return {
-    transaction_id: B0_ID,
+    transaction_id: txId,
     inputs: tx.inputs.map((input, index) => ({
       transaction_id: input.previousOutpoint.txId,
       index,
@@ -165,7 +166,7 @@ function buyTxModelFrom(tx: UnsignedTransaction): TxModel {
       signature_script: input.signatureScript,
     })),
     outputs: tx.outputs.map((output, index) => ({
-      transaction_id: B0_ID,
+      transaction_id: txId,
       index,
       amount: output.value,
       script_public_key: output.scriptPublicKey.script,
@@ -192,6 +193,29 @@ function buyTx(): TxModel {
     fee: 400,
   });
   return buyTxModelFrom(tx);
+}
+
+function buyTxSpending(
+  eventOutpoint: { txId: Uint8Array; index: number },
+  remaining: number,
+  txId: string,
+): TxModel {
+  const tx = buildBuy({
+    eventOutpoint,
+    eventCovenantId: TEST_COVENANT_ID,
+    eventOwner: hexToBytes(ORG_PKH_HEX),
+    eventArtifact: eventArtifact(),
+    buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
+    buyerUtxos: [{ txId: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_UTXO_BYTE), index: 0 }],
+    buyerUtxoValues: [UTXO_VALUE],
+    orgScript: { version: 0, script: ORG_SPK_HEX },
+    changeScript: { version: 0, script: "51" },
+    remaining,
+    price: EVENT_PRICE,
+    network: NETWORK,
+    fee: 400,
+  });
+  return buyTxModelFrom(tx, txId);
 }
 
 function config() {
@@ -312,6 +336,53 @@ describe("reader routes (KTK-89) — event availability", () => {
         maker_address: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
         decoded_state: { owner: ORG_PKH_HEX, capacity: 2 },
       },
+    });
+    await app.close();
+  });
+
+  it("GET /v1/events/{id} reports sold incremented when a second ticket is minted", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+
+    const buy1 = buyTx();
+    const deployAddress = addressFromScriptHash(deployScript(), NETWORK);
+    kaspa.txMap.set(deployAddress, [buy1]);
+
+    const buy1CovenantAddress = addressFromScriptHash(
+      buy1.outputs?.[1]?.script_public_key as string,
+      NETWORK,
+    );
+    const buy2 = buyTxSpending(
+      { txId: hexToBytes(B0_ID), index: 1 },
+      EVENT_CAPACITY - 1,
+      B1_ID,
+    );
+    kaspa.txMap.set(buy1CovenantAddress, [buy2]);
+
+    const buy2CovenantAddress = addressFromScriptHash(
+      buy2.outputs?.[1]?.script_public_key as string,
+      NETWORK,
+    );
+    kaspa.utxoMap.set(buy2CovenantAddress, [
+      {
+        address: buy2CovenantAddress,
+        outpoint: { transactionId: B1_ID, index: 1 },
+        utxoEntry: {
+          amount: "0",
+          scriptPublicKey: { scriptPublicKey: "" },
+          blockDaaScore: "0",
+          isCoinbase: false,
+        },
+      },
+    ]);
+
+    const app = await readerApp(kaspa);
+    const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json().availability).toMatchObject({
+      capacity: EVENT_CAPACITY,
+      sold: 2,
+      left: 0,
     });
     await app.close();
   });
