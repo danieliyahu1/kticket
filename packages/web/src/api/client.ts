@@ -91,28 +91,6 @@ export function buyFinalize(
   return apiFetch<{ txid: string }>(`/v1/events/${covenantId}/buy`, req);
 }
 
-export interface TransferPrepareResult {
-  signing_template: string;
-  template: WireTransaction;
-  sign_inputs: { index: number }[];
-}
-
-/** prepare: backend resolves the event + fetches the holder's UTXOs + builds the template. */
-export function transferPrepare(
-  ticketId: string,
-  req: { phase: "prepare"; covenant_id: string; ticket_id: string; publicKey: string; address: string },
-): Promise<TransferPrepareResult> {
-  return apiFetch<TransferPrepareResult>(`/v1/tickets/${encodeURIComponent(ticketId)}/transfer`, req);
-}
-
-/** finalize: backend merges, broadcasts, and waits for confirmation. */
-export function transferFinalize(
-  ticketId: string,
-  req: { phase: "finalize"; template: WireTransaction; signed: unknown },
-): Promise<{ txid: string }> {
-  return apiFetch<{ txid: string }>(`/v1/tickets/${encodeURIComponent(ticketId)}/transfer`, req);
-}
-
 /** Fetch event detail + availability from the API (KTK-89: chain-verified). */
 export interface EventDetail {
   event: {

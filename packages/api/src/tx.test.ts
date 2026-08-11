@@ -119,18 +119,6 @@ function deployRequest(capacity: number) {
   };
 }
 
-function transferRequest() {
-  return {
-    type: "transfer",
-    ticket_outpoint: { transaction_id: "bb".repeat(TXID_BYTE_LENGTH), index: 0 },
-    event_covenant_id: "77".repeat(TXID_BYTE_LENGTH),
-    constants: CONSTANTS,
-    new_owner: "99".repeat(TXID_BYTE_LENGTH),
-    holder_utxos: [HOLDER_UTXO],
-    change_spk: CHANGE_SPK,
-  };
-}
-
 function buyRequest(constants = CONSTANTS, buyerUtxos = [BUYER_UTXO]) {
   return {
     type: "buy",
@@ -375,32 +363,6 @@ describe("buildTransaction (KTK-55) — buy signing template alignment", () => {
     expect(result.event_covenant_id).toBe(expected);
   });
 
-});
-
-describe("buildTransaction (KTK-28) — transfer", () => {
-  it("builds a transfer template with the holder paying the fee", async () => {
-    const kaspa = new FakeKaspa();
-    const result = await buildTransaction(transferRequest(), ctx(kaspa));
-
-    expect(result.template.outputs).toHaveLength(2);
-    const change = result.template.outputs[1];
-    // the holder pays the fee: change is less than the supplied input
-    expect(change?.value).toBeLessThan(UTXO_VALUE);
-  });
-
-  it("lifts a 0-fee estimate to the relay floor (0-fee tx never relays)", async () => {
-    const kaspa = new FakeKaspa();
-    kaspa.feeEstimate = {
-      priorityBucket: { feerate: 0, estimatedSeconds: 1 },
-      normalBuckets: [],
-      lowBuckets: [],
-    };
-    const result = await buildTransaction(transferRequest(), ctx(kaspa));
-    // even a 0-feerate estimate is lifted to a positive fee (relay floor),
-    // so the holder's change is less than the supplied input
-    const change = result.template.outputs[1];
-    expect(change?.value).toBeLessThan(UTXO_VALUE);
-  });
 });
 
 describe("buildTransaction (KTK-28) — failure paths", () => {

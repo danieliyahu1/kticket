@@ -7,7 +7,6 @@ import {
   buildBuy,
   buildDeploy,
   buildHandover,
-  buildTransfer,
   burnScript,
   burnTemplateHash,
   EVENT_DUST,
@@ -21,17 +20,14 @@ const HASH_LENGTH = 32;
 const EVENT_ID_SEED = 0xab;
 const ORG_FILL = 0x01;
 const BUYER_FILL = 0x02;
-const NEW_OWNER_FILL = 0x99;
 const FUNDED_UTXO_VALUE = 10_000_000_000;
 const TINY_UTXO_VALUE = 1_000;
 const INSUFFICIENT_BUYER_UTXO_VALUE = 500;
 const DEPLOY_FEE = 1_000;
 const BUY_FEE = 1_000;
-const TRANSFER_FEE = 700;
 const HANDOVER_FEE = 400;
 const BUY_OUTPUT_COUNT = 4;
 const FREE_TICKET_OUTPUT_COUNT = 3;
-const TRANSFER_TICKET_INDEX = 3;
 const HANDOVER_TICKET_INDEX = 4;
 const PRICE = 1_000;
 
@@ -51,7 +47,6 @@ const EVENT_COVENANT_ID = "ab".repeat(HASH_LENGTH);
 const AUTHORIZING = outpoint("ab".repeat(HASH_LENGTH), 0);
 const EVENT_UTXO = outpoint("ab".repeat(HASH_LENGTH), 0);
 const BUYER_UTXO = outpoint("bb".repeat(HASH_LENGTH), 0);
-const HOLDER_UTXO = outpoint("cc".repeat(HASH_LENGTH), 0);
 const ATTENDEE_UTXO = outpoint("dd".repeat(HASH_LENGTH), 0);
 
 const ORG = new Uint8Array(HASH_LENGTH).fill(ORG_FILL);
@@ -173,29 +168,6 @@ describe("buildBuy: validation", () => {
         }),
       ),
     ).toThrow(/cannot cover/);
-  });
-});
-
-describe("buildTransfer", () => {
-  it("spends the ticket to a new owner with the same covenant id, holder pays the fee", () => {
-    const tx = buildTransfer({
-      ticketOutpoint: outpoint("ee".repeat(HASH_LENGTH), TRANSFER_TICKET_INDEX),
-      eventCovenantId: EVENT_COVENANT_ID,
-      eventArtifact: EVENT_ARTIFACT,
-      newOwner: new Uint8Array(HASH_LENGTH).fill(NEW_OWNER_FILL),
-      holderUtxos: [HOLDER_UTXO],
-      holderUtxoValues: [FUNDED_UTXO_VALUE],
-      changeScript,
-      network: NETWORK,
-      fee: TRANSFER_FEE,
-    });
-    expect(tx.outputs).toHaveLength(2);
-    expect(tx.outputs[0]?.value).toBe(TICKET_DUST);
-    expect(tx.outputs[0]?.covenant).toEqual({
-      authorizingInput: 0,
-      covenantId: EVENT_COVENANT_ID,
-    });
-    expect(tx.outputs[1]?.value).toBe(FUNDED_UTXO_VALUE - TRANSFER_FEE);
   });
 });
 

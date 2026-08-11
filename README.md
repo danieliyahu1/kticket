@@ -9,7 +9,7 @@ by event organisers and bought / held by attendees — all on chain.
 | --- | --- | --- | --- |
 | `@kticket/kit` | `packages/kit` | TypeScript (over `kaspa-wasm` + SilverScript artifacts) | Covenant WASM kit — on-chain ticket rules, tx building, covenant state decoding, provenance helpers. Shared by api / web. |
 | `@kticket/api` | `packages/api` | Node.js + TypeScript (Fastify) | Stateless API — every read re-verifies event data from the chain; only an identifier registry (`deploy_txid`, `covenant_id`, `organizer_address`) is stored, for discovery. |
-| `@kticket/web` | `packages/web` | React + Vite + TypeScript | Monolith SPA — buyer, organiser, and door scanner flows, with a trust-anchor "Organized by" UI and anchor-based discovery links. |
+| `@kticket/web` | `packages/web` | React + Vite + TypeScript | Monolith SPA — buyer and organiser flows, with a trust-anchor "Organized by" UI and anchor-based discovery links. |
 
 ## Stateless backend & trustless provenance (KTK-89)
 

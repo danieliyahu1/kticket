@@ -109,16 +109,6 @@ export type BuildRequest =
       input_utxo_metas?: WireUtxoMeta[];
     }
   | {
-      type: "transfer";
-      ticket_outpoint: WireOutpoint;
-      event_covenant_id: string;
-      constants: TicketConstantsJson;
-      new_owner: string;
-      holder_utxos: WireUtxo[];
-      change_spk: WireScriptPublicKey;
-      input_utxo_metas?: WireUtxoMeta[];
-    }
-  | {
       type: "handover";
       ticket_outpoint: WireOutpoint;
       event_covenant_id: string;
@@ -256,21 +246,6 @@ function parseBuy(raw: Record<string, unknown>): BuildRequest {
   };
 }
 
-function parseTransfer(raw: Record<string, unknown>): BuildRequest {
-  return {
-    type: "transfer",
-    ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
-    event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
-    constants: parseConstants(raw.constants),
-    new_owner: hex64(raw.new_owner, "new_owner"),
-    holder_utxos: utxos(raw.holder_utxos, "holder_utxos"),
-    change_spk: scriptSpk(raw.change_spk, "change_spk"),
-    ...(raw.input_utxo_metas !== undefined
-      ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
-      : {}),
-  };
-}
-
 function parseHandover(raw: Record<string, unknown>): BuildRequest {
   return {
     type: "handover",
@@ -291,12 +266,10 @@ export function parseBuildRequest(raw: unknown): BuildRequest {
       return parseDeploy(raw);
     case "buy":
       return parseBuy(raw);
-    case "transfer":
-      return parseTransfer(raw);
     case "handover":
       return parseHandover(raw);
     default:
-      throw invalidError(`type must be deploy|buy|transfer|handover, got ${type}`);
+      throw invalidError(`type must be deploy|buy|handover, got ${type}`);
   }
 }
 

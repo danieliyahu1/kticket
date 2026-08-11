@@ -28,7 +28,6 @@ import {
   buildBuy,
   buildDeploy,
   buildHandover,
-  buildTransfer,
   decodeMetadataFromPayload,
   DUST,
   encodeMetadataPayload,
@@ -84,7 +83,6 @@ export type {
   DeployResult,
   EventMetadata,
   HandoverInput,
-  TransferInput,
 } from "./runtime/builder.js";
 export type { AuthorizedOutput, Outpoint } from "./runtime/covenant.js";
 export type { FeeInput, FeeResult, MassAndSize } from "./runtime/fee.js";
@@ -111,7 +109,6 @@ export {
   buildDeploy,
   buildHandover,
   buildRedeemScript,
-  buildTransfer,
   BURN_ARTIFACT,
   computeFee,
   computeMassLocal,

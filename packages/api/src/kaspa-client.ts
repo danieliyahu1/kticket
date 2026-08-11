@@ -5,8 +5,8 @@
 //   - timeout / connection errors → 502 `network` error (no retry).
 //   - a short-TTL in-process cache is used only as a rate-limit valve.
 //
-// All 200 responses are cached; the reader and availability path reuse the
-// same client, so one event directory scan does not hammer api-tn10.kaspa.org.
+// All 200 responses are cached; the availability path reuses the same client,
+// so one event directory scan does not hammer api-tn10.kaspa.org.
 
 import { networkError, upstreamError } from "./errors.js";
 import {
@@ -29,7 +29,7 @@ import { isRecord } from "./validate.js";
 
 const UPSTREAM_HOST = "api-tn10.kaspa.org";
 
-/** Public surface used by the reader / routes — makes clients injectable in tests. */
+/** Public surface used by the routes — makes clients injectable in tests. */
 export interface KaspaClientLike {
   getUtxos(address: string): Promise<UtxoResponse[]>;
   getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]>;

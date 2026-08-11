@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Covenant WASM kit — on-chain ticket rules, tx building and covenant state decoding. Shared by api / web / door.",
+  "description": "Covenant WASM kit — on-chain ticket rules, tx building and covenant state decoding. Shared by api / web.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

@@ -9,13 +9,12 @@
 //   buy      — the event covenant splits: ticket (amount=1, buyer) + event
 //              covenant (remaining−1) + org payout (price) + change. Buyer pays
 //              price + ticket dust + fee.
-//   transfer — re-bind a ticket (amount=1) to a new owner; dust rides along.
 //   handover — consume the ticket into this event's burn-owner covenant
 //              (unspendable) — the ticket, dust included, is gone.
 //
 // covenant_id pin (KIP-20, spike d): per-family. The deploy binds the event
-// covenant output to the event_cov_id; mint/transfer/handover continuation
-// outputs carry the same covenant_id as the covenant UTXO they spend.
+// covenant output to the event_cov_id; buy / handover continuation outputs
+// carry the same covenant_id as the covenant UTXO they spend.
 
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { CompiledContractArtifact } from "../contracts/artifact.js";
@@ -401,51 +400,6 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
     version: TX_VERSION_V1,
     inputs: inputsWithTicket(input.eventOutpoint, input.buyerUtxos),
     outputs,
-    lockTime: 0,
-  };
-}
-
-// --- transfer --------------------------------------------------------------
-
-export interface TransferInput {
-  ticketOutpoint: Outpoint;
-  eventCovenantId: string;
-  /** The per-event compiled Event contract artifact. */
-  eventArtifact: CompiledContractArtifact;
-  /** New owner key hash. */
-  newOwner: Uint8Array;
-  /** Holder KAS UTXOs covering the fee (fee payer = holder). */
-  holderUtxos: Outpoint[];
-  holderUtxoValues: readonly number[];
-  changeScript: ScriptPublicKey;
-  network: AddressNetwork;
-  fee: number;
-  /** Dust carried by the ticket output (rides along unchanged). */
-  ticketDust?: number;
-}
-
-export function buildTransfer(input: TransferInput): UnsignedTransaction {
-  validatePairedValues(input.holderUtxoValues, input.holderUtxos, "holder");
-  const change = totalOf(input.holderUtxoValues) - input.fee;
-  if (change < 0) {
-    throw new Error(`holder inputs cannot cover fee ${input.fee}`);
-  }
-
-  const binding = covenantBinding(input.eventCovenantId);
-  return {
-    version: TX_VERSION_V1,
-    inputs: inputsWithTicket(input.ticketOutpoint, input.holderUtxos),
-    outputs: [
-      {
-        value: ticketDustOf(input.ticketDust),
-        scriptPublicKey: covenantScript(
-          input.eventArtifact,
-          { owner: input.newOwner, identifierType: 0, amount: 1, isMinter: false },
-        ),
-        covenant: binding,
-      },
-      changeOutput(input.changeScript, change),
-    ],
     lockTime: 0,
   };
 }

@@ -5,8 +5,6 @@
 //   POST /v1/events/deploy            — backend-owned deploy flow (prepare/finalize)
 //   POST /v1/events/{covenant_id}/buy — backend-owned buy flow (prepare/finalize)
 //   GET  /v1/tickets                  — user's on-chain tickets (?owner_pkh=)
-//   GET  /v1/tickets/{ticket_id}      — verify walk (alive | gone | unknown)
-//   POST /v1/tickets/{ticket_id}/transfer — backend-owned transfer flow (prepare/finalize)
 //
 // KTK-89 (stateless backend): the identifier registry holds only
 // `{deploy_txid, covenant_id, organizer_address}` for discovery. Every event
@@ -28,8 +26,6 @@ import { eventAvailability } from "./events.js";
 import type { EventStore } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { verifyEventFromChain } from "./provenance.js";
-import { verifyTicket } from "./reader.js";
-import { transferFinalize, transferPrepare } from "./transfer.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
 
 export interface AppContext {
@@ -182,32 +178,6 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     return tickets;
   });
 
-  app.get<{ Params: { ticketId: string } }>("/v1/tickets/:ticketId", async (req) => {
-    const { ticketId } = req.params;
-    return verifyTicket(ticketId, {
-      kaspa: ctx.kaspa,
-      network: ctx.network,
-      events: {
-        resolve: async (covenantId) => {
-          const entry = ctx.events.byCovenantId(covenantId);
-          if (!entry) return undefined;
-          try {
-            const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, entry.deployTxId);
-            return {
-              authorizingTxId: verified.authorizing_txid,
-              name: verified.name,
-              date: verified.date,
-              time: verified.time,
-              price: verified.price,
-            };
-          } catch {
-            return undefined;
-          }
-        },
-      },
-    });
-  });
-
   app.post<{ Params: { covenantId: string } }>(
     "/v1/events/:covenantId/buy",
     async (req) => {
@@ -235,35 +205,6 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post<{ Params: { ticketId: string } }>(
-    "/v1/tickets/:ticketId/transfer",
-    async (req) => {
-      try {
-        const body = req.body;
-        const phase =
-          typeof body === "object" && body !== null && "phase" in body
-            ? (body as { phase: unknown }).phase
-            : undefined;
-        const ctxFor = {
-          kaspa: ctx.kaspa,
-          networkId: ctx.networkId,
-          network: ctx.network,
-          byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
-        };
-        if (phase === "prepare") {
-          const prepared = await transferPrepare(body, ctxFor);
-          return { ...prepared, ticket_id: req.params.ticketId };
-        }
-        if (phase === "finalize") return await transferFinalize(body, ctxFor);
-        throw invalidError("phase must be prepare|finalize");
-      } catch (err) {
-        if (isApiError(err)) {
-          req.log.error({ detail: err.detail }, "transfer failed");
-        }
-        throw err;
-      }
-    },
-  );
 }
 
 function parseRegisterEventBody(raw: unknown): string {

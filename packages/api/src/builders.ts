@@ -11,7 +11,6 @@ import {
   buildBuy,
   buildDeploy,
   buildHandover,
-  buildTransfer,
   injectState,
   pushData,
   type UnsignedTransaction,
@@ -168,28 +167,6 @@ function eventRedeemPush(
   });
 }
 
-function transferBuild(req: BuildRequest & { type: "transfer" }): PreparedBuild {
-  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
-  return {
-    inputTotal: req.holder_utxos.reduce((a, u) => a + u.value, 0),
-    payouts: [],
-    inputUtxoMetas: req.input_utxo_metas ?? req.holder_utxos.map((u) => utxoMetaOf(u)),
-    build: (fee) => ({
-      tx: buildTransfer({
-        ticketOutpoint: toOutpoint(req.ticket_outpoint),
-        eventCovenantId: req.event_covenant_id,
-        eventArtifact,
-        newOwner: hexToBytes(req.new_owner),
-        holderUtxos: req.holder_utxos.map((u) => toOutpoint(u)),
-        holderUtxoValues: req.holder_utxos.map((u) => u.value),
-        changeScript: toSpk(req.change_spk),
-        network: TESTNET10,
-        fee,
-      }),
-    }),
-  };
-}
-
 function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild {
   const burnArtifact = compileBurnArtifact(req.constants.authorizing_txid);
   return {
@@ -220,8 +197,6 @@ export async function preparedBuildFor(
       return deployBuild(request);
     case "buy":
       return buyBuild(request, kaspa);
-    case "transfer":
-      return transferBuild(request);
     case "handover":
       return handoverBuild(request);
   }

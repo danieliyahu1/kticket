@@ -1,7 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/layout";
 import CreateEventPage from "./pages/create-event";
-import DoorPage from "./pages/door";
 import EventDetailPage from "./pages/event-detail";
 import EventsPage from "./pages/events";
 import WalletPage from "./pages/wallet";
@@ -18,7 +17,6 @@ export default function App() {
             <Route path="events/:covenantId" element={<EventDetailPage />} />
             <Route path="tickets" element={<WalletPage />} />
           </Route>
-          <Route path="door" element={<WalletProvider><DoorPage /></WalletProvider>} />
         </Routes>
       </BrowserRouter>
     </WalletProvider>

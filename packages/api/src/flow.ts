@@ -1,7 +1,7 @@
-// Shared tx-flow helpers (buy / transfer / handover) — the backend owns the
-// whole flow: merge the wallet's signatures, validate, broadcast over wRPC, and
-// wait for the tx to be accepted before reporting success. The frontend only
-// relays the template + the wallet's output.
+// Shared tx-flow helpers (buy / handover) — the backend owns the whole flow:
+// merge the wallet's signatures, validate, broadcast over wRPC, and wait for
+// the tx to be accepted before reporting success. The frontend only relays the
+// template + the wallet's output.
 
 import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
@@ -91,7 +91,7 @@ export async function broadcastAndConfirm(
     txid = await submitTransactionOverWrpc(ctx.networkId, merged);
   } catch (err) {
     // Surface the node's raw rejection instead of leaking a generic 500 — the
-    // route handler logs it via the ApiError detail (KTK buy/transfer).
+    // route handler logs it via the ApiError detail (KTK buy).
     throwRejectionError(err instanceof Error ? err.message : String(err));
   }
   const id = txid.toLowerCase();

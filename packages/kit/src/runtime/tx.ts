@@ -53,6 +53,5 @@ export interface UnsignedTransaction {
 export const FEE_PAYER = {
   genesis: "organizer",
   buy: "buyer",
-  transfer: "holder",
   handover: "attendee",
 } as const;

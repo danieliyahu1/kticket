@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EVENT_ARTIFACT, BURN_ARTIFACT } from "../contracts/artifacts";
-import { buildBuy, buildDeploy, buildHandover, buildTransfer } from "./builder";
+import { buildBuy, buildDeploy, buildHandover } from "./builder";
 import type { Outpoint } from "./covenant";
 import { estimatedSerializedSize, txIdPreimageV1, txIdV1 } from "./serialize";
 import type { ScriptPublicKey, UnsignedTransaction } from "./tx";
@@ -9,7 +9,6 @@ const HASH_LENGTH = 32;
 const EVENT_ID_SEED = 0xab;
 const ORG_FILL = 0x01;
 const BUYER_FILL = 0x02;
-const NEW_OWNER_FILL = 0x99;
 const VERSION_1 = 0x01;
 const FUNDED_UTXO_VALUE = 10_000_000_000;
 const SECOND_UTXO_VALUE = 5_000;
@@ -45,20 +44,6 @@ function deploy(): ReturnType<typeof buildDeploy> {
 
 function deployTx(): UnsignedTransaction {
   return deploy().tx;
-}
-
-function transferTx(eventCovenantId: string): UnsignedTransaction {
-  return buildTransfer({
-    ticketOutpoint: outpoint("aa".repeat(HASH_LENGTH), 0),
-    eventCovenantId,
-    eventArtifact: EVENT_ARTIFACT,
-    newOwner: new Uint8Array(HASH_LENGTH).fill(NEW_OWNER_FILL),
-    holderUtxos: [outpoint("bb".repeat(HASH_LENGTH), 0)],
-    holderUtxoValues: [FUNDED_UTXO_VALUE],
-    changeScript: SPK,
-    network: NETWORK,
-    fee: 700,
-  });
 }
 
 function handoverTx(eventCovenantId: string): UnsignedTransaction {
@@ -164,12 +149,9 @@ describe("txIdV1 determinism and template dependence", () => {
     expect(txIdV1(tx)).toBe(id);
   });
 
-  it("is stable across transfer and handover templates", () => {
+  it("is deterministic for a handover template", () => {
     const eventCovenantId = deploy().eventCovenantId;
-    const transfer = transferTx(eventCovenantId);
     const handover = handoverTx(eventCovenantId);
-    expect(txIdV1(transfer)).toMatch(/^[0-9a-f]{64}$/);
     expect(txIdV1(handover)).toMatch(/^[0-9a-f]{64}$/);
-    expect(txIdV1(transfer)).not.toBe(txIdV1(handover));
   });
 });

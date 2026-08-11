@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useWallet } from "../hooks/use-wallet";
 import { fetchMyTickets, type TicketEntry } from "../api/client";
-import { executeTransfer, type TransferState } from "../api/transfer-machine";
 import { whenLabel } from "../lib/format";
 import { Empty } from "../components/empty";
 
-function TicketCard({ ticket, onTransfer }: { ticket: TicketEntry; onTransfer: () => void }) {
+function TicketCard({ ticket }: { ticket: TicketEntry }) {
   return (
     <div className="ticket">
       <div className="ticket-main">
@@ -22,69 +20,6 @@ function TicketCard({ ticket, onTransfer }: { ticket: TicketEntry; onTransfer: (
             {ticket.ticket_id.slice(0, 10)}...
           </span>
         </div>
-        <button type="button" className="btn btn-link btn-sm btn-link-clean" onClick={onTransfer}>
-          Transfer
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function TransferDialog({
-  ticket,
-  state,
-  onConfirm,
-  onCancel,
-}: {
-  ticket: TicketEntry;
-  state: TransferState;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  if (state.phase === "idle") return null;
-
-  return (
-    <div className="overlay" onClick={onCancel}>
-      <div className="card overlay-card" onClick={(e) => e.stopPropagation()}>
-        {state.phase === "confirm" ? (
-          <>
-            <p className="modal-heading">Transfer this ticket?</p>
-            <p className="modal-sub">
-              It is one-way and cannot be undone.
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="btn btn-primary btn-sm" onClick={onConfirm}>Transfer</button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel}>Cancel</button>
-            </div>
-          </>
-        ) : state.phase === "building" || state.phase === "broadcasting" ? (
-          <div className="status-progress">
-            <div className="spinner" />
-            <p className="status-copy">
-              {state.phase === "building" ? "Building transfer..." : "Sending to Kaspa..."}
-            </p>
-          </div>
-        ) : state.phase === "success" ? (
-          <>
-            <div className="status-icon status-icon-ok">
-              <span>&#10003;</span>
-            </div>
-            <p className="modal-heading">Transferred.</p>
-            <button type="button" className="btn btn-secondary btn-sm modal-actions" onClick={onCancel}>
-              Close
-            </button>
-          </>
-        ) : state.phase === "error" ? (
-          <>
-            <div className="status-icon status-icon-error">
-              <span>&#10007;</span>
-            </div>
-            <p className="modal-heading">{state.message}</p>
-            <button type="button" className="btn btn-secondary btn-sm modal-actions" onClick={onCancel}>
-              Close
-            </button>
-          </>
-        ) : null}
       </div>
     </div>
   );
@@ -93,8 +28,6 @@ function TransferDialog({
 export default function WalletPage() {
   const { state, connect } = useWallet();
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
-  const [transferState, setTransferState] = useState<TransferState>({ phase: "idle" });
-  const [transferTicket, setTransferTicket] = useState<TicketEntry | null>(null);
 
   const loadTickets = useCallback(async () => {
     if (state.status !== "connected") return;
@@ -112,26 +45,6 @@ export default function WalletPage() {
       loadTickets();
     }
   }, [state.status === "connected" ? state.publicKey : ""]);
-
-  const handleTransfer = useCallback((ticket: TicketEntry) => {
-    setTransferTicket(ticket);
-    setTransferState({ phase: "confirm", ticket });
-  }, []);
-
-  const handleTransferConfirm = useCallback(async () => {
-    if (!transferTicket || state.status !== "connected" || !state.accounts[0]) return;
-    await executeTransfer(setTransferState, {
-      ticket: transferTicket,
-      publicKey: state.publicKey,
-      address: state.accounts[0],
-    });
-    await loadTickets();
-  }, [transferTicket, state, loadTickets]);
-
-  const handleTransferCancel = useCallback(() => {
-    setTransferState({ phase: "idle" });
-    setTransferTicket(null);
-  }, []);
 
   const connected = state.status === "connected";
 
@@ -162,20 +75,12 @@ export default function WalletPage() {
               </h3>
               <div className="ticket-group">
                 {eventTickets.map((ticket) => (
-                  <TicketCard key={ticket.ticket_id} ticket={ticket} onTransfer={() => handleTransfer(ticket)} />
+                  <TicketCard key={ticket.ticket_id} ticket={ticket} />
                 ))}
               </div>
             </div>
           ))}
         </div>
-      )}
-      {transferTicket && (
-        <TransferDialog
-          ticket={transferTicket}
-          state={transferState}
-          onConfirm={handleTransferConfirm}
-          onCancel={handleTransferCancel}
-        />
       )}
     </section>
   );

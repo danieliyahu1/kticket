@@ -14,8 +14,7 @@
 import { addressFromScriptHash, type KaspaNetwork } from "@kticket/kit";
 import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
-import { findSpend, type OutpointRef } from "./lineage.js";
-import { MAX_LINEAGE_DEPTH } from "./reader.js";
+import { findSpend, MAX_LINEAGE_DEPTH, type OutpointRef } from "./lineage.js";
 import { eventScriptFor, type VerifiedEvent } from "./provenance.js";
 import { P2SH_SCRIPT } from "./validate.js";
 

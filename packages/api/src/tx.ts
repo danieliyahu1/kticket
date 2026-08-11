@@ -138,8 +138,8 @@ export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<Bu
 
 /**
  * `populateGenesisCovenants` recomputes covenant ids for every transaction as
- * if it were a new genesis. For continuation txs (buy / transfer / handover),
- * the outputs must carry the genesis family id from the wire template. Patch
+ * if it were a new genesis. For continuation txs (buy / handover), the outputs
+ * must carry the genesis family id from the wire template. Patch
  * the signing JSON so Kasware signs the correct ids, and returns the patched
  * JSON (or null if no patch was needed).
  */
