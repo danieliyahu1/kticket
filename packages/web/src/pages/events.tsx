@@ -169,7 +169,7 @@ export default function EventsPage() {
     return () => {
       cancelled = true;
     };
-  }, [filterOrganizer, segment]);
+  }, [filterOrganizer, segment, loadTickets]);
 
   const visible = events;
 
