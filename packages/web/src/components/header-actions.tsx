@@ -37,7 +37,7 @@ export function HeaderActions() {
       <div className="header-actions">
         <Link to="/create" className="btn btn-primary btn-sm">
           <span className="create-label">Create event</span>
-          <span className="create-icon" aria-hidden="true">+</span>
+          <span className="create-label-short">Create</span>
         </Link>
         <button
           type="button"

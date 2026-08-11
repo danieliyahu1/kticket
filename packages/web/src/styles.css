@@ -135,7 +135,7 @@ button {
   gap: var(--space-3);
 }
 
-.create-icon {
+.create-label-short {
   display: none;
 }
 
@@ -839,11 +839,8 @@ button {
     display: none;
   }
 
-  .create-icon {
+  .create-label-short {
     display: inline;
-    font-size: 1.125rem;
-    font-weight: 700;
-    line-height: 1;
   }
 
   .address-full {
