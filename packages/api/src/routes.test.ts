@@ -356,6 +356,73 @@ describe("reader routes (KTK-89) — tickets", () => {
   });
 });
 
+describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
+  // buyTx() mints the ticket to owner = 0x02 * 32 (the buyer's x-coordinate).
+  const TICKET_OWNER_HEX = "02".repeat(TXID_BYTE_LENGTH);
+  const COMPRESSED_PUBKEY_HEX = `02${TICKET_OWNER_HEX}`;
+
+  function seedTicket(kaspa: FakeKaspa): void {
+    const buy = buyTx();
+    kaspa.transactions.set(B0_ID, buy);
+    const ticketScript = buy.outputs?.[0]?.script_public_key as string;
+    const ticketAddress = addressFromScriptHash(ticketScript, NETWORK);
+    kaspa.utxoMap.set(ticketAddress, [
+      {
+        address: ticketAddress,
+        outpoint: { transactionId: B0_ID, index: 0 },
+        utxoEntry: {
+          amount: "0",
+          scriptPublicKey: { scriptPublicKey: "" },
+          blockDaaScore: "0",
+          isCoinbase: false,
+        },
+      },
+    ]);
+  }
+
+  it("finds tickets for a 66-hex compressed public key (prefix stripped)", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    seedTicket(kaspa);
+    const app = await readerApp(kaspa);
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/tickets?owner_pkh=${COMPRESSED_PUBKEY_HEX}`,
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual([
+      {
+        ticket_id: `${B0_ID}:0`,
+        covenant_id: TEST_COVENANT_ID,
+        event_name: EVENT_NAME,
+        event_date: EVENT_DATE,
+      },
+    ]);
+    await app.close();
+  });
+
+  it("finds tickets for a 64-hex x-coordinate (already stripped)", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    seedTicket(kaspa);
+    const app = await readerApp(kaspa);
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/tickets?owner_pkh=${TICKET_OWNER_HEX}`,
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual([
+      {
+        ticket_id: `${B0_ID}:0`,
+        covenant_id: TEST_COVENANT_ID,
+        event_name: EVENT_NAME,
+        event_date: EVENT_DATE,
+      },
+    ]);
+    await app.close();
+  });
+});
+
 describe("reader routes (KTK-89) — unknown tickets", () => {
   it("GET /v1/tickets/{id} returns unknown with a cause (never guessed)", async () => {
     const kaspa = new FakeKaspa();

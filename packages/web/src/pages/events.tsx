@@ -178,7 +178,8 @@ export default function EventsPage() {
     try {
       const list = await fetchMyTickets(state.publicKey);
       setTickets(list);
-    } catch {
+    } catch (err) {
+      console.error("[tickets] failed to load", err);
       setTickets([]);
     }
   }, [state.status, state.status === "connected" ? state.publicKey : undefined]);

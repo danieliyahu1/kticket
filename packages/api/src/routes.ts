@@ -16,6 +16,7 @@
 
 import {
   addressFor,
+  organizerPkh,
   type KaspaNetwork,
 } from "@kticket/kit";
 import { hexToBytes } from "@noble/hashes/utils.js";
@@ -144,7 +145,10 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     const ownerPkh = req.query.owner_pkh;
     if (!ownerPkh) throw invalidError("owner_pkh query parameter is required");
 
-    const ownerBytes = hexToBytes(ownerPkh);
+    // Normalize to the 32-byte x-coordinate (strip the 02/03 prefix) — the same
+    // owner identifier the buy path mints tickets to, so the derived address
+    // matches the on-chain ticket covenant output.
+    const ownerBytes = hexToBytes(organizerPkh(ownerPkh));
     const entries = ctx.events.list();
     const tickets = [];
 
