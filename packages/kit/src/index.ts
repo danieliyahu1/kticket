@@ -64,6 +64,11 @@ import {
   type TicketId,
   type UsePayload,
 } from "./runtime/payload.js";
+import {
+  assembleMarkUsedSigScript,
+  markUsedSelector,
+  usedStateAddress,
+} from "./runtime/mark-used.js";
 
 export type {
   CompiledContractArtifact,
@@ -111,6 +116,11 @@ export type {
 } from "./runtime/tx.js";
 export type { TicketId, UsePayload } from "./runtime/payload.js";
 export type { KaspaNetwork, NetworkConfig };
+export {
+  assembleMarkUsedSigScript,
+  markUsedSelector,
+  usedStateAddress,
+} from "./runtime/mark-used.js";
 export {
   addressFor,
   addressFromScriptHash,
