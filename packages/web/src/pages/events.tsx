@@ -51,6 +51,9 @@ export default function EventsPage() {
     <div>
       {loading ? (
         <div className="event-list">
+          <p className="note" role="status">
+            Loading events…
+          </p>
           {Array.from({ length: 5 }, (_, i) => (
             <div key={i} className="skeleton skeleton-row" aria-hidden="true" />
           ))}
