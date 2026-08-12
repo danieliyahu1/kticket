@@ -11,6 +11,7 @@ import {
   buildBuy,
   buildDeploy,
   buildHandover,
+  buildMarkUsed,
   injectState,
   pushData,
   type UnsignedTransaction,
@@ -164,6 +165,7 @@ function eventRedeemPush(
     identifierType: 0,
     amount: req.remaining,
     isMinter: false,
+    used: false,
   });
 }
 
@@ -188,6 +190,51 @@ function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild 
   };
 }
 
+async function markUsedBuild(
+  req: BuildRequest & { type: "markUsed" },
+  kaspa: KaspaClientLike,
+): Promise<PreparedBuild> {
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+
+  // The ticket covenant UTXO (input index 0) — the wallet needs its full
+  // prev-output metadata (script, amount, daa, covenant id) to co-sign it.
+  const ticketTx = await kaspa.getTransaction(req.ticket_outpoint.transaction_id);
+  const ticketOutput = ticketTx?.outputs[req.ticket_outpoint.index];
+  const ticketMeta: WireUtxoMeta = {
+    transaction_id: req.ticket_outpoint.transaction_id,
+    index: req.ticket_outpoint.index,
+    value: ticketOutput?.amount ?? 0,
+    script_public_key: ticketOutput?.script_public_key
+      ? { version: 0, script: ticketOutput.script_public_key }
+      : { version: 0, script: "" },
+    block_daa_score: ticketTx?.accepting_block_blue_score ?? 0,
+    is_coinbase: false,
+    covenant_id: req.event_covenant_id,
+  };
+
+  const ownerMetas = req.input_utxo_metas ?? req.owner_utxos.map((u) => utxoMetaOf(u));
+  const metas = [ticketMeta, ...ownerMetas];
+
+  return {
+    inputTotal: ticketMeta.value + req.owner_utxos.reduce((a, u) => a + u.value, 0),
+    payouts: [],
+    inputUtxoMetas: metas,
+    build: (fee) => ({
+      tx: buildMarkUsed({
+        ticketOutpoint: toOutpoint(req.ticket_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        eventArtifact,
+        owner: hexToBytes(req.owner),
+        ownerUtxos: req.owner_utxos.map((u) => toOutpoint(u)),
+        ownerUtxoValues: req.owner_utxos.map((u) => u.value),
+        changeScript: toSpk(req.change_spk),
+        network: TESTNET10,
+        fee,
+      }),
+    }),
+  };
+}
+
 export async function preparedBuildFor(
   request: BuildRequest,
   kaspa: KaspaClientLike,
@@ -199,5 +246,7 @@ export async function preparedBuildFor(
       return buyBuild(request, kaspa);
     case "handover":
       return handoverBuild(request);
+    case "markUsed":
+      return markUsedBuild(request, kaspa);
   }
 }

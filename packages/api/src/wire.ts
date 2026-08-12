@@ -115,6 +115,18 @@ export type BuildRequest =
       constants: TicketConstantsJson;
       attendee_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
+    }
+  | {
+      type: "markUsed";
+      ticket_outpoint: WireOutpoint;
+      event_covenant_id: string;
+      constants: TicketConstantsJson;
+      /** The ticket owner's 32-byte owner identifier (pubkey x-coordinate). */
+      owner: string;
+      /** The owner's fee-payer UTXOs (fee payer = owner). */
+      owner_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+      input_utxo_metas?: WireUtxoMeta[];
     };
 
 export interface BuildResult {
@@ -257,6 +269,21 @@ function parseHandover(raw: Record<string, unknown>): BuildRequest {
   };
 }
 
+function parseMarkUsed(raw: Record<string, unknown>): BuildRequest {
+  return {
+    type: "markUsed",
+    ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
+    event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+    constants: parseConstants(raw.constants),
+    owner: hex64(raw.owner, "owner"),
+    owner_utxos: utxos(raw.owner_utxos, "owner_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...(raw.input_utxo_metas !== undefined
+      ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
+      : {}),
+  };
+}
+
 /** Parse + validate the build request body into a typed `BuildRequest`. */
 export function parseBuildRequest(raw: unknown): BuildRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
@@ -268,8 +295,10 @@ export function parseBuildRequest(raw: unknown): BuildRequest {
       return parseBuy(raw);
     case "handover":
       return parseHandover(raw);
+    case "markUsed":
+      return parseMarkUsed(raw);
     default:
-      throw invalidError(`type must be deploy|buy|handover, got ${type}`);
+      throw invalidError(`type must be deploy|buy|handover|markUsed, got ${type}`);
   }
 }
 

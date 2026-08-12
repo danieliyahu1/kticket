@@ -7,6 +7,7 @@
 //   POST /v1/events/{covenant_id}/buy/prepare    — backend-owned buy: verify event, build template
 //   POST /v1/events/{covenant_id}/buy/finalize   — backend-owned buy: merge, broadcast, confirm
 //   GET  /v1/tickets                             — user's on-chain tickets (?owner_pkh=)
+//   POST /v1/tickets/{ticket_id}/use/prepare     — owner pre-signs a check-in (door flow, KTK-118)
 //
 // KTK-89 (stateless backend): the identifier registry holds only
 // `{deploy_txid, covenant_id, organizer_address}` for discovery. Every event
@@ -29,6 +30,7 @@ import type { EventStore, StoredEvent } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { VerifiedEvent } from "./provenance.js";
 import { verifyEventFromChain } from "./provenance.js";
+import { usePrepare } from "./use.js";
 import { VerifiedEventCache } from "./verified-cache.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
 
@@ -125,7 +127,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     for (const event of verified) {
       const address = addressFor(
         event.artifact,
-        { owner: ownerBytes, identifierType: 0, amount: 1, isMinter: false },
+        { owner: ownerBytes, identifierType: 0, amount: 1, isMinter: false, used: false },
         ctx.network,
       );
       eventByAddress.set(address, event);
@@ -146,6 +148,30 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       }];
     });
   });
+
+  const useCtx = {
+    kaspa: ctx.kaspa,
+    networkId: ctx.networkId,
+    network: ctx.network,
+    byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
+  };
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/use/prepare",
+    async (req) => {
+      const result = await usePrepare(req.params.ticketId, req.body, useCtx);
+      req.log.info(
+        {
+          use_id: result.use_id,
+          ticket_id: req.params.ticketId,
+          sign_inputs: result.sign_inputs_owner.length,
+          event: result.event.name,
+        },
+        "use prepare",
+      );
+      return result;
+    },
+  );
 
   const buyCtx = {
     kaspa: ctx.kaspa,

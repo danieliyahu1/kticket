@@ -568,6 +568,118 @@ describe("POST /v1/events/{covenantId}/buy/finalize", () => {
   });
 });
 
+describe("POST /v1/tickets/{ticket_id}/use/prepare (door check-in, KTK-118)", () => {
+  // buyTx() mints the ticket to owner = 0x02 * 32 (the ticket owner).
+  const TICKET_OWNER_HEX = "02".repeat(TXID_BYTE_LENGTH);
+  const OWNER_PUBKEY_HEX = `02${TICKET_OWNER_HEX}`;
+  const OWNER_ADDRESS = p2pkAddress(hexToBytes(TICKET_OWNER_HEX), NETWORK);
+  const TICKET_ID = `${B0_ID}:0`;
+
+  function seedTicketTx(kaspa: FakeKaspa): void {
+    const buy = buyTx();
+    kaspa.transactions.set(B0_ID, buy);
+  }
+
+  function fundOwner(kaspa: FakeKaspa): void {
+    kaspa.utxoMap.set(OWNER_ADDRESS, [
+      {
+        address: OWNER_ADDRESS,
+        outpoint: { transactionId: "dd".repeat(TXID_BYTE_LENGTH), index: 0 },
+        utxoEntry: {
+          amount: String(1_000_000_000),
+          scriptPublicKey: { scriptPublicKey: ORG_SPK_HEX },
+          blockDaaScore: "536453032",
+          isCoinbase: false,
+        },
+      },
+    ]);
+  }
+
+  function useApp(kaspa: FakeKaspa) {
+    return buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+  }
+
+  it("returns a pre-signable mark_used template for an owned ticket", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    seedTicketTx(kaspa);
+    fundOwner(kaspa);
+    const app = await useApp(kaspa);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/prepare`,
+      payload: { publicKey: OWNER_PUBKEY_HEX, address: OWNER_ADDRESS },
+    });
+
+    expect(res.statusCode).toBe(HTTP_OK);
+    const body = res.json();
+    expect(typeof body.use_id).toBe("string");
+    expect(typeof body.signing_template).toBe("string");
+    // The owner signs the ticket input (0) + their fee UTXOs (1..).
+    expect(body.sign_inputs_owner).toEqual([{ index: 0 }, { index: 1 }]);
+    // The template carries the ticket as input 0 and a used:true output.
+    expect(body.template.inputs[0].previous_outpoint).toEqual({
+      transaction_id: B0_ID,
+      index: 0,
+    });
+    expect(body.event).toEqual({ name: EVENT_NAME, date: EVENT_DATE });
+    await app.close();
+  });
+
+  it("rejects a ticket that is not owned by the caller (FR-28)", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    seedTicketTx(kaspa);
+    fundOwner(kaspa);
+    const app = await useApp(kaspa);
+
+    const otherKey = `02${"09".repeat(TXID_BYTE_LENGTH)}`;
+    const otherAddress = p2pkAddress(hexToBytes("09".repeat(TXID_BYTE_LENGTH)), NETWORK);
+    kaspa.utxoMap.set(otherAddress, []);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/prepare`,
+      payload: { publicKey: otherKey, address: otherAddress },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.type).toBe("policy");
+    await app.close();
+  });
+
+  it("rejects a ticket that does not exist on chain", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    const app = await useApp(kaspa);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/prepare`,
+      payload: { publicKey: OWNER_PUBKEY_HEX, address: OWNER_ADDRESS },
+    });
+    expect(res.statusCode).toBe(HTTP_NOT_FOUND);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+
+  it("rejects a malformed ticket_id", async () => {
+    const app = await useApp(new FakeKaspa());
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/tickets/not-a-ticket/use/prepare",
+      payload: { publicKey: OWNER_PUBKEY_HEX, address: OWNER_ADDRESS },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    await app.close();
+  });
+});
+
 describe("reader routes — POST /v1/events", () => {
   it("registers an event after deploy and returns covenant_id", async () => {
     const kaspa = new FakeKaspa();
