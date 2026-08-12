@@ -56,6 +56,14 @@ import {
   txIdPreimageV1,
   txIdV1,
 } from "./runtime/serialize.js";
+import {
+  decodeTicketId,
+  decodeUsePayload,
+  encodeTicketId,
+  encodeUsePayload,
+  type TicketId,
+  type UsePayload,
+} from "./runtime/payload.js";
 
 export type {
   CompiledContractArtifact,
@@ -101,6 +109,7 @@ export type {
   TxOutput,
   UnsignedTransaction,
 } from "./runtime/tx.js";
+export type { TicketId, UsePayload } from "./runtime/payload.js";
 export type { KaspaNetwork, NetworkConfig };
 export {
   addressFor,
@@ -121,6 +130,8 @@ export {
   decodePreimage,
   decodeSigOpCount,
   decodeState,
+  decodeTicketId,
+  decodeUsePayload,
   decodeVarint,
   DUST,
   encodeAddress,
@@ -128,6 +139,8 @@ export {
   encodeMetadataPayload,
   encodePreimage,
   encodeState,
+  encodeTicketId,
+  encodeUsePayload,
   encodeVarint,
   estimatedSerializedSize,
   EVENT_ARTIFACT,
