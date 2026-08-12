@@ -5,7 +5,7 @@ import { loadEnvFile } from "./env";
 loadEnvFile();
 
 const config = loadConfig();
-const app = await buildApp(config);
+const app = await buildApp(config, undefined, { warmup: true });
 
 try {
   await app.listen({ port: config.port, host: config.host });

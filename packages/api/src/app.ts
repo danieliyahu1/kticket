@@ -7,10 +7,17 @@ import { EventStore } from "./eventstore";
 import { KaspaClient } from "./kaspa-client";
 import { type AppContext, registerRoutes } from "./routes";
 import { VerifiedEventCache } from "./verified-cache";
+import { warmVerifiedEvents } from "./warmup";
+
+export interface BuildOptions {
+  /** Pre-verify registered events in the background so the first read is warm. */
+  warmup?: boolean;
+}
 
 export async function buildApp(
   config: ApiConfig = loadConfig(),
   deps?: AppContext,
+  options: BuildOptions = {},
 ): Promise<FastifyInstance> {
   const https = config.tls
     ? {
@@ -45,6 +52,12 @@ export async function buildApp(
   };
 
   registerRoutes(app, ctx);
+
+  if (options.warmup) {
+    // Fire-and-forget: never blocks startup or the first request. Failures are
+    // swallowed by the warm-up itself; the request path re-verifies on demand.
+    void warmVerifiedEvents(ctx);
+  }
 
   return app;
 }
