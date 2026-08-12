@@ -172,6 +172,10 @@ export default function EventDetailPage() {
           <dt>Organized by</dt>
           <dd>{shortAddress(event.event.organizer_address)}</dd>
         </div>
+        <div className="token-detail">
+          <dt>Event id</dt>
+          <dd className="token-detail-plain mono">{event.event.covenant_id}</dd>
+        </div>
       </dl>
     </article>
   );
