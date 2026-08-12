@@ -805,6 +805,192 @@ describe("POST /v1/tickets/{ticket_id}/use/sign-template (gate, KTK-128)", () =>
   });
 });
 
+describe("POST /v1/tickets/{ticket_id}/use/finalize (gate, KTK-129)", () => {
+  const TICKET_OWNER_HEX = "02".repeat(TXID_BYTE_LENGTH);
+  const OWNER_UTXO_TXID = "dd".repeat(TXID_BYTE_LENGTH);
+  const TICKET_ID = `${B0_ID}:0`;
+  const USED_TXID = "ee".repeat(TXID_BYTE_LENGTH);
+
+  function seedGateChain(kaspa: FakeKaspa): void {
+    seedVerifiedEvent(kaspa);
+    const buy = buyTx();
+    kaspa.transactions.set(B0_ID, buy);
+    kaspa.transactions.set(OWNER_UTXO_TXID, {
+      transaction_id: OWNER_UTXO_TXID,
+      accepting_block_blue_score: 100,
+      inputs: [],
+      outputs: [
+        {
+          transaction_id: OWNER_UTXO_TXID,
+          index: 0,
+          amount: 1_000_000_000,
+          script_public_key: `20${TICKET_OWNER_HEX}ac`,
+        },
+      ],
+    });
+  }
+
+  function gateTemplate() {
+    return {
+      version: 1,
+      inputs: [
+        {
+          previous_outpoint: { transaction_id: B0_ID, index: 0 },
+          signature_script: "",
+          sequence: 0,
+          sig_op_count: 50,
+        },
+        {
+          previous_outpoint: { transaction_id: OWNER_UTXO_TXID, index: 0 },
+          signature_script: "",
+          sequence: 0,
+          sig_op_count: 50,
+        },
+      ],
+      outputs: [
+        {
+          value: 50_000_000,
+          script_public_key: { version: 0, script: "aa20" + "33".repeat(TXID_BYTE_LENGTH) + "87" },
+          covenant: { authorizing_input: 0, covenant_id: TEST_COVENANT_ID },
+        },
+        {
+          value: 999_900_000,
+          script_public_key: { version: 0, script: `20${TICKET_OWNER_HEX}ac` },
+          covenant: null,
+        },
+      ],
+      lock_time: 0,
+    };
+  }
+
+  function gateApp(kaspa: FakeKaspa) {
+    return buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+  }
+
+  it("merges owner+gate signatures, assembles the mark_used sig-script, broadcasts, and confirms", async () => {
+    const kaspa = new FakeKaspa();
+    seedGateChain(kaspa);
+    mockedSubmit.mockResolvedValue(USED_TXID);
+    kaspa.transactions.set(USED_TXID, {
+      transaction_id: USED_TXID,
+      inputs: [],
+      outputs: [],
+    });
+    const app = await gateApp(kaspa);
+
+    const ownerSig = `41${"aa".repeat(65)}`;
+    const gateSig = `41${"bb".repeat(65)}`;
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/finalize`,
+      payload: {
+        use_id: "use-123",
+        template: gateTemplate(),
+        owner_signed: {
+          inputs: [
+            { transactionId: B0_ID, index: 0, signatureScript: ownerSig },
+            { transactionId: OWNER_UTXO_TXID, index: 0, signatureScript: `41${"cc".repeat(65)}` },
+          ],
+        },
+        gate_signed: {
+          inputs: [{ transactionId: B0_ID, index: 0, signatureScript: gateSig }],
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual({ txid: USED_TXID });
+    expect(kaspa.clearCalls).toBe(1);
+    await app.close();
+  });
+
+  it("rejects finalize when the gate did not sign the ticket input", async () => {
+    const kaspa = new FakeKaspa();
+    seedGateChain(kaspa);
+    const app = await gateApp(kaspa);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/finalize`,
+      payload: {
+        use_id: "use-456",
+        template: gateTemplate(),
+        owner_signed: {
+          inputs: [
+            { transactionId: B0_ID, index: 0, signatureScript: `41${"aa".repeat(65)}` },
+            { transactionId: OWNER_UTXO_TXID, index: 0, signatureScript: `41${"cc".repeat(65)}` },
+          ],
+        },
+        gate_signed: { inputs: [] },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+
+  it("rejects finalize for a template that is not a covenant spend", async () => {
+    const kaspa = new FakeKaspa();
+    seedGateChain(kaspa);
+    const app = await gateApp(kaspa);
+
+    const noCovenant = gateTemplate();
+    noCovenant.outputs = [
+      { value: 100, script_public_key: { version: 0, script: "51" }, covenant: null },
+    ];
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/finalize`,
+      payload: {
+        use_id: "use-789",
+        template: noCovenant,
+        owner_signed: {
+          inputs: [
+            { transactionId: B0_ID, index: 0, signatureScript: `41${"aa".repeat(65)}` },
+            { transactionId: OWNER_UTXO_TXID, index: 0, signatureScript: `41${"cc".repeat(65)}` },
+          ],
+        },
+        gate_signed: {
+          inputs: [{ transactionId: B0_ID, index: 0, signatureScript: `41${"bb".repeat(65)}` }],
+        },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+
+  it("rejects finalize when the template input 0 is not the requested ticket", async () => {
+    const kaspa = new FakeKaspa();
+    seedGateChain(kaspa);
+    const app = await gateApp(kaspa);
+
+    const otherTemplate = gateTemplate();
+    otherTemplate.inputs[0].previous_outpoint = {
+      transaction_id: "ff".repeat(TXID_BYTE_LENGTH),
+      index: 0,
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/finalize`,
+      payload: {
+        use_id: "use-abc",
+        template: otherTemplate,
+        owner_signed: { inputs: [] },
+        gate_signed: { inputs: [] },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+});
+
 describe("reader routes — POST /v1/events", () => {
   it("registers an event after deploy and returns covenant_id", async () => {
     const kaspa = new FakeKaspa();

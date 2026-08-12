@@ -8,12 +8,25 @@
 //     chain facts (script, amount, daa, covenant_id) and rebuild the identical
 //     kaspa-wasm safe-JSON the wallet signs. Byte-exact — the owner's signature
 //     is over this template, so any divergence rejects the spend.
+//
+//   POST /v1/tickets/{ticket_id}/use/finalize — merge the owner's and the
+//     gate's raw signatures, assemble input 0's mark_used sig-script
+//     (push(owner_sig) || push(gate_sig) || <selector> || push(redeem)), relay,
+//     and return {txid} or the node's rejection verbatim.
 
-import { isRecord, str } from "./validate.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import {
+  assembleMarkUsedSigScript,
+  injectState,
+  pubkeyFromP2pkScript,
+  type KaspaNetwork,
+} from "@kticket/kit";
+import { invalidError, notFoundError, policyError } from "./errors.js";
+import { broadcastAndConfirm } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
-import type { KaspaNetwork } from "@kticket/kit";
-import { invalidError, notFoundError } from "./errors.js";
+import { verifyEventFromChain, type VerifiedEvent } from "./provenance.js";
 import { signingTemplateFor } from "./tx.js";
+import { isRecord, str } from "./validate.js";
 import type { WireTransaction, WireUtxoMeta } from "./wire.js";
 
 export interface UseGateContext {
@@ -28,7 +41,14 @@ export interface UseSignTemplateResult {
   signing_template: string;
 }
 
+export interface UseFinalizeResult {
+  txid: string;
+}
+
 const TICKET_ID = /^([0-9a-fA-F]{64}):(\d+)$/;
+const P2PK_SCRIPT = /^20[0-9a-fA-F]{64}ac$/;
+/** A wallet signature push for input 0: OP_PUSHDATA(65) || 65 bytes. */
+const SIG_PUSH_LENGTH = 65;
 
 function parseTicketId(value: unknown): { txid: string; index: number } {
   const s = str(value, "ticket_id");
@@ -48,6 +68,35 @@ function parseTemplate(raw: unknown): WireTransaction {
     throw invalidError("template must have outputs");
   }
   return template as unknown as WireTransaction;
+}
+
+function parseFinalize(raw: unknown): {
+  use_id: string;
+  template: WireTransaction;
+  owner_signed: unknown;
+  gate_signed: unknown;
+} {
+  if (!isRecord(raw)) throw invalidError("request body must be an object");
+  const template = parseTemplate(raw);
+  if (typeof raw.owner_signed !== "string" && typeof raw.owner_signed !== "object") {
+    throw invalidError("owner_signed must be the owner's signing output");
+  }
+  if (typeof raw.gate_signed !== "string" && typeof raw.gate_signed !== "object") {
+    throw invalidError("gate_signed must be the gate's signing output");
+  }
+  return {
+    use_id: str(raw.use_id, "use_id"),
+    template,
+    owner_signed: raw.owner_signed,
+    gate_signed: raw.gate_signed,
+  };
+}
+
+/** The ticket output's prev-output covenant id (the ticket's family id). */
+function ticketCovenantId(template: WireTransaction): string {
+  const covenant = template.outputs[0]?.covenant;
+  if (!covenant) throw invalidError("template is not a mark_used spend (no covenant output)");
+  return covenant.covenant_id.toLowerCase();
 }
 
 /**
@@ -101,4 +150,169 @@ export async function useSignTemplate(
   const metas = await rederiveInputMetas(ctx.kaspa, template);
   const signing_template = await signingTemplateFor(template, metas);
   return { signing_template };
+}
+
+/**
+ * The ticket owner's 32-byte pubkey, recovered from the template's change
+ * output (a P2PK script `20 <x> ac` — the owner's change returns to their own
+ * address, so the script carries the owner identity).
+ */
+function ownerPkhFromChangeOutput(template: WireTransaction): Uint8Array {
+  const changeScript = template.outputs[1]?.script_public_key?.script;
+  if (typeof changeScript !== "string" || !P2PK_SCRIPT.test(changeScript)) {
+    throw invalidError("template has no owner change output (P2PK)");
+  }
+  const pubkey = pubkeyFromP2pkScript(changeScript);
+  if (!pubkey) throw invalidError("template change output is not a P2PK script");
+  return pubkey;
+}
+
+interface WalletSignature {
+  transactionId: string;
+  index: number;
+  signatureScript?: string;
+}
+
+function walletSignatures(signed: unknown): WalletSignature[] {
+  let parsed: unknown = signed;
+  if (typeof signed === "string") {
+    try {
+      parsed = JSON.parse(signed);
+    } catch {
+      throw invalidError("signed output is not valid JSON");
+    }
+  }
+  const inputs =
+    isRecord(parsed) && Array.isArray((parsed as { inputs?: unknown }).inputs)
+      ? ((parsed as { inputs: unknown }).inputs as unknown[])
+      : [];
+  return inputs.map((input) => {
+    if (!isRecord(input)) throw invalidError("signed input must be an object");
+    return {
+      transactionId: str(input.transactionId, "signed input transactionId"),
+      index: input.index as number,
+      ...(typeof input.signatureScript === "string"
+        ? { signatureScript: input.signatureScript }
+        : {}),
+    };
+  });
+}
+
+/**
+ * Extract the raw 65-byte signature the wallet produced for an input. The wallet
+ * returns it as a bare push (`41 <65 bytes>`); unwrap to the raw bytes for the
+ * sig-script assembly.
+ */
+function rawSignature(signatureScript: string): Uint8Array {
+  const bytes = hexToBytes(signatureScript);
+  if (bytes.length === SIG_PUSH_LENGTH) return bytes;
+  if (bytes.length === SIG_PUSH_LENGTH + 1 && bytes[0] === SIG_PUSH_LENGTH) {
+    return bytes.slice(1);
+  }
+  throw invalidError("wallet signature must be a 65-byte push");
+}
+
+function signatureFor(
+  signatures: readonly WalletSignature[],
+  txid: string,
+  index: number,
+  label: string,
+): Uint8Array {
+  const found = signatures.find(
+    (s) => s.transactionId.toLowerCase() === txid && s.index === index,
+  );
+  if (!found || typeof found.signatureScript !== "string") {
+    throw invalidError(`${label} did not sign input ${index}`);
+  }
+  return rawSignature(found.signatureScript);
+}
+
+/**
+ * finalize (KTK-129): merge the owner's and gate's signatures, assemble input
+ * 0's mark_used sig-script, relay, and return the blockDAG verdict. The door
+ * shows this verbatim — green on confirmed, red + the node's message otherwise.
+ */
+export async function useFinalize(
+  ticketIdValue: unknown,
+  raw: unknown,
+  ctx: UseGateContext,
+): Promise<UseFinalizeResult> {
+  const { txid: ticketTxid, index: ticketIndex } = parseTicketId(ticketIdValue);
+  const req = parseFinalize(raw);
+  const { template } = req;
+
+  // The template's ticket input is input 0 (the covenant spend being marked used).
+  const ticketInput = template.inputs[0];
+  if (
+    !ticketInput ||
+    ticketInput.previous_outpoint.transaction_id.toLowerCase() !== ticketTxid ||
+    ticketInput.previous_outpoint.index !== ticketIndex
+  ) {
+    throw invalidError("template input 0 is not the requested ticket");
+  }
+
+  const covenantIdHex = ticketCovenantId(template);
+  const verified = await verifiedEvent(covenantIdHex, ctx);
+  const artifact = verified.artifact;
+
+  // Recover the ticket owner from the change output; rebuild the redeem the
+  // ticket currently commits to (amount 1, unused) for the spend reveal.
+  const owner = ownerPkhFromChangeOutput(template);
+  const redeem = injectState(artifact, {
+    owner,
+    identifierType: 0,
+    amount: 1,
+    isMinter: false,
+    used: false,
+  });
+
+  const ownerSigs = walletSignatures(req.owner_signed);
+  const gateSigs = walletSignatures(req.gate_signed);
+  const ownerSig = signatureFor(ownerSigs, ticketTxid, ticketIndex, "owner");
+  const gateSig = signatureFor(gateSigs, ticketTxid, ticketIndex, "gate");
+
+  // Assemble input 0's sig-script: push(65B owner_sig) || push(65B gate_sig) ||
+  // <selector> || push(redeem) — pure kit assembly, byte-exact with silverc.
+  const sigScript = bytesToHex(assembleMarkUsedSigScript(artifact, ownerSig, gateSig, redeem));
+
+  // Merge the owner's fee-input signatures (inputs 1..); input 0 keeps the
+  // assembled mark_used script.
+  const merged: WireTransaction = {
+    ...template,
+    inputs: template.inputs.map((input, i) => {
+      if (i === 0) return { ...input, signature_script: sigScript };
+      const sig = ownerSigs.find(
+        (s) =>
+          s.transactionId.toLowerCase() === input.previous_outpoint.transaction_id &&
+          s.index === input.previous_outpoint.index,
+      );
+      return {
+        ...input,
+        signature_script: sig?.signatureScript ?? input.signature_script,
+      };
+    }),
+  };
+
+  // Validate only that this is a covenant spend; the blockDAG is the judge.
+  const txid = await broadcastAndConfirm(merged, {}, ctx, validateCovenantSpend);
+  return { txid };
+}
+
+async function verifiedEvent(
+  covenantIdHex: string,
+  ctx: UseGateContext,
+): Promise<VerifiedEvent> {
+  const entry = ctx.byCovenantId(covenantIdHex);
+  if (!entry) throw notFoundError(`event for ticket ${covenantIdHex} not found`);
+  const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, entry.deployTxId);
+  if (verified.covenant_id !== covenantIdHex) {
+    throw invalidError("template ticket does not belong to the verified event");
+  }
+  return verified;
+}
+
+function validateCovenantSpend(tx: WireTransaction): void {
+  if (!tx.outputs.some((o) => o.covenant !== null)) {
+    throw policyError("transaction is not a covenant spend");
+  }
 }

@@ -31,7 +31,7 @@ import type { KaspaClientLike } from "./kaspa-client.js";
 import type { VerifiedEvent } from "./provenance.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { usePrepare } from "./use.js";
-import { useSignTemplate } from "./use-gate.js";
+import { useFinalize, useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
 
@@ -181,6 +181,22 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       req.log.info(
         { ticket_id: req.params.ticketId, signing_template_bytes: result.signing_template.length },
         "use sign-template",
+      );
+      return result;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/use/finalize",
+    async (req) => {
+      const result = await useFinalize(req.params.ticketId, req.body, useCtx);
+      req.log.info(
+        {
+          use_id: (req.body as { use_id?: unknown })?.use_id,
+          ticket_id: req.params.ticketId,
+          txid: result.txid,
+        },
+        "use finalize",
       );
       return result;
     },
