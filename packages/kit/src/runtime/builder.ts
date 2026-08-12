@@ -306,6 +306,7 @@ export function buildDeploy(input: DeployInput): DeployResult {
     identifierType: 0,
     amount: input.capacity,
     isMinter: false,
+    used: false,
   };
   const eventScript = covenantScript(input.eventArtifact, eventState);
   const eventCovenantId = eventCovenantIdOf(input.authorizingOutpoint, eventScript);
@@ -380,11 +381,11 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
   const binding = covenantBinding(input.eventCovenantId);
   const ticket = covenantScript(
     input.eventArtifact,
-    { owner: input.buyer, identifierType: 0, amount: 1, isMinter: false },
+    { owner: input.buyer, identifierType: 0, amount: 1, isMinter: false, used: false },
   );
   const remainingEvent = covenantScript(
     input.eventArtifact,
-    { owner: input.eventOwner, identifierType: 0, amount: input.remaining - 1, isMinter: false },
+    { owner: input.eventOwner, identifierType: 0, amount: input.remaining - 1, isMinter: false, used: false },
   );
 
   const outputs: TxOutput[] = [
@@ -438,6 +439,63 @@ export function buildHandover(input: HandoverInput): UnsignedTransaction {
         scriptPublicKey: burnScript(input.burnArtifact),
         covenant: binding,
       },
+      changeOutput(input.changeScript, change),
+    ],
+    lockTime: 0,
+  };
+}
+
+// --- mark_used (door check-in, FR-3/5/23, KTK-118) -------------------------
+
+export interface MarkUsedInput {
+  /** The ticket covenant UTXO being checked in (input index 0). */
+  ticketOutpoint: Outpoint;
+  /** The event covenant family id (the ticket's covenant_id). */
+  eventCovenantId: string;
+  /** The per-event compiled Event contract artifact. */
+  eventArtifact: CompiledContractArtifact;
+  /** The ticket owner's 32-byte owner identifier (preserved). */
+  owner: Uint8Array;
+  /** Owner KAS UTXOs covering the fee (fee payer = owner). */
+  ownerUtxos: Outpoint[];
+  /** Owner input values (sompi). */
+  ownerUtxoValues: readonly number[];
+  /** Owner change script public key. */
+  changeScript: ScriptPublicKey;
+  network: AddressNetwork;
+  /** Network fee in sompi (paid by the owner). */
+  fee: number;
+  /** Dust preserved on the marked-used ticket output. */
+  ticketDust?: number;
+}
+
+/**
+ * The door check-in template (KTK-118): the ticket covenant is marked
+ * `used: true` and stays with the owner — nothing is spent. The owner signs
+ * the ticket input and their fee UTXOs; the gate later co-signs the ticket
+ * input (KTK-119).
+ */
+export function buildMarkUsed(input: MarkUsedInput): UnsignedTransaction {
+  validatePairedValues(input.ownerUtxoValues, input.ownerUtxos, "owner");
+  const change = totalOf(input.ownerUtxoValues) - input.fee;
+  if (change < 0) {
+    throw new Error(`owner inputs cannot cover fee ${input.fee}`);
+  }
+
+  const binding = covenantBinding(input.eventCovenantId);
+  const usedTicket = covenantScript(input.eventArtifact, {
+    owner: input.owner,
+    identifierType: 0,
+    amount: 1,
+    isMinter: false,
+    used: true,
+  });
+
+  return {
+    version: TX_VERSION_V1,
+    inputs: inputsWithTicket(input.ticketOutpoint, input.ownerUtxos),
+    outputs: [
+      { value: ticketDustOf(input.ticketDust), scriptPublicKey: usedTicket, covenant: binding },
       changeOutput(input.changeScript, change),
     ],
     lockTime: 0,

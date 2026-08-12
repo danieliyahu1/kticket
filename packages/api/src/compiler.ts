@@ -12,6 +12,7 @@ import {
   DUST,
   injectState,
   p2shScript,
+  pubkeyFromP2pkScript,
   type ScriptPublicKey,
 } from "@kticket/kit";
 import { execFileSync } from "node:child_process";
@@ -71,9 +72,11 @@ export function compileBurnArtifact(authorizingTxId: string): CompiledContractAr
 
 /**
  * The event contract constructor args — authorizing_txid, price, org_spk,
- * burn_template_hash, and the burn template prefix/suffix (derived from the
- * burn compile). Shared by `compileEventArtifact` and the covenant `sigscript`
- * builder so both compile the identical bytecode.
+ * burn_template_hash, the burn template prefix/suffix (derived from the burn
+ * compile), and org_pkh. `org_pkh` is the organizer's 32-byte pubkey, extracted
+ * from the P2PK `org_spk` script — the same key the gate co-signature must
+ * verify against (mark_used, KTK-118). Shared by `compileEventArtifact` and the
+ * covenant `sigscript` builder so both compile the identical bytecode.
  */
 function eventConstructorArgs(constants: {
   authorizingTxId: string;
@@ -91,6 +94,10 @@ function eventConstructorArgs(constants: {
   // returns exactly this serialized form, so `hasPayout()` only matches when the
   // constant carries the version prefix too (KTK-102 follow-up).
   const orgSpkFull = `0000${constants.orgSpk}`;
+  const orgPkh = pubkeyFromP2pkScript(constants.orgSpk);
+  if (!orgPkh) {
+    throw new Error("org_spk is not a valid P2PK script (cannot derive org_pkh)");
+  }
   return [
     byteArrayArg(FIXED32, constants.authorizingTxId),
     intArg(constants.price),
@@ -98,6 +105,7 @@ function eventConstructorArgs(constants: {
     byteArrayArg(FIXED32, bytesToHex(Uint8Array.from(hash))),
     byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(prefix))),
     byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(suffix))),
+    byteArrayArg(FIXED32, bytesToHex(orgPkh)),
   ];
 }
 
@@ -165,6 +173,7 @@ export function eventScript(
     identifierType: 0,
     amount: state.amount,
     isMinter: false,
+    used: false,
   });
   return p2shScript(redeem);
 }

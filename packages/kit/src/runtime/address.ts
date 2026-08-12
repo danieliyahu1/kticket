@@ -94,7 +94,7 @@ export function pushData(bytes: Uint8Array): Uint8Array {
 export function injectState(artifact: CompiledContractArtifact, state: DecodedState): Uint8Array {
   const bytecode = Uint8Array.from(artifact.bytecode);
   const { start, len } = artifact.state_layout;
-  const slot = encodeState(state.owner, state.identifierType, state.amount, state.isMinter);
+  const slot = encodeState(state.owner, state.identifierType, state.amount, state.isMinter, state.used);
   if (slot.length !== len) {
     throw new PreimageError(
       `state slot length ${slot.length} does not match artifact layout length ${len} for ${artifact.contract_name}`,
@@ -274,7 +274,7 @@ export function availableTicketAddress(
 ): string {
   return addressFor(
     artifact,
-    { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: capacity, isMinter: false },
+    { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: capacity, isMinter: false, used: false },
     network,
     options,
   );

@@ -26,7 +26,8 @@ const EVENT_CAPACITY = 100;
 const INVALID_CAPACITY = 101;
 
 const EVENT_ID = "ab".repeat(TXID_BYTE_LENGTH);
-const ORG_SPK_HEX = "21020001";
+const ORG_X_HEX = "01".repeat(TXID_BYTE_LENGTH);
+const ORG_SPK_HEX = `20${ORG_X_HEX}ac`;
 
 const CHANGE_SPK = { version: 0, script: "51" };
 const ORGANIZER_UTXO = {
@@ -227,14 +228,14 @@ describe("buildTransaction (KTK-28) — buy", () => {
 
 describe("buildTransaction (KTK-55) — buy signing template alignment", () => {
   const EVENT_TXID = "aa".repeat(TXID_BYTE_LENGTH);
-  const EVENT_SPK = "21020001";
+  const EVENT_SPK = ORG_SPK_HEX;
   const EVENT_VALUE = 500_000_000;
 
   const BUYER_META = {
     transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
     index: 0,
     value: UTXO_VALUE,
-    script_public_key: { version: 0, script: "2102310201" },
+    script_public_key: { version: 0, script: ORG_SPK_HEX },
     block_daa_score: 100,
     is_coinbase: false,
   };

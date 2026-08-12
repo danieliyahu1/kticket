@@ -51,6 +51,9 @@ fn event_compiled(authorizing_txid: Vec<u8>, org_spk: Vec<u8>) -> CompiledContra
     let suffix = burn.bytecode[layout.start + layout.len..].to_vec();
     let template_hash = burn.template_hash().to_vec();
 
+    // The organizer pubkey x-coordinate (org_pkh) is embedded in the P2PK org_spk.
+    let org_pkh = &org_spk[1..1 + 32];
+
     compile_contract_file(
         "event",
         vec![
@@ -60,13 +63,14 @@ fn event_compiled(authorizing_txid: Vec<u8>, org_spk: Vec<u8>) -> CompiledContra
             Expr::bytes(template_hash),
             Expr::dynamic_bytes(prefix),
             Expr::dynamic_bytes(suffix),
+            Expr::bytes(org_pkh.to_vec()),
         ],
     )
 }
 
 /// Inject the event state into the bytecode's state slot (owner, id=0,
-/// amount, is_minter=false) — the same 46-byte push-encoded layout the kit's
-/// `encodeState` produces.
+/// amount, is_minter=false, used=false) — the same 48-byte push-encoded layout
+/// the kit's `encodeState` produces.
 fn inject_state(compiled: &CompiledContract, owner: Vec<u8>, amount: i64) -> Vec<u8> {
     let layout = compiled.state_layout;
     let mut state = Vec::new();
@@ -78,6 +82,29 @@ fn inject_state(compiled: &CompiledContract, owner: Vec<u8>, amount: i64) -> Vec
     state.extend_from_slice(&amount.to_le_bytes());
     state.push(0x01);
     state.push(0x00);
+    state.push(0x01);
+    state.push(0x00);
+    assert_eq!(state.len(), layout.len, "encoded state must fill the state slot");
+
+    let mut bytecode = compiled.bytecode.clone();
+    bytecode.splice(layout.start..layout.start + layout.len, state.iter().cloned());
+    bytecode
+}
+
+/// Inject the event state with an explicit `used` flag (the door's mark_used).
+fn inject_state_used(compiled: &CompiledContract, owner: Vec<u8>, amount: i64, used: u8) -> Vec<u8> {
+    let layout = compiled.state_layout;
+    let mut state = Vec::new();
+    state.push(0x20);
+    state.extend_from_slice(&owner);
+    state.push(0x01);
+    state.push(0x00);
+    state.push(0x08);
+    state.extend_from_slice(&amount.to_le_bytes());
+    state.push(0x01);
+    state.push(0x00);
+    state.push(0x01);
+    state.push(used);
     assert_eq!(state.len(), layout.len, "encoded state must fill the state slot");
 
     let mut bytecode = compiled.bytecode.clone();
@@ -241,6 +268,113 @@ fn buy_mint_covenant_passes_on_chain_vm() {
 
     let result = execute_input_with_covenants(tx, entries, 0);
     assert!(result.is_ok(), "buy covenant spend should pass: {result:?}");
+}
+
+/// The door check-in (KTK-118): owner + organizer co-sign the ticket into its
+/// `used: true` state via the `mark_used` transition. The ticket stays with the
+/// owner — nothing is burned. Proves the full mark_used covenant spend passes
+/// on the node VM with two real Schnorr signatures.
+#[test]
+fn mark_used_covenant_passes_on_chain_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    // The gate key is the organizer's — `org_pkh` baked into the event contract
+    // derives from the P2PK `org_spk`, so the gate signature must come from the
+    // matching private key.
+    let org_kp = random_keypair();
+    let org_x = org_kp.x_only_public_key().0.serialize().to_vec();
+    let org_spk = p2pk_script(&org_x);
+
+    let owner_kp = random_keypair();
+    let owner_x = owner_kp.x_only_public_key().0.serialize().to_vec();
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    // The minted ticket (unused) is owned by the ticket holder.
+    let ticket_redeem = inject_state(&compiled, owner_x.clone(), 1);
+    // The door marks it used — owner preserved, used = 0x01.
+    let used_redeem = inject_state_used(&compiled, owner_x.clone(), 1, 1);
+
+    let ticket_value = DUST;
+    let owner_value = 1_000_000_000u64;
+    let owner_spk = p2pk_script(&owner_x);
+    let change_value = owner_value - 100_000;
+
+    // The unsigned mark_used template: inputs [ticket, owner fee UTXO],
+    // outputs [ticket at used:true, owner change].
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&used_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: change_value,
+                script_public_key: owner_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    // Both parties sign the ticket input (input 0) over the same sighash — the
+    // covenant's two `checkSig` calls each verify their own 65-byte push.
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&ticket_redeem), 0, false, Some(COV_A));
+    let owner_entry = UtxoEntry::new(owner_value, owner_spk.clone(), 0, false, None);
+    let sig_owner = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &owner_kp);
+    let sig_gate = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &org_kp);
+
+    // The mark_used sigscript: push(owner_sig) || push(gate_sig) || <selector> ||
+    // push(redeem) — assembled server-side at finalize (KTK-129).
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl(
+            "mark_used",
+            vec![Expr::bytes(sig_owner), Expr::bytes(sig_gate)],
+            Default::default(),
+        )
+        .expect("mark_used sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&ticket_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    // Sign the owner's P2PK fee input (input 1).
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 1, &owner_kp);
+    sig1.extend_from_slice(&owner_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, owner_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_ok(), "mark_used covenant spend should pass: {result:?}");
 }
 
 /// Verifies the REAL buyer P2PK signature (from Kasware) against the REAL

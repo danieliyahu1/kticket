@@ -4,7 +4,8 @@ contract Event(
     byte[] org_spk,
     byte[32] burn_template_hash,
     byte[] burn_template_prefix,
-    byte[] burn_template_suffix
+    byte[] burn_template_suffix,
+    byte[32] org_pkh
 ) {
     struct BurnState {
         int count;
@@ -12,11 +13,15 @@ contract Event(
 
     // State slot — the deploy fills `owner` (organizer) and `amount` (capacity)
     // by injecting bytes into `state_layout`; `is_minter` stays false (fixed
-    // supply). Constructor args are the per-event constants baked at compile.
+    // supply). `used` tracks the door: a ticket marked used at the door can
+    // never re-enter (KTK-118). Constructor args are the per-event constants
+    // baked at compile; `org_pkh` is the organizer's 32-byte pubkey the gate
+    // co-signature must verify against.
     byte[32] owner = byte[32](0x0000000000000000000000000000000000000000000000000000000000000000);
     byte identifier_type = 0x00;
     int amount = 0;
     bool is_minter = false;
+    byte used = 0x00;
 
     // True when the tx pays `org_spk` exactly `price` sompi (FR-18). Free
     // events (price = 0) skip the payout requirement.
@@ -42,8 +47,8 @@ contract Event(
             require(hasPayout());
         }
         return(State[] {
-            State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false },
-            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount - 1, is_minter: false }
+            State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: 0x00 },
+            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount - 1, is_minter: false, used: prev_state.used }
         });
     }
 
@@ -52,13 +57,29 @@ contract Event(
     function transfer(State prev_state, sig s, byte[32] new_owner) : State {
         require(checkSig(s, pubkey(prev_state.owner)));
         require(prev_state.amount == 1);
-        return State { owner: new_owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount, is_minter: false };
+        return State { owner: new_owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount, is_minter: false, used: prev_state.used };
     }
 
-    // Use at the door (FR-23): the ticket is consumed into the burn-owner
+    // Use at the door (FR-3/5/23, KTK-118): owner + organizer co-sign the
+    // ticket into its `used: true` state. The ticket stays in the owner's
+    // wallet — nothing is burned. `used` is the gate: a used ticket can be
+    // transferred but can never re-enter.
+    #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
+    function mark_used(State prev_state, sig s, sig g) : State[] {
+        require(checkSig(s, pubkey(prev_state.owner)));
+        require(checkSig(g, pubkey(org_pkh)));
+        require(prev_state.amount == 1);
+        require(prev_state.used == 0x00);
+        return(State[] {
+            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: 0x01 }
+        });
+    }
+
+    // Legacy handover (FR-9): the ticket is consumed into the burn-owner
     // covenant (a foreign template), so this is a manual entrypoint rather than
     // a same-template continuation. The single auth output must be the burn
-    // template, validated via validateOutputStateWithTemplate.
+    // template, validated via validateOutputStateWithTemplate. The door flow
+    // now uses `mark_used` above (KTK-118) — this remains for older flows.
     entry use(sig s) {
         require(checkSig(s, pubkey(owner)));
         require(amount == 1);

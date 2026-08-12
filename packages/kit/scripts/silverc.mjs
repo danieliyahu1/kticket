@@ -26,7 +26,7 @@ const BIN_PATH = join(KIT_ROOT, "silverc", "target", "release", BIN_NAME);
 // `npm run build` reproduces byte-for-byte identical artifacts.
 const REFERENCE_TXID_HEX = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
 const REFERENCE_PRICE = 100_000_000;
-const REFERENCE_ORG_SPK_HEX = "201216664c";
+const REFERENCE_ORG_PKH_HEX = "1112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f30";
 
 const CONTRACT_NAMES = ["event", "burn"];
 
@@ -75,6 +75,8 @@ function compileContract(name, ctorArgs) {
 
 // The event contract's constructor args depend on the compiled burn template
 // (prefix/suffix/hash), so compile burn first and derive its template parts.
+// `org_pkh` is the organizer pubkey (x-coordinate) baked into the P2PK
+// `org_spk` — the gate co-signature key (mark_used, KTK-118).
 function eventCtorArgs(txidHex) {
   const burn = compileContract("burn", [byteArrayArg(FIXED32, txidHex)]);
   const start = burn.state_layout.start;
@@ -82,6 +84,8 @@ function eventCtorArgs(txidHex) {
   const prefix = burn.bytecode.slice(0, start);
   const suffix = burn.bytecode.slice(start + len);
   const hash = burn.template_hash;
+  const orgSpk = `20${REFERENCE_ORG_PKH_HEX}ac`;
+  const orgSpkFull = `0000${orgSpk}`;
 
   return [
     byteArrayArg(FIXED32, txidHex),
@@ -89,10 +93,11 @@ function eventCtorArgs(txidHex) {
     // `org_spk` is baked as the full script public key bytes (u16 LE version
     // prefix + script) to match the covenant VM's `tx.outputs[i].scriptPubKey`
     // introspection (KTK-102 follow-up).
-    byteArrayArg(DYNAMIC, `0000${REFERENCE_ORG_SPK_HEX}`),
+    byteArrayArg(DYNAMIC, orgSpkFull),
     byteArrayArg(FIXED32, Buffer.from(hash).toString("hex")),
     byteArrayArg(DYNAMIC, Buffer.from(prefix).toString("hex")),
     byteArrayArg(DYNAMIC, Buffer.from(suffix).toString("hex")),
+    byteArrayArg(FIXED32, REFERENCE_ORG_PKH_HEX),
   ];
 }
 

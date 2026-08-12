@@ -76,6 +76,7 @@ export function eventOutputScript(artifact: CompiledContractArtifact, state: Eve
     identifierType: 0,
     amount: state.amount,
     isMinter: false,
+    used: false,
   });
   return p2shScript(redeem).script;
 }

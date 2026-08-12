@@ -11,7 +11,8 @@ import { buildTransaction, type WireTransaction } from "./tx.js";
 
 const TXID_BYTE_LENGTH = 32;
 const EVENT_TXID = "aa".repeat(TXID_BYTE_LENGTH);
-const EVENT_SPK = "21020001";
+const ORG_X_HEX = "01".repeat(TXID_BYTE_LENGTH);
+const EVENT_SPK = `20${ORG_X_HEX}ac`;
 const EVENT_VALUE = 500_000_000;
 const UTXO_VALUE = 1_000_000_000;
 const TICKET_PRICE = 1_000;
@@ -20,7 +21,7 @@ const BUYER_META = {
   transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
   index: 0,
   value: UTXO_VALUE,
-  script_public_key: { version: 0, script: "2102310201" },
+  script_public_key: { version: 0, script: EVENT_SPK },
   block_daa_score: 100,
   is_coinbase: false,
 };
@@ -34,7 +35,7 @@ const FEE_ESTIMATE: FeeEstimateResponse = {
 const CONSTANTS = {
   authorizing_txid: "ab".repeat(TXID_BYTE_LENGTH),
   price: TICKET_PRICE,
-  org_spk: "21020001",
+  org_spk: EVENT_SPK,
   burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
 };
 
