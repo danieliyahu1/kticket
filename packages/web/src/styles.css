@@ -962,6 +962,13 @@ a.card:hover {
   font-weight: 700;
 }
 
+.verdict-detail {
+  font-size: 0.75rem;
+  opacity: 0.85;
+  word-break: break-all;
+  max-width: 90vw;
+}
+
 /* ── Motion ────────────────────────────────────────────── */
 
 @media (max-width: 480px) {

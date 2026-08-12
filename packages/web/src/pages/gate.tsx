@@ -17,6 +17,7 @@ import { Empty, OfflineEmpty } from "../components/empty";
 import { useCamera } from "../hooks/use-camera";
 
 const VERDICT_RESET_MS = 5_000;
+const CO_SIGN_TIMEOUT_MS = 30_000;
 
 export default function GatePage() {
   const { covenantId } = useParams<{ covenantId: string }>();
@@ -47,10 +48,18 @@ export default function GatePage() {
     load();
   }, [load]);
 
-  // Auto-reset the verdict back to scanning after a timeout (KTK-132).
+  // Auto-reset the verdict back to scanning after a timeout (KTK-132). Green
+  // only ever follows a DAG-confirmed mark_used — there is no liveness-read path.
   useEffect(() => {
     if (gate.phase !== "green" && gate.phase !== "red") return;
     const timer = setTimeout(() => setGate({ phase: "scanning" }), VERDICT_RESET_MS);
+    return () => clearTimeout(timer);
+  }, [gate]);
+
+  // A dialog or co-sign that stalls resets to scanning (timeout → reset).
+  useEffect(() => {
+    if (gate.phase !== "waiting" && gate.phase !== "co-signing") return;
+    const timer = setTimeout(() => setGate({ phase: "scanning" }), CO_SIGN_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [gate]);
 
@@ -138,6 +147,7 @@ export default function GatePage() {
         <div className="verdict verdict-ok" role="status">
           <div className="verdict-icon">&#10003;</div>
           <p className="verdict-title">You&rsquo;re in.</p>
+          <p className="verdict-detail mono">{gate.txid}</p>
         </div>
       )}
 
