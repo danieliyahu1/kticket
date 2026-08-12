@@ -88,6 +88,35 @@ thin, out-of-tree adapter (API layer, KTK-6) mapped onto these types once a
 release with covenants ships. No runtime dependency on `kaspa` was added —
 `@noble/hashes` provides the crypto primitives in pure TS instead.
 
+## f. mark_used door transition — **new events only (bytecode change)**
+
+The door flow (KTK-118/119, parent KTK-119) adds two things to the Event
+contract: a `byte[32] org_pkh` constructor constant (the organizer pubkey the
+gate co-signature must verify against) and a `bool used` state field (the
+door's "has this ticket entered?" flag). Both are baked into the compiled
+bytecode:
+
+- `mark_used(State prev_state, sig s, sig g)` is declared exactly like
+  `transfer` — `#[covenant(binding = auth, from = 1, to = 1, mode = transition)]`
+  — so it routes through the standard auth-entrypoint path and produces a
+  sig-script `push(65B sig_owner) || push(65B sig_gate) || <selector> ||
+  push(redeem)`. `sig` is a first-class 65-byte type; both `checkSig` calls
+  verify against the same covenant-input sighash.
+- **Constraint — new events only.** Because `org_pkh` and `used` change the
+  event bytecode, any event **deployed before this change no longer
+  verifies** against the current artifact (`verifyEventFromChain` recomputes
+  the deploy output's P2SH address from the recompiled artifact and compares).
+  Only events deployed with the new contract can be verified and used by the
+  door flow. Documented here so operations knows a bytecode change invalidates
+  old testnet events rather than "something broke".
+- **Proof of node VM execution.** `packages/kit/silverc/tests/buy_covenant.rs`
+  (`mark_used_covenant_passes_on_chain_vm`) compiles the real contract,
+  injects `used: false` → `used: true` state, co-signs the ticket input with
+  two real Schnorr keys (owner + organizer), and runs the node's covenant VM on
+  input 0 — green only when the full transition passes on-chain. Compute budget
+  is the standard `COMPUTE_BUDGET = 50` (500,000 script units), well above the
+  two sigops + pushed bytes the transition needs.
+
 ## Statuses
 
 | Question | Resolution | Where |
@@ -95,3 +124,4 @@ release with covenants ships. No runtime dependency on `kaspa` was added —
 | KIP-20 per-output vs per-family | **per-family** | `src/runtime/covenant.ts`, `builder.ts` |
 | silverc script layout | pinned as placeholder `code` field | `artifacts/*.artifact.json`, `address.ts` |
 | kaspa-wasm v1 covenant API | exists upstream, unpublished | `tx.ts` types + decision above |
+| mark_used door transition | **new events only** (bytecode change) | `contracts/event.sil`, section f above |
