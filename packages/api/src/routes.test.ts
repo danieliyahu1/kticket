@@ -680,6 +680,131 @@ describe("POST /v1/tickets/{ticket_id}/use/prepare (door check-in, KTK-118)", ()
   });
 });
 
+describe("POST /v1/tickets/{ticket_id}/use/sign-template (gate, KTK-128)", () => {
+  // The gate scans the owner's QR payload → {use_id, template, owner_signed}.
+  // sign-template re-derives the signing template from the template's outpoints
+  // (Option B stateless rebuild) — it must be byte-exact to what the owner signed.
+  const TICKET_OWNER_HEX = "02".repeat(TXID_BYTE_LENGTH);
+  const OWNER_UTXO_TXID = "dd".repeat(TXID_BYTE_LENGTH);
+  const TICKET_ID = `${B0_ID}:0`;
+
+  // buyTx() mints the ticket to the owner at B0_ID:0; the owner's fee UTXO
+  // lives at OWNER_UTXO_TXID:0. Both prev-outputs must resolve on chain.
+  function seedGateChain(kaspa: FakeKaspa): void {
+    seedVerifiedEvent(kaspa);
+    const buy = buyTx();
+    kaspa.transactions.set(B0_ID, buy);
+    kaspa.transactions.set(OWNER_UTXO_TXID, {
+      transaction_id: OWNER_UTXO_TXID,
+      accepting_block_blue_score: 100,
+      inputs: [],
+      outputs: [
+        {
+          transaction_id: OWNER_UTXO_TXID,
+          index: 0,
+          amount: 1_000_000_000,
+          script_public_key: `20${TICKET_OWNER_HEX}ac`,
+        },
+      ],
+    });
+  }
+
+  function gateTemplate(): {
+    version: number;
+    inputs: { previous_outpoint: { transaction_id: string; index: number }; signature_script: string; sequence: number; sig_op_count: number }[];
+    outputs: { value: number; script_public_key: { version: number; script: string }; covenant: { authorizing_input: number; covenant_id: string } | null }[];
+    lock_time: number;
+  } {
+    return {
+      version: 1,
+      inputs: [
+        {
+          previous_outpoint: { transaction_id: B0_ID, index: 0 },
+          signature_script: "",
+          sequence: 0,
+          sig_op_count: 50,
+        },
+        {
+          previous_outpoint: { transaction_id: OWNER_UTXO_TXID, index: 0 },
+          signature_script: "",
+          sequence: 0,
+          sig_op_count: 50,
+        },
+      ],
+      outputs: [
+        {
+          value: 50_000_000,
+          script_public_key: { version: 0, script: "aa20" + "33".repeat(TXID_BYTE_LENGTH) + "87" },
+          covenant: { authorizing_input: 0, covenant_id: TEST_COVENANT_ID },
+        },
+        {
+          value: 999_900_000,
+          script_public_key: { version: 0, script: `20${TICKET_OWNER_HEX}ac` },
+          covenant: null,
+        },
+      ],
+      lock_time: 0,
+    };
+  }
+
+  function gateApp(kaspa: FakeKaspa) {
+    return buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+  }
+
+  it("rebuilds a byte-exact signing template from prev-output chain facts", async () => {
+    const kaspa = new FakeKaspa();
+    seedGateChain(kaspa);
+    const app = await gateApp(kaspa);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/sign-template`,
+      payload: { template: gateTemplate() },
+    });
+
+    expect(res.statusCode).toBe(HTTP_OK);
+    const body = res.json();
+    expect(typeof body.signing_template).toBe("string");
+    const parsed = JSON.parse(body.signing_template);
+    expect(parsed.version).toBe(1);
+    expect(parsed.inputs).toHaveLength(2);
+    // The continuation output keeps the event family covenant id so the wasm
+    // signs the same genesis group the owner signed.
+    expect(parsed.outputs[0].covenant.covenantId).toBe(TEST_COVENANT_ID);
+    await app.close();
+  });
+
+  it("rejects a template whose prev output is not on chain", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    const app = await gateApp(kaspa);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${TICKET_ID}/use/sign-template`,
+      payload: { template: gateTemplate() },
+    });
+    expect(res.statusCode).toBe(HTTP_NOT_FOUND);
+    await app.close();
+  });
+
+  it("rejects a malformed ticket_id", async () => {
+    const app = await gateApp(new FakeKaspa());
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/tickets/not-a-ticket/use/sign-template",
+      payload: { template: gateTemplate() },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    await app.close();
+  });
+});
+
 describe("reader routes — POST /v1/events", () => {
   it("registers an event after deploy and returns covenant_id", async () => {
     const kaspa = new FakeKaspa();

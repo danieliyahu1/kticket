@@ -31,6 +31,7 @@ import type { KaspaClientLike } from "./kaspa-client.js";
 import type { VerifiedEvent } from "./provenance.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { usePrepare } from "./use.js";
+import { useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
 
@@ -168,6 +169,18 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
           event: result.event.name,
         },
         "use prepare",
+      );
+      return result;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/use/sign-template",
+    async (req) => {
+      const result = await useSignTemplate(req.params.ticketId, req.body, useCtx);
+      req.log.info(
+        { ticket_id: req.params.ticketId, signing_template_bytes: result.signing_template.length },
+        "use sign-template",
       );
       return result;
     },

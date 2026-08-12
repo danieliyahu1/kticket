@@ -52,6 +52,7 @@ export {
   type WireScriptPublicKey,
   type WireTransaction,
   type WireUtxo,
+  type WireUtxoMeta,
 } from "./wire.js";
 
 /** Map any build/relay failure to a `policy` error (inputs cannot cover). */
@@ -193,6 +194,21 @@ function hasCompleteUtxoMetas(
   metas: readonly { script_public_key: { script: string } }[],
 ): boolean {
   return metas.length > 0 && metas.every((m) => m.script_public_key.script.length > 0);
+}
+
+/**
+ * Rebuild the kaspa-wasm safe-JSON signing template for an already-built wire
+ * template (the gate's stateless re-derive, KTK-128). Mirrors the tail of
+ * `buildTransaction`: the wasm builds the safe-JSON, then continuation covenant
+ * ids are patched to the wire's family ids so the wallet signs exactly what the
+ * owner pre-signed — byte-identical, because signatures are over the template.
+ */
+export async function signingTemplateFor(
+  wire: WireTransaction,
+  inputUtxoMetas: WireUtxoMeta[],
+): Promise<string> {
+  const { signingJson } = await signingTemplate(wire, inputUtxoMetas);
+  return patchContinuationCovenantIds(signingJson, wire, "markUsed") ?? signingJson;
 }
 
 export async function broadcastTransaction(raw: unknown, ctx: TxContext): Promise<BroadcastResult> {
