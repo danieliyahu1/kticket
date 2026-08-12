@@ -3,6 +3,7 @@ import { CreateDialogProvider } from "./components/create-dialog-context";
 import { Layout } from "./components/layout";
 import EventDetailPage from "./pages/event-detail";
 import EventsPage from "./pages/events";
+import GatePage from "./pages/gate";
 import MyEventsPage from "./pages/my-events";
 import TicketsPage from "./pages/tickets";
 import { WalletProvider } from "./wallet/provider";
@@ -18,6 +19,7 @@ export default function App() {
               <Route path="tickets" element={<TicketsPage />} />
               <Route path="my-events" element={<MyEventsPage />} />
               <Route path="events/:covenantId" element={<EventDetailPage />} />
+              <Route path="gate/:covenantId" element={<GatePage />} />
             </Route>
           </Routes>
         </CreateDialogProvider>

@@ -214,3 +214,25 @@ export function usePrepare(
 ): Promise<UsePrepareResult> {
   return apiFetch<UsePrepareResult>(`/v1/tickets/${encodeURIComponent(ticketId)}/use/prepare`, req);
 }
+
+/** sign-template: the gate re-derives the signing template from the template's chain facts. */
+export function useSignTemplate(
+  ticketId: string,
+  template: WireTransaction,
+): Promise<{ signing_template: string }> {
+  return apiFetch<{ signing_template: string }>(
+    `/v1/tickets/${encodeURIComponent(ticketId)}/use/sign-template`,
+    { template },
+  );
+}
+
+/** finalize: the gate relays both signatures; the backend assembles + broadcasts. */
+export function useFinalize(
+  ticketId: string,
+  req: { use_id: string; template: WireTransaction; owner_signed: unknown; gate_signed: unknown },
+): Promise<{ txid: string }> {
+  return apiFetch<{ txid: string }>(
+    `/v1/tickets/${encodeURIComponent(ticketId)}/use/finalize`,
+    req,
+  );
+}
