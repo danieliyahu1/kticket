@@ -117,36 +117,34 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     // owner identifier the buy path mints tickets to, so the derived address
     // matches the on-chain ticket covenant output.
     const ownerBytes = hexToBytes(organizerPkh(ownerPkh));
-    const entries = ctx.events.list();
-    const tickets = [];
 
-    for (const entry of entries) {
-      let verified;
-      try {
-        verified = await verifyEventFromChain(ctx.kaspa, ctx.network, entry.deployTxId);
-      } catch (err) {
-        if (isApiError(err) && err.type === "invalid") continue;
-        throw err;
-      }
-      const addr = addressFor(
-        verified.artifact,
+    // Verify every event in parallel (memoized), then ask the chain about all
+    // the owner's ticket addresses in a single batch request.
+    const verified = await verifyAll(ctx.events.list(), ctx);
+    const eventByAddress = new Map<string, VerifiedEvent>();
+    for (const event of verified) {
+      const address = addressFor(
+        event.artifact,
         { owner: ownerBytes, identifierType: 0, amount: 1, isMinter: false },
         ctx.network,
       );
-
-      const utxos = await ctx.kaspa.getUtxos(addr);
-      for (const u of utxos) {
-        tickets.push({
-          ticket_id: `${u.outpoint.transactionId}:${u.outpoint.index}`,
-          covenant_id: verified.covenant_id,
-          event_name: verified.name,
-          event_date: verified.date,
-          event_time: verified.time,
-        });
-      }
+      eventByAddress.set(address, event);
     }
 
-    return tickets;
+    if (eventByAddress.size === 0) return [];
+
+    const utxos = await ctx.kaspa.getUtxosForAddresses([...eventByAddress.keys()]);
+    return utxos.flatMap((u) => {
+      const event = u.address ? eventByAddress.get(u.address) : undefined;
+      if (!event) return [];
+      return [{
+        ticket_id: `${u.outpoint.transactionId}:${u.outpoint.index}`,
+        covenant_id: event.covenant_id,
+        event_name: event.name,
+        event_date: event.date,
+        event_time: event.time,
+      }];
+    });
   });
 
   const buyCtx = {
