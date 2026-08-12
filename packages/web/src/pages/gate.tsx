@@ -2,18 +2,21 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchEvent, ServerError, type EventDetail } from "../api/client";
 import {
+  coSignAndFinalize,
   decodeError,
   decodeGatePayload,
+  errorMsg,
   isDecodeFailure,
+  logError,
+  logStep,
   prepareGateCheck,
   type GateParams,
   type GateState,
-  errorMsg,
-  logError,
-  logStep,
 } from "../api/gate-machine";
 import { Empty, OfflineEmpty } from "../components/empty";
 import { useCamera } from "../hooks/use-camera";
+
+const VERDICT_RESET_MS = 5_000;
 
 export default function GatePage() {
   const { covenantId } = useParams<{ covenantId: string }>();
@@ -44,6 +47,13 @@ export default function GatePage() {
     load();
   }, [load]);
 
+  // Auto-reset the verdict back to scanning after a timeout (KTK-132).
+  useEffect(() => {
+    if (gate.phase !== "green" && gate.phase !== "red") return;
+    const timer = setTimeout(() => setGate({ phase: "scanning" }), VERDICT_RESET_MS);
+    return () => clearTimeout(timer);
+  }, [gate]);
+
   const params: GateParams = {
     covenantId: covenantId ?? "",
     eventName: event?.event.name ?? "",
@@ -64,8 +74,8 @@ export default function GatePage() {
         });
       } catch (err) {
         logError("decode", err);
-        // Unparseable payloads → "Not a valid ticket code." (FR-23);
-        // server outages → "No connection…" (mapped by errorMsg).
+        // Unparseable payloads / foreign tickets → "Not a valid ticket code."
+        // (FR-23); server outages → "No connection…" (mapped by errorMsg).
         setGate({ phase: "red", message: isDecodeFailure(err) ? decodeError() : errorMsg(err) });
       }
     },
@@ -73,6 +83,19 @@ export default function GatePage() {
   );
 
   const camera = useCamera({ enabled: gate.phase === "scanning", onDecode: handleDecode });
+
+  const handleApprove = useCallback(async () => {
+    if (gate.phase !== "waiting") return;
+    setGate({ phase: "co-signing", ...pick(gate) });
+    try {
+      const result = await coSignAndFinalize(gate.payload);
+      logStep("finalized", { txid: result.txid });
+      setGate({ phase: "green", txid: result.txid });
+    } catch (err) {
+      logError("finalize", err);
+      setGate({ phase: "red", message: errorMsg(err) });
+    }
+  }, [gate]);
 
   const handleCancel = useCallback(() => {
     setGate({ phase: "scanning" });
@@ -111,6 +134,13 @@ export default function GatePage() {
         <p className="token-when">{event.event.name}</p>
       </header>
 
+      {gate.phase === "green" && (
+        <div className="verdict verdict-ok" role="status">
+          <div className="verdict-icon">&#10003;</div>
+          <p className="verdict-title">You&rsquo;re in.</p>
+        </div>
+      )}
+
       {gate.phase === "red" && (
         <div className="verdict verdict-error" role="alert">
           <div className="verdict-icon">&#10007;</div>
@@ -118,25 +148,63 @@ export default function GatePage() {
         </div>
       )}
 
-      <div className="scan-panel">
-        <video ref={camera.videoRef} className="scan-video" playsInline muted aria-hidden="true" />
-        <canvas ref={camera.canvasRef} className="scan-canvas" aria-hidden="true" />
-        {gate.phase === "waiting" ? (
-          <div className="scan-status">
-            <span className="spinner spinner-sm" />
-            <span>Waiting for the gate to confirm…</span>
-            <button type="button" className="button button-link button-sm" onClick={handleCancel}>
-              Cancel
-            </button>
+      {(gate.phase === "scanning" || gate.phase === "waiting" || gate.phase === "co-signing") && (
+        <div className="scan-panel">
+          <video ref={camera.videoRef} className="scan-video" playsInline muted aria-hidden="true" />
+          <canvas ref={camera.canvasRef} className="scan-canvas" aria-hidden="true" />
+          {gate.phase === "scanning" ? (
+            <p className="scan-status">
+              {camera.status.phase === "denied"
+                ? "Camera access denied — allow it to scan tickets."
+                : "Scan a check-in QR…"}
+            </p>
+          ) : gate.phase === "co-signing" ? (
+            <p className="scan-status">
+              <span className="spinner spinner-sm" />
+              <span>Confirming in the wallet…</span>
+            </p>
+          ) : (
+            <p className="scan-status">Ticket verified for {gate.event}.</p>
+          )}
+        </div>
+      )}
+
+      {gate.phase === "waiting" && (
+        <div className="overlay" role="dialog" aria-modal="true" aria-label="Authorize entry">
+          <div className="dialog">
+            <h3 className="dialog-title">Authorize entry for {gate.event}?</h3>
+            <p className="dialog-copy">
+              Approve to co-sign this check-in with your organizer wallet.
+            </p>
+            <div className="form-actions">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={handleCancel}
+                disabled={false}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={handleApprove}
+                disabled={false}
+              >
+                Approve
+              </button>
+            </div>
           </div>
-        ) : (
-          <p className="scan-status">
-            {camera.status.phase === "denied"
-              ? "Camera access denied — allow it to scan tickets."
-              : "Scan a check-in QR…"}
-          </p>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function pick(state: Extract<GateState, { phase: "waiting" }>): {
+  ticket: string;
+  event: string;
+  payload: typeof state.payload;
+} {
+  return { ticket: state.ticket, event: state.event, payload: state.payload };
 }

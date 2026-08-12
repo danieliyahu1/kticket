@@ -13,8 +13,9 @@
 // ever the DAG-confirmed mark_used verdict.
 
 import { decodeUsePayload, type UsePayload } from "@kticket/kit";
-import { ServerError, useSignTemplate } from "./client";
+import { ServerError, useFinalize, useSignTemplate } from "./client";
 import type { WireTransaction } from "./types";
+import { signTemplate } from "../lib/signing";
 
 export type GateState =
   | { phase: "scanning" }
@@ -78,18 +79,58 @@ export async function decodeGatePayload(raw: string): Promise<UsePayload> {
 }
 
 /**
- * Step 1 — rebuild the signing template (KTK-128/130). The gate POSTs the
- * owner's template; the backend re-fetches each input's chain facts and returns
- * the byte-exact safe-JSON the gate's wallet co-signs. A failure here surfaces
- * as red "No connection…" (the API maps upstream outages to a 5xx).
+ * The decoded ticket belongs to this event when the template's continuation
+ * covenant output carries the gate's event family id. Rejected before the
+ * dialog (KTK-131) — a foreign ticket never prompts the organizer.
+ */
+export function isForEvent(payload: UsePayload, covenantId: string): boolean {
+  const covenant = payload.template && isRecord(payload.template) ? payload.template : null;
+  const output = covenant ? (payload.template as { outputs?: unknown[] }).outputs?.[0] : undefined;
+  const binding = output && isRecord(output) ? output.covenant : undefined;
+  return binding !== null && binding !== undefined && isRecord(binding)
+    ? binding.covenant_id === covenantId
+    : false;
+}
+
+/**
+ * Step 1 — verify the ticket belongs to this event and rebuild the signing
+ * template (KTK-128/130/131). The gate POSTs the owner's template; the backend
+ * re-fetches each input's chain facts and returns the byte-exact safe-JSON the
+ * gate's wallet co-signs. A foreign ticket throws before the dialog.
  */
 export async function prepareGateCheck(
   payload: UsePayload,
   params: GateParams,
 ): Promise<{ ticket: string; event: string }> {
+  if (!isForEvent(payload, params.covenantId)) {
+    throw new Error("This ticket is for a different event.");
+  }
   const ticket = ticketIdOf(payload.template as WireTransaction);
   await useSignTemplate(ticket, payload.template as WireTransaction);
   return { ticket, event: params.eventName };
+}
+
+/**
+ * Step 2 — co-sign only the ticket input (index 0) with the organizer wallet,
+ * then relay both signatures via finalize. The owner already paid the fee, so
+ * the gate signs nothing else. Returns the blockDAG verdict.
+ */
+export async function coSignAndFinalize(
+  payload: UsePayload,
+): Promise<{ txid: string }> {
+  const ticket = ticketIdOf(payload.template as WireTransaction);
+  const { signing_template } = await useSignTemplate(ticket, payload.template as WireTransaction);
+  const gate_signed = await signTemplate(signing_template, [{ index: 0 }]);
+  return useFinalize(ticket, {
+    use_id: payload.use_id,
+    template: payload.template as WireTransaction,
+    owner_signed: payload.owner_signed,
+    gate_signed,
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export { errorMsg, logError, logStep };

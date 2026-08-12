@@ -1,17 +1,25 @@
 import { encodeUsePayload, type UsePayload } from "@kticket/kit";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./client", () => ({
   useSignTemplate: vi.fn(),
+  useFinalize: vi.fn(),
   ServerError: class ServerError extends Error {},
 }));
 
-import { ServerError, useSignTemplate } from "./client";
+vi.mock("../lib/signing", () => ({
+  signTemplate: vi.fn(),
+}));
+
+import { ServerError, useFinalize, useSignTemplate } from "./client";
+import { signTemplate } from "../lib/signing";
 import {
+  coSignAndFinalize,
   decodeError,
   decodeGatePayload,
   errorMsg,
   isDecodeFailure,
+  isForEvent,
   prepareGateCheck,
 } from "./gate-machine";
 
@@ -44,6 +52,10 @@ const payload: UsePayload = {
 
 const PARAMS = { covenantId: COVENANT_ID, eventName: "Testnet Rave" };
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("decodeGatePayload (KTK-130)", () => {
   it("decodes a valid compressed payload QR", async () => {
     const encoded = await encodeUsePayload(payload);
@@ -73,5 +85,55 @@ describe("prepareGateCheck (KTK-130)", () => {
     vi.mocked(useSignTemplate).mockRejectedValue(new ServerError());
     await expect(prepareGateCheck(payload, PARAMS)).rejects.toThrow();
     expect(errorMsg(new ServerError())).toBe("No connection — handover can't complete.");
+  });
+
+  it("rejects a ticket from a different event before the dialog (KTK-131)", async () => {
+    await expect(
+      prepareGateCheck(payload, { covenantId: "ff".repeat(32), eventName: "Other" }),
+    ).rejects.toThrow("This ticket is for a different event.");
+    expect(useSignTemplate).not.toHaveBeenCalled();
+  });
+});
+
+describe("isForEvent (KTK-131)", () => {
+  it("accepts a ticket whose covenant output matches the gate's event", () => {
+    expect(isForEvent(payload, COVENANT_ID)).toBe(true);
+  });
+
+  it("rejects a ticket bound to another event's covenant family", () => {
+    expect(isForEvent(payload, "ff".repeat(32))).toBe(false);
+  });
+
+  it("rejects a payload with no covenant output", () => {
+    const plain = {
+      ...payload,
+      template: { ...(payload.template as object), outputs: [] },
+    };
+    expect(isForEvent(plain, COVENANT_ID)).toBe(false);
+  });
+});
+
+describe("coSignAndFinalize (KTK-131)", () => {
+  it("co-signs only input 0 and relays both signatures via finalize", async () => {
+    vi.mocked(useSignTemplate).mockResolvedValue({ signing_template: "{}" });
+    vi.mocked(signTemplate).mockResolvedValue({ inputs: [{ index: 0, signatureScript: "41aa" }] });
+    vi.mocked(useFinalize).mockResolvedValue({ txid: "dd".repeat(32) });
+
+    const result = await coSignAndFinalize(payload);
+
+    expect(signTemplate).toHaveBeenCalledWith("{}", [{ index: 0 }]);
+    expect(useFinalize).toHaveBeenCalledWith(`${TICKET_TXID}:0`, {
+      use_id: payload.use_id,
+      template: payload.template,
+      owner_signed: payload.owner_signed,
+      gate_signed: { inputs: [{ index: 0, signatureScript: "41aa" }] },
+    });
+    expect(result).toEqual({ txid: "dd".repeat(32) });
+  });
+
+  it("surfaces a signing failure as red", async () => {
+    vi.mocked(useSignTemplate).mockResolvedValue({ signing_template: "{}" });
+    vi.mocked(signTemplate).mockRejectedValue(new Error("User rejected"));
+    await expect(coSignAndFinalize(payload)).rejects.toThrow("User rejected");
   });
 });
