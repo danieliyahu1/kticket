@@ -5,6 +5,7 @@
 
 import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import { pollUntil } from "./poll-until.js";
 import { throwRejectionError } from "./broadcast.js";
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
 import type { WireTransaction } from "./wire.js";
@@ -43,29 +44,26 @@ export function mergeSignatures(template: WireTransaction, signed: unknown): Wir
 
 const CONFIRM_MAX_ATTEMPTS = 5;
 const CONFIRM_BASE_DELAY_MS = 1_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const CONFIRM_MAX_DELAY_MS = 16_000;
 
 /**
  * Wait until a broadcast tx is accepted on chain (visible via `getTransaction`).
- * Doubling backoff (1s, 2s, 4s, 8s, 16s). Throws `invalid` if it never appears.
+ * The timing (doubling backoff) is owned by `pollUntil`; this flow owns the
+ * "visible is enough" policy. Throws `invalid` if it never appears.
  */
 export async function waitForTransaction(
   kaspa: KaspaClientLike,
   txid: string,
 ): Promise<void> {
-  let delay = CONFIRM_BASE_DELAY_MS;
-  for (let attempt = 0; attempt <= CONFIRM_MAX_ATTEMPTS; attempt++) {
-    const tx = await kaspa.getTransaction(txid);
-    if (tx) return;
-    if (attempt < CONFIRM_MAX_ATTEMPTS) {
-      await sleep(delay);
-      delay *= 2;
-    }
-  }
-  throw invalidError(`transaction ${txid} was not confirmed on chain`);
+  const tx = await pollUntil(
+    () => kaspa.getTransaction(txid),
+    {
+      maxAttempts: CONFIRM_MAX_ATTEMPTS,
+      baseDelayMs: CONFIRM_BASE_DELAY_MS,
+      maxDelayMs: CONFIRM_MAX_DELAY_MS,
+    },
+  );
+  if (!tx) throw invalidError(`transaction ${txid} was not confirmed on chain`);
 }
 
 export interface BroadcastContext {

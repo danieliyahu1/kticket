@@ -21,6 +21,7 @@ import type { KaspaNetwork } from "@kticket/kit";
 import { buildTransaction, broadcastTransaction, type TxContext } from "./tx.js";
 import { invalidError, policyError } from "./errors.js";
 import { mergeSignatures } from "./flow.js";
+import { pollUntil } from "./poll-until.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { isRecord, int, str } from "./validate.js";
 import type {
@@ -230,42 +231,45 @@ export async function deployPrepare(
 
 const CONFIRM_MAX_ATTEMPTS = 5;
 const CONFIRM_BASE_DELAY_MS = 1_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const CONFIRM_MAX_DELAY_MS = 16_000;
 
 /**
  * Wait until the deploy tx is verifiable on chain, then register the event
- * identifiers locally. Doubling backoff (1s, 2s, 4s, 8s, 16s) — the retry logic
- * that used to live in the frontend now lives here, on the backend.
+ * identifiers locally. `pollUntil` owns the timing; this flow owns the
+ * "verifiable, not just visible" policy (deploys must also pass on-chain
+ * verification before the event is real).
  */
 async function confirmAndRegister(
   txid: string,
   ctx: DeployContext,
 ): Promise<DeployFinalizeResult> {
-  let delay = CONFIRM_BASE_DELAY_MS;
   let lastErr: unknown;
-  for (let attempt = 0; attempt <= CONFIRM_MAX_ATTEMPTS; attempt++) {
-    try {
-      const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, txid);
-      ctx.register({
-        deployTxId: verified.deploy_txid,
-        covenantId: verified.covenant_id,
-        organizerAddress: verified.organizer_address,
-      });
-      return { covenant_id: verified.covenant_id, deploy_txid: verified.deploy_txid };
-    } catch (err) {
-      lastErr = err;
-      if (attempt < CONFIRM_MAX_ATTEMPTS) {
-        await sleep(delay);
-        delay *= 2;
+  const verified = await pollUntil(
+    async () => {
+      try {
+        return await verifyEventFromChain(ctx.kaspa, ctx.network, txid);
+      } catch (err) {
+        lastErr = err;
+        return undefined;
       }
-    }
+    },
+    {
+      maxAttempts: CONFIRM_MAX_ATTEMPTS,
+      baseDelayMs: CONFIRM_BASE_DELAY_MS,
+      maxDelayMs: CONFIRM_MAX_DELAY_MS,
+    },
+  );
+  if (!verified) {
+    throw lastErr instanceof Error
+      ? invalidError(`deploy not confirmed on chain: ${lastErr.message}`)
+      : invalidError("deploy not confirmed on chain");
   }
-  throw lastErr instanceof Error
-    ? invalidError(`deploy not confirmed on chain: ${lastErr.message}`)
-    : invalidError("deploy not confirmed on chain");
+  ctx.register({
+    deployTxId: verified.deploy_txid,
+    covenantId: verified.covenant_id,
+    organizerAddress: verified.organizer_address,
+  });
+  return { covenant_id: verified.covenant_id, deploy_txid: verified.deploy_txid };
 }
 
 /**
