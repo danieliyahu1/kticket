@@ -1,7 +1,7 @@
 // kticket API routes (HLD v0.27 §2.2):
 //   GET  /v1/events                              — directory of verified events (from the registry)
 //   POST /v1/events                              — register an event after deploy (discovery only)
-//   GET  /v1/events/{covenant_id}                — verified event + availability + raw chain facts
+//   GET  /v1/events/{covenant_id}                — verified event facts + raw chain facts
 //   POST /v1/events/deploy/prepare               — backend-owned deploy: build the unsigned template
 //   POST /v1/events/deploy/finalize              — backend-owned deploy: merge, broadcast, register
 //   POST /v1/events/{covenant_id}/buy/prepare    — backend-owned buy: verify event, build template
@@ -10,9 +10,10 @@
 //
 // KTK-89 (stateless backend): the identifier registry holds only
 // `{deploy_txid, covenant_id, organizer_address}` for discovery. Every event
-// read calls `verifyEventFromChain` — the chain is the source of truth, and the
-// response carries raw chain facts so any displayed value can be re-checked.
-// Events that fail on-chain verification are hidden from the directory.
+// read calls `verifyEventFromChain` (memoized by `VerifiedEventCache`) — the
+// chain is the source of truth, and the response carries raw chain facts so any
+// displayed value can be re-checked. Events that fail on-chain verification are
+// hidden from the directory.
 
 import {
   addressFor,
@@ -24,10 +25,11 @@ import type { FastifyInstance } from "fastify";
 import { buyFinalize, buyPrepare } from "./buy.js";
 import { invalidError, isApiError, notFoundError } from "./errors.js";
 import { deployFinalize, deployPrepare } from "./deploy.js";
-import { eventAvailability } from "./events.js";
-import type { EventStore } from "./eventstore.js";
+import type { EventStore, StoredEvent } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import type { VerifiedEvent } from "./provenance.js";
 import { verifyEventFromChain } from "./provenance.js";
+import { VerifiedEventCache } from "./verified-cache.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
 
 export interface AppContext {
@@ -35,6 +37,7 @@ export interface AppContext {
   events: EventStore;
   network: KaspaNetwork;
   networkId: string;
+  verified: VerifiedEventCache;
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -42,14 +45,8 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     "/v1/events",
     async (req) => {
       const entries = ctx.events.list(req.query.organizer_address);
-      // KTK-89: the directory shows only identifiers. Full event data (name,
-      // price, capacity, availability) is fetched from the chain on demand when
-      // a user opens an event (`GET /v1/events/{covenant_id}`).
-      return entries.map((entry) => ({
-        covenant_id: entry.covenantId,
-        deploy_txid: entry.deployTxId,
-        organizer_address: entry.organizerAddress,
-      }));
+      const verified = await verifyAll(entries, ctx);
+      return verified.map(toEventSummary);
     },
   );
 
@@ -104,32 +101,10 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     const entry = ctx.events.byCovenantId(id);
     if (!entry) throw notFoundError(`event ${id} not found`);
 
-    const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, entry.deployTxId);
-    const availability = await eventAvailability(verified, ctx.kaspa, ctx.network);
+    const verified = await ctx.verified.verify(ctx.kaspa, ctx.network, entry.deployTxId);
 
     return {
-      event: {
-        covenant_id: verified.covenant_id,
-        deploy_txid: verified.deploy_txid,
-        name: verified.name,
-        date: verified.date,
-        time: verified.time,
-        price: verified.price,
-        capacity: verified.capacity,
-        organizer_address: verified.organizer_address,
-        verified: true,
-      },
-      availability,
-      buy_info: {
-        event_owner: verified.owner_pkh,
-        org_spk: verified.org_spk,
-        burn_template_hash: verified.burn_template_hash,
-        authorizing_txid: verified.authorizing_txid,
-        event_covenant_id: availability.event_covenant_id,
-        event_txid: availability.event_txid,
-        event_index: availability.event_index,
-        remaining: availability.left,
-      },
+      event: toEventSummary(verified),
       raw_chain: verified.raw_chain,
     };
   });
@@ -228,4 +203,49 @@ function parseRegisterEventBody(raw: unknown): string {
     throw invalidError("deploy_txid must be 64 hex chars");
   }
   return value;
+}
+
+/**
+ * Verify every registry entry against the chain, hiding entries that fail
+ * verification (poisoned or stale registry data). Non-verification errors
+ * (e.g. upstream outages) propagate — the whole directory fails rather than
+ * silently dropping events we could not check.
+ */
+async function verifyAll(
+  entries: readonly StoredEvent[],
+  ctx: AppContext,
+): Promise<VerifiedEvent[]> {
+  const outcomes = await Promise.all(entries.map((entry) => verifyIfValid(entry, ctx)));
+  return outcomes.filter(isVerifiedEvent);
+}
+
+async function verifyIfValid(
+  entry: StoredEvent,
+  ctx: AppContext,
+): Promise<VerifiedEvent | undefined> {
+  try {
+    return await ctx.verified.verify(ctx.kaspa, ctx.network, entry.deployTxId);
+  } catch (err) {
+    if (isApiError(err) && err.type === "invalid") return undefined;
+    throw err;
+  }
+}
+
+function isVerifiedEvent(event: VerifiedEvent | undefined): event is VerifiedEvent {
+  return event !== undefined;
+}
+
+/** The chain-verified facts shown on the homepage card and the detail page. */
+function toEventSummary(verified: VerifiedEvent) {
+  return {
+    covenant_id: verified.covenant_id,
+    deploy_txid: verified.deploy_txid,
+    name: verified.name,
+    date: verified.date,
+    time: verified.time,
+    price: verified.price,
+    capacity: verified.capacity,
+    organizer_address: verified.organizer_address,
+    verified: true,
+  };
 }

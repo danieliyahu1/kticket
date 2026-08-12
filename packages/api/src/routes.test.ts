@@ -39,7 +39,6 @@ const BUYER_UTXO_BYTE = 0x03;
 const NETWORK = "testnet10";
 const G_ID = "aa".repeat(TXID_BYTE_LENGTH);
 const B0_ID = "bb".repeat(TXID_BYTE_LENGTH);
-const B1_ID = "bc".repeat(TXID_BYTE_LENGTH);
 const AUTH_TXID = "ab".repeat(TXID_BYTE_LENGTH);
 
 const AUTH_TXID_HEX = AUTH_TXID;
@@ -151,10 +150,6 @@ function deployTx(): TxModel {
   return deployTxWithCapacity(EVENT_CAPACITY);
 }
 
-function deployScript(): string {
-  return deployTx().outputs?.[0]?.script_public_key as string;
-}
-
 function buyTxModelFrom(tx: UnsignedTransaction, txId: string = B0_ID): TxModel {
   return {
     transaction_id: txId,
@@ -195,29 +190,6 @@ function buyTx(): TxModel {
   return buyTxModelFrom(tx);
 }
 
-function buyTxSpending(
-  eventOutpoint: { txId: Uint8Array; index: number },
-  remaining: number,
-  txId: string,
-): TxModel {
-  const tx = buildBuy({
-    eventOutpoint,
-    eventCovenantId: TEST_COVENANT_ID,
-    eventOwner: hexToBytes(ORG_PKH_HEX),
-    eventArtifact: eventArtifact(),
-    buyer: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_BYTE),
-    buyerUtxos: [{ txId: new Uint8Array(TXID_BYTE_LENGTH).fill(BUYER_UTXO_BYTE), index: 0 }],
-    buyerUtxoValues: [UTXO_VALUE],
-    orgScript: { version: 0, script: ORG_SPK_HEX },
-    changeScript: { version: 0, script: "51" },
-    remaining,
-    price: EVENT_PRICE,
-    network: NETWORK,
-    fee: 400,
-  });
-  return buyTxModelFrom(tx, txId);
-}
-
 function config() {
   return loadConfig({ KASPANET: NETWORK });
 }
@@ -243,7 +215,7 @@ function seedVerifiedEvent(kaspa: FakeKaspa): void {
 }
 
 describe("reader routes (KTK-89 stateless directory)", () => {
-  it("GET /v1/events lists identifiers from the registry (details fetched on demand)", async () => {
+  it("GET /v1/events lists chain-verified event facts", async () => {
     const kaspa = new FakeKaspa();
     seedVerifiedEvent(kaspa);
     const app = await readerApp(kaspa);
@@ -254,22 +226,22 @@ describe("reader routes (KTK-89 stateless directory)", () => {
         covenant_id: TEST_COVENANT_ID,
         deploy_txid: G_ID,
         organizer_address: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
+        name: EVENT_NAME,
+        date: EVENT_DATE,
+        time: EVENT_TIME,
+        price: EVENT_PRICE,
+        capacity: EVENT_CAPACITY,
+        verified: true,
       },
     ]);
     await app.close();
   });
 
-  it("GET /v1/events returns the registry identifiers even before the tx is verifiable", async () => {
+  it("GET /v1/events hides registry entries that fail on-chain verification", async () => {
     const app = await readerApp(new FakeKaspa());
     const res = await app.inject({ method: "GET", url: "/v1/events" });
     expect(res.statusCode).toBe(HTTP_OK);
-    expect(res.json()).toEqual([
-      {
-        covenant_id: TEST_COVENANT_ID,
-        deploy_txid: G_ID,
-        organizer_address: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
-      },
-    ]);
+    expect(res.json()).toEqual([]);
     await app.close();
   });
 
@@ -285,30 +257,10 @@ describe("reader routes (KTK-89 stateless directory)", () => {
   });
 });
 
-describe("reader routes (KTK-89) — event availability", () => {
-  it("GET /v1/events/{id} returns verified event + availability", async () => {
+describe("reader routes (KTK-89) — event detail", () => {
+  it("GET /v1/events/{id} returns verified event facts + raw chain data", async () => {
     const kaspa = new FakeKaspa();
     seedVerifiedEvent(kaspa);
-    const buy = buyTx();
-    const deployAddress = addressFromScriptHash(deployScript(), NETWORK);
-    kaspa.txMap.set(deployAddress, [buy]);
-    const remainingAddress = addressFromScriptHash(
-      buy.outputs?.[1]?.script_public_key as string,
-      NETWORK,
-    );
-    kaspa.utxoMap.set(remainingAddress, [
-      {
-        address: remainingAddress,
-        outpoint: { transactionId: G_ID, index: 0 },
-        utxoEntry: {
-          amount: "0",
-          scriptPublicKey: { scriptPublicKey: "" },
-          blockDaaScore: "0",
-          isCoinbase: false,
-        },
-      },
-    ]);
-
     const app = await readerApp(kaspa);
     const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
     expect(res.statusCode).toBe(HTTP_OK);
@@ -323,13 +275,6 @@ describe("reader routes (KTK-89) — event availability", () => {
         capacity: EVENT_CAPACITY,
         verified: true,
       },
-      availability: { capacity: 2, sold: 1, left: 1 },
-      buy_info: {
-        event_owner: ORG_PKH_HEX,
-        org_spk: ORG_SPK_HEX,
-        burn_template_hash: BURN_TEMPLATE_HASH,
-        remaining: 1,
-      },
       raw_chain: {
         deploy_txid: G_ID,
         authorizing_txid: AUTH_TXID,
@@ -337,53 +282,8 @@ describe("reader routes (KTK-89) — event availability", () => {
         decoded_state: { owner: ORG_PKH_HEX, capacity: 2 },
       },
     });
-    await app.close();
-  });
-
-  it("GET /v1/events/{id} reports sold incremented when a second ticket is minted", async () => {
-    const kaspa = new FakeKaspa();
-    seedVerifiedEvent(kaspa);
-
-    const buy1 = buyTx();
-    const deployAddress = addressFromScriptHash(deployScript(), NETWORK);
-    kaspa.txMap.set(deployAddress, [buy1]);
-
-    const buy1CovenantAddress = addressFromScriptHash(
-      buy1.outputs?.[1]?.script_public_key as string,
-      NETWORK,
-    );
-    const buy2 = buyTxSpending(
-      { txId: hexToBytes(B0_ID), index: 1 },
-      EVENT_CAPACITY - 1,
-      B1_ID,
-    );
-    kaspa.txMap.set(buy1CovenantAddress, [buy2]);
-
-    const buy2CovenantAddress = addressFromScriptHash(
-      buy2.outputs?.[1]?.script_public_key as string,
-      NETWORK,
-    );
-    kaspa.utxoMap.set(buy2CovenantAddress, [
-      {
-        address: buy2CovenantAddress,
-        outpoint: { transactionId: B1_ID, index: 1 },
-        utxoEntry: {
-          amount: "0",
-          scriptPublicKey: { scriptPublicKey: "" },
-          blockDaaScore: "0",
-          isCoinbase: false,
-        },
-      },
-    ]);
-
-    const app = await readerApp(kaspa);
-    const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
-    expect(res.statusCode).toBe(HTTP_OK);
-    expect(res.json().availability).toMatchObject({
-      capacity: EVENT_CAPACITY,
-      sold: 2,
-      left: 0,
-    });
+    expect(res.json().availability).toBeUndefined();
+    expect(res.json().buy_info).toBeUndefined();
     await app.close();
   });
 });

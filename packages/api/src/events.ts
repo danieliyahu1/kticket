@@ -1,4 +1,4 @@
-// Event availability (KTK-89 — GET /v1/events/{covenant_id}).
+// Event availability — the lineage walk behind the buy flow (KTK-89).
 //
 // The blockDAG stores only `P2SH(blake3(redeem_script))`, not the decoded
 // preimage, so there is no on-chain index to discover events from. Availability
@@ -9,7 +9,8 @@
 //
 // This module is stateless: it consumes a `VerifiedEvent` (produced by
 // `verifyEventFromChain`) and never reads rich fields from the identifier
-// registry — the chain is the source of truth.
+// registry — the chain is the source of truth. The buy path needs `remaining`
+// to build the next covenant output; reads no longer surface availability.
 
 import { addressFromScriptHash, type KaspaNetwork } from "@kticket/kit";
 import { invalidError } from "./errors.js";

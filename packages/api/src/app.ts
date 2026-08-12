@@ -6,6 +6,7 @@ import { registerErrorHandler } from "./error-handler";
 import { EventStore } from "./eventstore";
 import { KaspaClient } from "./kaspa-client";
 import { type AppContext, registerRoutes } from "./routes";
+import { VerifiedEventCache } from "./verified-cache";
 
 export async function buildApp(
   config: ApiConfig = loadConfig(),
@@ -33,10 +34,12 @@ export async function buildApp(
   });
 
   const events = deps?.events ?? new EventStore(config.eventsFilePath);
+  const verified = deps?.verified ?? new VerifiedEventCache();
 
   const ctx: AppContext = {
     kaspa,
     events,
+    verified,
     network: deps?.network ?? config.kaspaNet,
     networkId: deps?.networkId ?? config.networkId,
   };
