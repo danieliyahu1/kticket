@@ -1,11 +1,10 @@
-import { buyFinalize, buyPrepare, fetchEvent, ServerError, type EventDetail } from "./client";
+import { buyFinalize, buyPrepare, ServerError } from "./client";
 import type { BuyPrepareResult } from "./client";
 import { signTemplate } from "../lib/signing";
 
 export type BuyState =
   | { phase: "idle" }
   | { phase: "loading" }
-  | { phase: "ready"; event: EventDetail }
   | { phase: "building" }
   | { phase: "broadcasting" }
   | { phase: "success"; txid: string }
@@ -42,31 +41,14 @@ function logStep(step: string, detail?: unknown): void {
  *              confirmation
  *
  * The frontend only relays. It never fetches UTXOs, merges signatures, or
- * broadcasts. "Success" is set only after the backend confirms the tx.
+ * broadcasts. "Success" is set only after the backend confirms the tx. The
+ * backend also rejects sold-out buys during prepare.
  */
 export async function executeBuy(
   setState: (s: BuyState) => void,
   params: BuyParams,
 ): Promise<void> {
   setState({ phase: "loading" });
-
-  let event: EventDetail;
-  try {
-    event = await fetchEvent(params.covenantId);
-    logStep("event", event);
-  } catch (err) {
-    logError("fetch", err);
-    setState({ phase: "error", message: errorMsg(err) });
-    return;
-  }
-
-  if (event.availability.left === 0) {
-    setState({ phase: "error", message: "Sold out - no tickets left." });
-    return;
-  }
-
-  setState({ phase: "ready", event });
-  setState({ phase: "building" });
 
   let prepared: BuyPrepareResult;
   try {
@@ -81,10 +63,11 @@ export async function executeBuy(
     return;
   }
 
-  setState({ phase: "broadcasting" });
+  setState({ phase: "building" });
 
   try {
     const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
+    setState({ phase: "broadcasting" });
     const result = await buyFinalize(params.covenantId, {
       buy_id: prepared.buy_id,
       template: prepared.template,

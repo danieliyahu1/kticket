@@ -41,23 +41,6 @@ export default function EventDetailPage() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (buy.phase !== "success" || !covenantId) return;
-    let cancelled = false;
-    fetchEvent(covenantId)
-      .then((e) => {
-        if (cancelled) return;
-        setEvent(e);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("[event-detail] failed to refresh availability after buy", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [buy.phase, covenantId]);
-
   const handleBuy = useCallback(async () => {
     if (!covenantId || !event || state.status !== "connected" || !state.accounts[0]) return;
     await executeBuy(setBuy, {
@@ -70,13 +53,9 @@ export default function EventDetailPage() {
   useEffect(() => {
     if (!pendingBuy.current) return;
     if (state.status !== "connected") return;
-    if (!event || event.availability.left === 0) {
-      pendingBuy.current = false;
-      return;
-    }
     pendingBuy.current = false;
     handleBuy();
-  }, [state.status, event, handleBuy]);
+  }, [state.status, handleBuy]);
 
   const handleConnectThenBuy = useCallback(() => {
     pendingBuy.current = true;
@@ -108,7 +87,6 @@ export default function EventDetailPage() {
   }
 
   const connected = state.status === "connected";
-  const soldOut = event.availability.left === 0;
   const verified = event.event.verified;
 
   return (
@@ -167,10 +145,6 @@ export default function EventDetailPage() {
               {buy.phase === "building" ? "Confirming in your wallet…" : "Putting it on the chain…"}
             </p>
           </div>
-        ) : soldOut ? (
-          <button type="button" className="button button-full" disabled>
-            Sold out
-          </button>
         ) : (
           <button
             type="button"
@@ -193,10 +167,6 @@ export default function EventDetailPage() {
         <div className="token-detail">
           <dt>Price</dt>
           <dd className="token-detail-plain">{priceLabel(event.event.price)}</dd>
-        </div>
-        <div className="token-detail">
-          <dt>Tickets left</dt>
-          <dd className="token-detail-plain">{event.availability.left}</dd>
         </div>
         <div className="token-detail">
           <dt>Organized by</dt>

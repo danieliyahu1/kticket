@@ -104,7 +104,7 @@ export function buyFinalize(
   return apiFetch<{ txid: string }>(`/v1/events/${covenantId}/buy/finalize`, req);
 }
 
-/** Fetch event detail + availability from the API (KTK-89: chain-verified). */
+/** Fetch event detail + raw chain facts from the API (KTK-89: chain-verified). */
 export interface EventDetail {
   event: {
     covenant_id: string;
@@ -116,21 +116,6 @@ export interface EventDetail {
     capacity: number;
     organizer_address: string;
     verified: boolean;
-  };
-  availability: {
-    capacity: number;
-    sold: number;
-    left: number;
-  };
-  buy_info: {
-    event_owner: string;
-    org_spk: string;
-    burn_template_hash: string;
-    authorizing_txid: string;
-    event_covenant_id: string;
-    event_txid: string;
-    event_index: number;
-    remaining: number;
   };
   raw_chain: {
     deploy_txid: string;
@@ -180,6 +165,12 @@ export interface EventListItem {
   covenant_id: string;
   deploy_txid: string;
   organizer_address: string;
+  name: string;
+  date: string;
+  time: string;
+  price: number;
+  capacity: number;
+  verified: boolean;
 }
 
 export function fetchEventsList(organizerAddress?: string): Promise<EventListItem[]> {

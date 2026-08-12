@@ -245,15 +245,25 @@ a.card:hover {
 
 .event-card {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .event-card-name {
   color: var(--color-text);
   font-weight: 500;
   min-width: 0;
+}
+
+.event-card-when {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.event-card-price {
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .event-card-organizer {
@@ -829,12 +839,6 @@ a.card:hover {
 
   .app-nav {
     gap: var(--space-4);
-  }
-
-  .event-card {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
   }
 }
 
