@@ -13,6 +13,15 @@ import type { WireTransaction } from "./tx.js";
 /** The zero 20-byte subnetwork id (the native subnetwork — all kticket txs use it). */
 const NATIVE_SUBNETWORK_ID = "0000000000000000000000000000000000000000";
 
+/**
+ * Connect bounds for the wRPC `RpcClient` — the external library owns the retry
+ * and reconnect behaviour (`ConnectStrategy.Retry` is the default); we only cap
+ * how long a single connect attempt may take so a down node can't block the
+ * request forever.
+ */
+const CONNECT_TIMEOUT_MS = 10_000;
+const CONNECT_RETRY_INTERVAL_MS = 1_000;
+
 /** The vendored kaspa-wasm module surface used by the relay. */
 export interface KaspaWasm {
   Transaction: new (init: unknown) => {
@@ -23,7 +32,7 @@ export interface KaspaWasm {
   RpcClient: new (
     init: unknown,
   ) => {
-    connect(): Promise<void>;
+    connect(options?: unknown): Promise<void>;
     disconnect(): Promise<void>;
     submitTransaction(request: { transaction: unknown; allowOrphan: boolean }): Promise<{
       transactionId: string;
@@ -116,7 +125,10 @@ export async function submitTransactionOverWrpc(
   });
 
   try {
-    await rpc.connect();
+    await rpc.connect({
+      timeoutDuration: CONNECT_TIMEOUT_MS,
+      retryInterval: CONNECT_RETRY_INTERVAL_MS,
+    });
     const resp = await rpc.submitTransaction({ transaction: wasmTx, allowOrphan: false });
     return resp.transactionId;
   } finally {
