@@ -194,3 +194,23 @@ export interface TicketEntry {
 export function fetchMyTickets(ownerPkh: string): Promise<TicketEntry[]> {
   return apiGet<TicketEntry[]>(`/v1/tickets?owner_pkh=${encodeURIComponent(ownerPkh)}`);
 }
+
+export interface UsePrepareResult {
+  /** Correlation id stored in the QR — a fresh prepare invalidates prior QRs. */
+  use_id: string;
+  signing_template: string;
+  /** The unsigned mark_used template the owner pre-signs. */
+  template: WireTransaction;
+  /** Inputs the owner signs: the ticket (0) + fee UTXOs (1..). */
+  sign_inputs_owner: { index: number }[];
+  /** Verified event facts for the wallet dialog. */
+  event: { name: string; date: string };
+}
+
+/** prepare: backend verifies the ticket is owned + builds the mark_used template. */
+export function usePrepare(
+  ticketId: string,
+  req: { publicKey: string; address: string },
+): Promise<UsePrepareResult> {
+  return apiFetch<UsePrepareResult>(`/v1/tickets/${encodeURIComponent(ticketId)}/use/prepare`, req);
+}

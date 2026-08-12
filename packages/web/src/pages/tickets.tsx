@@ -1,15 +1,106 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "../hooks/use-wallet";
-import { fetchMyTickets, ServerError, type TicketEntry } from "../api/client";
+import {
+  fetchMyTickets,
+  ServerError,
+  type TicketEntry,
+  type UsePrepareResult,
+} from "../api/client";
+import { prepareCheckIn, signCheckIn, type CheckInState } from "../api/use-machine";
 import { whenLabel } from "../lib/format";
 import { Empty, OfflineEmpty } from "../components/empty";
+import { QrCode } from "../components/qr-code";
 
 function TicketCard({ ticket }: { ticket: TicketEntry }) {
+  const { state } = useWallet();
+  const [checkIn, setCheckIn] = useState<CheckInState>({ phase: "idle" });
+  const [prepared, setPrepared] = useState<UsePrepareResult | null>(null);
+  const connected = state.status === "connected";
+  const busy = checkIn.phase === "preparing" || checkIn.phase === "signing";
+
+  const handleCheckIn = useCallback(async () => {
+    if (state.status !== "connected" || !state.accounts[0]) return;
+    const result = await prepareCheckIn(setCheckIn, {
+      ticketId: ticket.ticket_id,
+      publicKey: state.publicKey,
+      address: state.accounts[0],
+    });
+    if (result) setPrepared(result);
+  }, [state, ticket.ticket_id]);
+
+  const handleApprove = useCallback(async () => {
+    if (!prepared) return;
+    // Close the dialog on approval — the outcome (QR or error) renders in the
+    // card itself, so the wallet prompt is the only blocking layer.
+    setPrepared(null);
+    await signCheckIn(setCheckIn, prepared);
+  }, [prepared]);
+
+  const handleCancel = useCallback(() => {
+    setPrepared(null);
+    if (checkIn.phase === "idle") return;
+    setCheckIn({ phase: "idle" });
+  }, [checkIn.phase]);
+
   return (
     <div className="ticket">
       <div className="ticket-main">
         <h3 className="ticket-name">{ticket.event_name}</h3>
         <p className="ticket-line">{whenLabel(ticket.event_date, ticket.event_time || undefined)}</p>
+
+        {checkIn.phase === "idle" && connected && (
+          <button
+            type="button"
+            className="button button-secondary button-sm ticket-checkin"
+            onClick={handleCheckIn}
+          >
+            Check in
+          </button>
+        )}
+
+        {checkIn.phase === "preparing" && (
+          <div className="checkin-status" role="status">
+            <div className="spinner spinner-sm" />
+            <span>Preparing check-in…</span>
+          </div>
+        )}
+
+        {checkIn.phase === "signing" && (
+          <div className="checkin-status" role="status">
+            <div className="spinner spinner-sm" />
+            <span>Confirming in your wallet…</span>
+          </div>
+        )}
+
+        {checkIn.phase === "error" && (
+          <div className="checkin-error" role="alert">
+            <p>{checkIn.message}</p>
+            <button
+              type="button"
+              className="button button-link button-sm"
+              onClick={() => {
+                setCheckIn({ phase: "idle" });
+                setPrepared(null);
+              }}
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {checkIn.phase === "ready" && (
+          <div className="checkin-ready" role="status">
+            <QrCode value={checkIn.qr} alt={`Check-in QR for ${ticket.event_name}`} />
+            <p className="checkin-copy">Show this at the door.</p>
+            <button
+              type="button"
+              className="button button-link button-sm"
+              onClick={() => setCheckIn({ phase: "idle" })}
+            >
+              Done
+            </button>
+          </div>
+        )}
       </div>
       <div className="ticket-perforation" />
       <div className="ticket-stub">
@@ -20,6 +111,36 @@ function TicketCard({ ticket }: { ticket: TicketEntry }) {
           </span>
         </div>
       </div>
+
+      {prepared && (
+        <div className="overlay" role="dialog" aria-modal="true" aria-label="Check in">
+          <div className="dialog">
+            <h3 className="dialog-title">Hand over your ticket to {ticket.event_name}?</h3>
+            <p className="dialog-copy">
+              Approve to pre-sign your check-in. Nothing is spent — you get a QR the gate can
+              scan.
+            </p>
+            <div className="form-actions">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={handleCancel}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={handleApprove}
+                disabled={busy}
+              >
+                Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
