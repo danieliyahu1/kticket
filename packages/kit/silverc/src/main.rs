@@ -27,7 +27,7 @@ use clap::{Parser, Subcommand};
 use silverscript_lang::ast::Expr;
 use silverscript_lang::compiler::{CompileOptions, CovenantDeclCallOptions, CompiledContract, compile_contract};
 
-const SILVERSCRIPT_REV: &str = "6f9e078b1d8b5389212755183b592704de99fea5";
+const SILVERSCRIPT_REV: &str = "80d715f70099baa4ef2fb4fd582597e1d8d06fa0";
 
 #[derive(Debug, Parser)]
 #[command(name = "kticket-silverc", about = "Compile kticket SilverScript covenants to artifacts")]

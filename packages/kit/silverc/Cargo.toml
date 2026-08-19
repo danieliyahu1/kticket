@@ -7,7 +7,7 @@ rust-version = "1.85.0"
 
 # Pinned silverscript-lang rev (KTK-88 A1). Bump deliberately with A7 CI check.
 [dependencies]
-silverscript-lang = { git = "https://github.com/kaspanet/silverscript", rev = "6f9e078b1d8b5389212755183b592704de99fea5" }
+silverscript-lang = { git = "https://github.com/kaspanet/silverscript", rev = "80d715f70099baa4ef2fb4fd582597e1d8d06fa0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 clap = { version = "4.5.60", features = ["derive"] }
