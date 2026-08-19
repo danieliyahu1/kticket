@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "build:deploy": "npm run build --workspace @kticket/api && npm run build --workspace @kticket/web",
     "test": "vitest run",
     "test:watch": "vitest",
     "dev:api": "npm run dev --workspace @kticket/api",

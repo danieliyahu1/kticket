@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
+import fastifyStatic from "@fastify/static";
 import { type ApiConfig, loadConfig } from "./config";
 import { registerErrorHandler } from "./error-handler";
 import { EventStore } from "./eventstore";
@@ -12,6 +14,8 @@ import { warmVerifiedEvents } from "./warmup";
 export interface BuildOptions {
   /** Pre-verify registered events in the background so the first read is warm. */
   warmup?: boolean;
+  /** Absolute path to the built web SPA directory. Set to serve static files + SPA fallback. */
+  serveStatic?: string;
 }
 
 export async function buildApp(
@@ -31,7 +35,7 @@ export async function buildApp(
     ...(https ? { https } : {}),
   }) as FastifyInstance;
 
-  registerErrorHandler(app);
+  registerErrorHandler(app, { skipNotFound: !!options.serveStatic });
 
   app.get("/health", async () => ({ status: "ok", network: config.kaspaNet }));
 
@@ -52,6 +56,22 @@ export async function buildApp(
   };
 
   registerRoutes(app, ctx);
+
+  if (options.serveStatic) {
+    const root = resolve(options.serveStatic);
+    await app.register(fastifyStatic, {
+      root,
+      wildcard: false,
+    });
+
+    app.setNotFoundHandler(async (req, reply) => {
+      if (req.method !== "GET") return reply.code(404).send({ error: "Not Found" });
+      if (req.url.startsWith("/v1") || req.url.startsWith("/health")) {
+        return reply.code(404).send({ error: "Not Found" });
+      }
+      return reply.type("text/html").sendFile("index.html");
+    });
+  }
 
   if (options.warmup) {
     // Fire-and-forget: never blocks startup or the first request. Failures are

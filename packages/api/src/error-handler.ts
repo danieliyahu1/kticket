@@ -47,9 +47,11 @@ function handleError(error: FastifyError, _request: FastifyRequest, reply: Fasti
  * Register the error taxonomy middleware: every route error is mapped to the
  * consistent JSON error envelope (HLD v0.21 §2.2 "Error taxonomy").
  */
-export function registerErrorHandler(app: FastifyInstance): void {
+export function registerErrorHandler(app: FastifyInstance, options?: { skipNotFound?: boolean }): void {
   app.setErrorHandler(handleError);
-  app.setNotFoundHandler((_request, reply) => {
-    reply.code(HTTP_NOT_FOUND).send(NOT_FOUND_ENVELOPE);
-  });
+  if (!options?.skipNotFound) {
+    app.setNotFoundHandler((_request, reply) => {
+      reply.code(HTTP_NOT_FOUND).send(NOT_FOUND_ENVELOPE);
+    });
+  }
 }
