@@ -35,7 +35,14 @@ import { TX_VERSION_V1 } from "./tx.js";
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
 
-/** KCC-0021 covenant metadata attached to the genesis transaction payload. */
+/**
+ * KCC-0021 covenant metadata attached to the genesis transaction payload.
+ *
+ * The kticket event fields (name/date/time/priceKAS/orgSpk/burnTemplateHash)
+ * coexist with the ecosystem KCC-0021 token-metadata keys (ticker/decimals/
+ * image/image_hash) in one JSON object, so generic explorers can render our
+ * events. The KCC-0021 keys are display-only and optional for kticket events.
+ */
 export interface EventMetadata {
   name: string;
   date: string;
@@ -44,6 +51,14 @@ export interface EventMetadata {
   priceKAS: number;
   orgSpk: string;
   burnTemplateHash: string;
+  /** Short ticker (<= 12 code points). `symbol` is read as an alias. */
+  ticker?: string;
+  /** Display decimals (0..255, default 0). */
+  decimals?: number;
+  /** Poster art URI — https:// or ipfs:// (KCC-0021 pinned art). */
+  image?: string;
+  /** sha256 of the image bytes, 64 lowercase hex (KCC-0021 pinned art). */
+  image_hash?: string;
 }
 
 /**
@@ -53,6 +68,10 @@ export interface EventMetadata {
 export function encodeMetadataPayload(meta: EventMetadata): string {
   const json = JSON.stringify({
     name: meta.name,
+    ...(meta.ticker !== undefined ? { ticker: meta.ticker } : {}),
+    ...(meta.decimals !== undefined ? { decimals: meta.decimals } : {}),
+    ...(meta.image !== undefined ? { image: meta.image } : {}),
+    ...(meta.image_hash !== undefined ? { image_hash: meta.image_hash } : {}),
     date: meta.date,
     ...(meta.time !== undefined ? { time: meta.time } : {}),
     priceKAS: meta.priceKAS,
@@ -60,6 +79,62 @@ export function encodeMetadataPayload(meta: EventMetadata): string {
     burnTemplateHash: meta.burnTemplateHash,
   });
   return bytesToHex(TEXT_ENCODER.encode(json));
+}
+
+/** KCC-0021 string hygiene: trimmed, no control chars, at most `max` code points. */
+function cleanLabel(value: unknown, maxCodePoints: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || [...trimmed].length > maxCodePoints) return undefined;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+/** KCC-0021 decimals: integer or base-10 string, 0..255. */
+function decodeDecimals(value: unknown): number | undefined {
+  let n: number | undefined;
+  if (typeof value === "number" && Number.isInteger(value)) {
+    n = value;
+  } else if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    n = Number(value.trim());
+  }
+  if (n === undefined || n < 0 || n > 255) return undefined;
+  return n;
+}
+
+/** KCC-0021 image: https:// or ipfs:// URI, at most 256 code points. */
+function decodeImage(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if ([...trimmed].length > 256) return undefined;
+  if (!/^(https|ipfs):\/\//i.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+/** KCC-0021 image_hash: 64 hex chars, normalized to lowercase. */
+function decodeImageHash(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!/^[0-9a-fA-F]{64}$/.test(trimmed)) return undefined;
+  return trimmed.toLowerCase();
+}
+
+/** Read the optional KCC-0021 keys, dropping values that violate their constraints. */
+function kccKeysFrom(parsed: Record<string, unknown>): Pick<
+  EventMetadata,
+  "ticker" | "decimals" | "image" | "image_hash"
+> {
+  const ticker = cleanLabel(parsed.ticker, 12) ?? cleanLabel(parsed.symbol, 12);
+  const decimals = decodeDecimals(parsed.decimals);
+  const image = decodeImage(parsed.image);
+  const image_hash = decodeImageHash(parsed.image_hash);
+  return {
+    ...(ticker !== undefined ? { ticker } : {}),
+    ...(decimals !== undefined ? { decimals } : {}),
+    ...(image !== undefined ? { image } : {}),
+    ...(image_hash !== undefined ? { image_hash } : {}),
+  };
 }
 
 /**
@@ -76,7 +151,8 @@ export function decodeMetadataFromPayload(payloadHex: string | null | undefined)
     const json = TEXT_DECODER.decode(bytes);
     const parsed = JSON.parse(json) as Record<string, unknown>;
 
-    // Current format — readable names, self-describing
+    // Current format — readable names, self-describing (may also carry the
+    // ecosystem KCC-0021 keys; unknown keys are ignored per KCC-0021).
     if (
       typeof parsed.name === "string" &&
       typeof parsed.date === "string" &&
@@ -91,6 +167,7 @@ export function decodeMetadataFromPayload(payloadHex: string | null | undefined)
         priceKAS: parsed.priceKAS,
         orgSpk: parsed.orgSpk,
         burnTemplateHash: parsed.burnTemplateHash,
+        ...kccKeysFrom(parsed),
       };
     }
 

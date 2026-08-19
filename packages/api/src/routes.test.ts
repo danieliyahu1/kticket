@@ -12,6 +12,7 @@ import { compileBurnArtifact, compileEventArtifact } from "./compiler";
 import { loadConfig } from "./config";
 import { EventStore, type StoredEvent } from "./eventstore";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_OK } from "./http-status.js";
+import { VerifiedEventCache } from "./verified-cache";
 
 vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
@@ -90,7 +91,10 @@ function makeStoredEvent(overrides: Partial<StoredEvent> = {}): StoredEvent {
   };
 }
 
-function deployTxWithCapacity(capacity: number): TxModel {
+function deployTxWithCapacity(
+  capacity: number,
+  metaOverrides: Record<string, unknown> = {},
+): TxModel {
   const { tx } = buildDeploy({
     authorizingOutpoint: { txId: hexToBytes(AUTH_TXID_HEX), index: 0 },
     organizerUtxos: [],
@@ -108,6 +112,7 @@ function deployTxWithCapacity(capacity: number): TxModel {
       priceKAS: EVENT_PRICE / 100_000_000,
       orgSpk: ORG_SPK_HEX,
       burnTemplateHash: BURN_TEMPLATE_HASH,
+      ...metaOverrides,
     },
   });
   return {
@@ -229,6 +234,10 @@ describe("reader routes (KTK-89 stateless directory)", () => {
         name: EVENT_NAME,
         date: EVENT_DATE,
         time: EVENT_TIME,
+        ticker: "",
+        decimals: 0,
+        image: "",
+        image_hash: "",
         price: EVENT_PRICE,
         capacity: EVENT_CAPACITY,
         verified: true,
@@ -284,6 +293,55 @@ describe("reader routes (KTK-89) — event detail", () => {
     });
     expect(res.json().availability).toBeUndefined();
     expect(res.json().buy_info).toBeUndefined();
+    await app.close();
+  });
+
+  it("GET /v1/events/{id} surfaces the KCC-0021 standard keys when set", async () => {
+    const IMAGE_HASH_UPPER = "3B8C4E0F2A1D6B9C7E5F4A2D8B0C1E3F6A9D2C5B8E1F4A7D0C3B6E9F2A5D8C1B";
+    const kaspa = new FakeKaspa();
+    kaspa.transactions.set(AUTH_TXID, fundingTx());
+    kaspa.transactions.set(
+      G_ID,
+      deployTxWithCapacity(EVENT_CAPACITY, {
+        ticker: "RAVE",
+        decimals: 0,
+        image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        image_hash: IMAGE_HASH_UPPER,
+      }),
+    );
+    const app = await readerApp(kaspa);
+    const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json().event).toMatchObject({
+      name: EVENT_NAME,
+      date: EVENT_DATE,
+      price: EVENT_PRICE,
+      ticker: "RAVE",
+      decimals: 0,
+      image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      image_hash: IMAGE_HASH_UPPER.toLowerCase(),
+    });
+    await app.close();
+  });
+
+  it("GET /v1/events/{id} still serves a legacy {n, d, p} payload event", async () => {
+    const kaspa = new FakeKaspa();
+    const deploy = deployTxWithCapacity(EVENT_CAPACITY);
+    deploy.payload = bytesToHex(
+      new TextEncoder().encode(JSON.stringify({ n: EVENT_NAME, d: EVENT_DATE, p: EVENT_PRICE })),
+    );
+    kaspa.transactions.set(AUTH_TXID, fundingTx());
+    kaspa.transactions.set(G_ID, deploy);
+    const app = await readerApp(kaspa);
+    const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json().event).toMatchObject({
+      name: EVENT_NAME,
+      date: EVENT_DATE,
+      price: EVENT_PRICE,
+      ticker: "",
+      decimals: 0,
+    });
     await app.close();
   });
 });
@@ -1112,6 +1170,69 @@ describe("POST /v1/events/deploy/prepare", () => {
     expect(parsed.inputs).toHaveLength(1);
     expect(parsed.inputs[0].utxo.scriptPublicKey).toContain("ac");
     expect(body.event_covenant_id).toMatch(/^[0-9a-f]{64}$/);
+    await app.close();
+  });
+
+  it("carries the KCC-0021 keys into the deploy template payload", async () => {
+    const kaspa = new FakeKaspa();
+    fundOrganizer(kaspa);
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/prepare",
+      payload: {
+        capacity: EVENT_CAPACITY,
+        price_kas: EVENT_PRICE / 100_000_000,
+        publicKey: ORG_PUBKEY_HEX,
+        address: ORG_ADDRESS,
+        name: EVENT_NAME,
+        date: EVENT_DATE,
+        time: EVENT_TIME,
+        ticker: "RAVE",
+        decimals: 0,
+        image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    const payloadJson = res.json().template?.payload;
+    expect(typeof payloadJson).toBe("string");
+    const parsed = JSON.parse(
+      new TextDecoder().decode(Uint8Array.from(Buffer.from(payloadJson, "hex"))),
+    );
+    expect(parsed).toMatchObject({
+      name: EVENT_NAME,
+      ticker: "RAVE",
+      decimals: 0,
+      image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
+    });
+    await app.close();
+  });
+
+  it("rejects out-of-range decimals on the deploy prepare body", async () => {
+    const app = await txApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/prepare",
+      payload: {
+        capacity: EVENT_CAPACITY,
+        price_kas: EVENT_PRICE / 100_000_000,
+        publicKey: ORG_PUBKEY_HEX,
+        address: ORG_ADDRESS,
+        name: EVENT_NAME,
+        date: EVENT_DATE,
+        decimals: 300,
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
     await app.close();
   });
 

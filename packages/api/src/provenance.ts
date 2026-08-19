@@ -55,6 +55,14 @@ export interface VerifiedEvent {
   date: string;
   /** Local wall-clock start time (HH:MM), decoded from the payload; "" when absent. */
   time: string;
+  /** KCC-0021 short ticker (read alias `symbol`), decoded from the payload. */
+  ticker: string;
+  /** KCC-0021 display decimals (default 0). */
+  decimals: number;
+  /** KCC-0021 poster art URI (https:// or ipfs://), "" when absent. */
+  image: string;
+  /** KCC-0021 sha256 image hash (lowercase hex), "" when absent. */
+  image_hash: string;
   /** Price per ticket in sompi — recovered from covenant constants (verified). */
   price: number;
   capacity: number;
@@ -128,11 +136,15 @@ export async function verifyEventFromChain(
   }
   const organizerAddress = p2pkAddress(ownerPubkey, network);
 
-  // Decode KCC-0021 payload → name / date / time / price-label.
+  // Decode KCC-0021 payload → name / date / time / standard keys / price-label.
   const meta = decodeMetadataFromPayload(deploy.payload);
   const name = meta?.name ?? "";
   const date = meta?.date ?? "";
   const time = meta?.time ?? "";
+  const ticker = meta?.ticker ?? "";
+  const decimals = meta?.decimals ?? 0;
+  const image = meta?.image ?? "";
+  const imageHash = meta?.image_hash ?? "";
   const price = meta ? decodePriceLabel(meta.priceKAS) : 0;
   const orgSpk = (meta?.orgSpk || fundingScript).toLowerCase();
   // The burn template hash is derived at compile time (authorizing_txid baked),
@@ -175,6 +187,10 @@ export async function verifyEventFromChain(
     name,
     date,
     time,
+    ticker,
+    decimals,
+    image,
+    image_hash: imageHash,
     price,
     capacity,
     organizer_address: organizerAddress,

@@ -23,7 +23,7 @@ import { invalidError, policyError } from "./errors.js";
 import { mergeSignatures } from "./flow.js";
 import { pollUntil } from "./poll-until.js";
 import { verifyEventFromChain } from "./provenance.js";
-import { isRecord, int, str } from "./validate.js";
+import { isRecord, int, str, uint } from "./validate.js";
 import type {
   BuildRequest,
   BuildResult,
@@ -55,6 +55,11 @@ export interface DeployPrepareRequest {
   date?: string;
   /** Local wall-clock start time (HH:MM). */
   time?: string;
+  /** KCC-0021 standard token-metadata keys (display-only, optional). */
+  ticker?: string;
+  decimals?: number;
+  image?: string;
+  image_hash?: string;
 }
 
 export interface DeployFinalizeRequest {
@@ -139,6 +144,10 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
   if (time !== undefined && date === undefined) {
     throw invalidError("time requires a date");
   }
+  const decimals = raw.decimals === undefined ? undefined : uint(raw.decimals, "decimals");
+  if (decimals !== undefined && decimals > 255) {
+    throw invalidError("decimals must be 0..255");
+  }
   return {
     capacity,
     price_kas: raw.price_kas,
@@ -147,6 +156,10 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
     ...(name ? { name } : {}),
     ...(date ? { date } : {}),
     ...(time ? { time } : {}),
+    ...(raw.ticker !== undefined ? { ticker: str(raw.ticker, "ticker") } : {}),
+    ...(decimals !== undefined ? { decimals } : {}),
+    ...(raw.image !== undefined ? { image: str(raw.image, "image") } : {}),
+    ...(raw.image_hash !== undefined ? { image_hash: str(raw.image_hash, "image_hash") } : {}),
   };
 }
 
@@ -199,6 +212,10 @@ function deployBuildRequest(req: DeployPrepareRequest, utxos: UtxoResponse[]): B
     ...(req.name !== undefined ? { name: req.name } : {}),
     ...(req.date !== undefined ? { date: req.date } : {}),
     ...(req.time !== undefined ? { time: req.time } : {}),
+    ...(req.ticker !== undefined ? { ticker: req.ticker } : {}),
+    ...(req.decimals !== undefined ? { decimals: req.decimals } : {}),
+    ...(req.image !== undefined ? { image: req.image } : {}),
+    ...(req.image_hash !== undefined ? { image_hash: req.image_hash } : {}),
   };
 }
 

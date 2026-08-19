@@ -2,6 +2,7 @@ import {
   addressFromScriptHash,
   buildBuy,
   buildDeploy,
+  encodeMetadataPayload,
   p2pkAddress,
   type UnsignedTransaction,
 } from "@kticket/kit";
@@ -262,6 +263,52 @@ describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
       type: "invalid",
       statusCode: 400,
     });
+  });
+
+  it("recovers the KCC-0021 standard keys from the deploy payload", async () => {
+    const deploy = deployModel(CAPACITY);
+    deploy.payload = encodeMetadataPayload({
+      name: NAME,
+      date: DATE,
+      time: TIME,
+      priceKAS: PRICE / 100_000_000,
+      orgSpk: ORG_SPK_HEX,
+      burnTemplateHash: BURN_TEMPLATE_HASH,
+      ticker: "RAVE",
+      decimals: 0,
+      image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
+    });
+    const kaspa = new FakeKaspa(deploy);
+    const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
+    expect(verified).toMatchObject({
+      name: NAME,
+      date: DATE,
+      time: TIME,
+      price: PRICE,
+      ticker: "RAVE",
+      decimals: 0,
+      image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
+    });
+  });
+
+  it("still verifies a legacy {n, d, p} payload event (no orgSpk/burn fields)", async () => {
+    const deploy = deployModel(CAPACITY);
+    deploy.payload = bytesToHex(
+      new TextEncoder().encode(JSON.stringify({ n: NAME, d: DATE, p: PRICE })),
+    );
+    const kaspa = new FakeKaspa(deploy);
+    const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
+    expect(verified).toMatchObject({
+      name: NAME,
+      date: DATE,
+      time: "",
+      price: PRICE,
+      ticker: "",
+      decimals: 0,
+    });
+    expect(verified.org_spk).toBe(ORG_SPK_HEX);
   });
 
   it("fails verification when the covenant output does not commit to the constants", async () => {

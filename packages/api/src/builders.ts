@@ -71,6 +71,10 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
     req.name !== undefined && req.date !== undefined
       ? {
           name: req.name,
+          ...(req.ticker !== undefined ? { ticker: req.ticker } : {}),
+          ...(req.decimals !== undefined ? { decimals: req.decimals } : {}),
+          ...(req.image !== undefined ? { image: req.image } : {}),
+          ...(req.image_hash !== undefined ? { image_hash: req.image_hash } : {}),
           date: req.date,
           ...(req.time !== undefined ? { time: req.time } : {}),
           priceKAS: req.constants.price / 100_000_000,

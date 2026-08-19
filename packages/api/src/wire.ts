@@ -95,6 +95,11 @@ export type BuildRequest =
       date?: string;
       /** Local wall-clock start time (HH:MM). */
       time?: string;
+      /** KCC-0021 standard token-metadata keys (display-only, optional). */
+      ticker?: string;
+      decimals?: number;
+      image?: string;
+      image_hash?: string;
     }
   | {
       type: "buy";
@@ -231,11 +236,19 @@ function parseDeploy(raw: Record<string, unknown>): BuildRequest {
   };
   if (raw.name !== undefined) {
     if (raw.date === undefined) throw invalidError("date is required when name is set");
+    const decimals = raw.decimals === undefined ? undefined : uint(raw.decimals, "decimals");
+    if (decimals !== undefined && decimals > 255) {
+      throw invalidError("decimals must be 0..255");
+    }
     return {
       ...base,
       name: str(raw.name, "name"),
       date: str(raw.date, "date"),
       ...(raw.time !== undefined ? { time: str(raw.time, "time") } : {}),
+      ...(raw.ticker !== undefined ? { ticker: str(raw.ticker, "ticker") } : {}),
+      ...(decimals !== undefined ? { decimals } : {}),
+      ...(raw.image !== undefined ? { image: str(raw.image, "image") } : {}),
+      ...(raw.image_hash !== undefined ? { image_hash: str(raw.image_hash, "image_hash") } : {}),
     };
   }
   return base;
