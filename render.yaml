@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: kticket
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: KASPANET
+        value: testnet10
+      - key: WEB_DIST
+        value: packages/web/dist
+      - key: EVENTS_FILE
+        value: events.json
+      - key: NODE_ENV
+        value: production
