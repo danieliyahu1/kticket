@@ -26,7 +26,7 @@ import type { FastifyInstance } from "fastify";
 import { buyFinalize, buyPrepare } from "./buy.js";
 import { invalidError, isApiError, notFoundError } from "./errors.js";
 import { deployFinalize, deployPrepare } from "./deploy.js";
-import type { EventStore, StoredEvent } from "./eventstore.js";
+import type { EventRegistry, StoredEvent } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { VerifiedEvent } from "./provenance.js";
 import { verifyEventFromChain } from "./provenance.js";
@@ -37,7 +37,7 @@ import { HEX64, hex64, isRecord } from "./validate.js";
 
 export interface AppContext {
   kaspa: KaspaClientLike;
-  events: EventStore;
+  events: EventRegistry;
   network: KaspaNetwork;
   networkId: string;
   verified: VerifiedEventCache;
@@ -85,7 +85,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
       const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, deployTxId);
 
-      ctx.events.register({
+      await ctx.events.register({
         deployTxId: verified.deploy_txid,
         covenantId: verified.covenant_id,
         organizerAddress: verified.organizer_address,

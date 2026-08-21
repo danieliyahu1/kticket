@@ -16,7 +16,9 @@ by event organisers and bought / held by attendees — all on chain.
 The chain is the source of truth; the app is a thin wrapper:
 
 - The identifier registry stores only `{ deploy_txid, covenant_id, organizer_address }`
-  for discovery — never authoritative.
+  for discovery — never authoritative. It persists to Turso when
+  `TURSO_DATABASE_URL` is set (durable across deploys; `TURSO_AUTH_TOKEN` for
+  remote databases), and falls back to a local `events.json` file otherwise.
 - `GET /v1/events` verifies every registered event from the chain and serves
   the verified facts (name, date, time, price, capacity, organizer) for the
   homepage cards. Events that fail verification are hidden.

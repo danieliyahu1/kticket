@@ -201,7 +201,8 @@ function config() {
 
 function makeEventStore(): EventStore {
   const store = new EventStore();
-  store.register(makeStoredEvent());
+  // The in-memory store mutates synchronously; the returned promise carries no work.
+  void store.register(makeStoredEvent());
   return store;
 }
 

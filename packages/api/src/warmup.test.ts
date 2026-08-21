@@ -124,7 +124,7 @@ describe("warmVerifiedEvents", () => {
   it("pre-fills the memo so a later read is instant", async () => {
     const kaspa = new FakeKaspa(deployModel());
     const events = new EventStore();
-    events.register({ deployTxId: G_ID, covenantId: "aa", organizerAddress: "org" });
+    await events.register({ deployTxId: G_ID, covenantId: "aa", organizerAddress: "org" });
     const verified = new VerifiedEventCache();
 
     await warmVerifiedEvents({
@@ -144,8 +144,8 @@ describe("warmVerifiedEvents", () => {
   it("survives events that fail verification", async () => {
     const kaspa = new FakeKaspa(deployModel());
     const events = new EventStore();
-    events.register({ deployTxId: G_ID, covenantId: "aa", organizerAddress: "org" });
-    events.register({ deployTxId: "ff".repeat(TXID_BYTE_LENGTH), covenantId: "bb", organizerAddress: "org" });
+    await events.register({ deployTxId: G_ID, covenantId: "aa", organizerAddress: "org" });
+    await events.register({ deployTxId: "ff".repeat(TXID_BYTE_LENGTH), covenantId: "bb", organizerAddress: "org" });
     const verified = new VerifiedEventCache();
 
     await expect(

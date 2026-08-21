@@ -64,9 +64,9 @@ describe("EventStore", () => {
     expect(store.list()).toHaveLength(0);
   });
 
-  it("in-memory stores never touch the filesystem", () => {
+  it("in-memory stores never touch the filesystem", async () => {
     const store = new EventStore();
-    store.register({
+    await store.register({
       deployTxId: "bb".repeat(32),
       covenantId: "cc".repeat(32),
       organizerAddress: "kaspatest:qtest",
@@ -74,11 +74,11 @@ describe("EventStore", () => {
     expect(store.list()).toHaveLength(1);
   });
 
-  it("register() persists a new event to disk in the registry format", () => {
+  it("register() persists a new event to disk in the registry format", async () => {
     const idsPath = tempIdsPath();
     try {
       const store = new EventStore(idsPath);
-      store.register({
+      await store.register({
         deployTxId: "dd".repeat(32),
         covenantId: "ee".repeat(32),
         organizerAddress: "kaspatest:qpersist",

@@ -23,6 +23,17 @@ export interface StoredEvent {
   organizerAddress: string;
 }
 
+/**
+ * The registry contract every backend implements. Reads are synchronous —
+ * implementations mirror the rows in memory; only `register` is async.
+ */
+export interface EventRegistry {
+  register(event: StoredEvent): Promise<void>;
+  byCovenantId(covenantId: string): StoredEvent | undefined;
+  byDeployTxId(deployTxId: string): StoredEvent | undefined;
+  list(organizerAddress?: string): readonly StoredEvent[];
+}
+
 type IdsJSON = Record<string, unknown>[];
 
 function normalizeHex(s: string): string {
@@ -36,7 +47,7 @@ function requireString(value: unknown, label: string): string {
   return value;
 }
 
-export class EventStore {
+export class EventStore implements EventRegistry {
   readonly #idsPath?: string;
   #byCovenantId: Map<string, StoredEvent>;
   #byDeployTxId: Map<string, StoredEvent>;
@@ -89,7 +100,7 @@ export class EventStore {
     this.#byDeployTxId = new Map(eventsToPairs(this.#events, (e) => e.deployTxId));
   }
 
-  register(event: StoredEvent): void {
+  async register(event: StoredEvent): Promise<void> {
     const normalized = normalizeStoredEvent(event);
     const existing = this.#byCovenantId.get(normalized.covenantId);
     if (existing) {
@@ -136,7 +147,7 @@ function eventsToPairs(
   return events.map((e) => [key(e), e] as [string, StoredEvent]);
 }
 
-function normalizeStoredEvent(event: StoredEvent): StoredEvent {
+export function normalizeStoredEvent(event: StoredEvent): StoredEvent {
   return {
     covenantId: normalizeHex(event.covenantId),
     deployTxId: normalizeHex(event.deployTxId),

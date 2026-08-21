@@ -1,0 +1,99 @@
+// Turso-backed registry — the durable replacement for the events.json file
+// (whose disk is ephemeral on most cloud hosts). Same contract as EventStore
+// (see eventstore.ts): the chain stays the source of truth, this is only a
+// discovery pointer store, and every read re-verifies against the chain.
+//
+// Reads are served from an in-memory mirror loaded once at startup; only
+// `register` touches the database. The registry is tiny pointer data, so the
+// mirror never needs eviction.
+
+import type { Client } from "@libsql/client";
+import {
+  normalizeStoredEvent,
+  type EventRegistry,
+  type StoredEvent,
+} from "./eventstore.js";
+
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS events (
+    covenant_id       TEXT PRIMARY KEY,
+    deploy_txid       TEXT NOT NULL,
+    organizer_address TEXT NOT NULL
+  )
+`;
+
+export class TursoEventStore implements EventRegistry {
+  readonly #client: Client;
+  #byCovenantId: Map<string, StoredEvent> = new Map();
+  #byDeployTxId: Map<string, StoredEvent> = new Map();
+  #events: StoredEvent[] = [];
+
+  constructor(client: Client) {
+    this.#client = client;
+  }
+
+  /** Create the schema if missing and mirror existing rows into memory. */
+  async init(): Promise<void> {
+    await this.#client.execute(SCHEMA);
+    const result = await this.#client.execute(
+      "SELECT covenant_id, deploy_txid, organizer_address FROM events ORDER BY rowid",
+    );
+    for (const row of result.rows) {
+      this.#mirror({
+        covenantId: String(row.covenant_id),
+        deployTxId: String(row.deploy_txid),
+        organizerAddress: String(row.organizer_address),
+      });
+    }
+  }
+
+  /** Release the underlying connection (tests and shutdown). */
+  async close(): Promise<void> {
+    this.#client.close();
+  }
+
+  /**
+   * Upsert by covenant id — a re-register points the same covenant at a new
+   * deploy txid and drops the old txid mapping (same semantics as EventStore).
+   */
+  async register(event: StoredEvent): Promise<void> {
+    const normalized = normalizeStoredEvent(event);
+    await this.#client.execute({
+      sql: `INSERT INTO events (covenant_id, deploy_txid, organizer_address)
+            VALUES (?, ?, ?)
+            ON CONFLICT(covenant_id) DO UPDATE SET
+              deploy_txid = excluded.deploy_txid,
+              organizer_address = excluded.organizer_address`,
+      args: [normalized.covenantId, normalized.deployTxId, normalized.organizerAddress],
+    });
+    this.#mirror(normalized);
+  }
+
+  byCovenantId(covenantId: string): StoredEvent | undefined {
+    return this.#byCovenantId.get(covenantId.toLowerCase());
+  }
+
+  byDeployTxId(deployTxId: string): StoredEvent | undefined {
+    return this.#byDeployTxId.get(deployTxId.toLowerCase());
+  }
+
+  list(organizerAddress?: string): readonly StoredEvent[] {
+    if (!organizerAddress) return this.#events;
+    return this.#events.filter((e) => e.organizerAddress === organizerAddress);
+  }
+
+  /** Apply one row to the in-memory indexes (insert or re-point). */
+  #mirror(event: StoredEvent): void {
+    const existing = this.#byCovenantId.get(event.covenantId);
+    if (existing) {
+      this.#byDeployTxId.delete(existing.deployTxId);
+      existing.deployTxId = event.deployTxId;
+      existing.organizerAddress = event.organizerAddress;
+      this.#byDeployTxId.set(existing.deployTxId, existing);
+      return;
+    }
+    this.#events.push(event);
+    this.#byCovenantId.set(event.covenantId, event);
+    this.#byDeployTxId.set(event.deployTxId, event);
+  }
+}

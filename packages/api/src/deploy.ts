@@ -40,7 +40,7 @@ export interface DeployContext extends TxContext {
     deployTxId: string;
     covenantId: string;
     organizerAddress: string;
-  }) => void;
+  }) => Promise<void>;
 }
 
 export interface DeployPrepareRequest {
@@ -281,7 +281,7 @@ async function confirmAndRegister(
       ? invalidError(`deploy not confirmed on chain: ${lastErr.message}`)
       : invalidError("deploy not confirmed on chain");
   }
-  ctx.register({
+  await ctx.register({
     deployTxId: verified.deploy_txid,
     covenantId: verified.covenant_id,
     organizerAddress: verified.organizer_address,

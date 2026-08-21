@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createClient } from "@libsql/client";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { type ApiConfig, loadConfig } from "./config";
 import { registerErrorHandler } from "./error-handler";
-import { EventStore } from "./eventstore";
+import { EventStore, type EventRegistry } from "./eventstore";
+import { TursoEventStore } from "./eventstore-turso";
 import { KaspaClient } from "./kaspa-client";
 import { type AppContext, registerRoutes } from "./routes";
 import { VerifiedEventCache } from "./verified-cache";
@@ -16,6 +18,21 @@ export interface BuildOptions {
   warmup?: boolean;
   /** Absolute path to the built web SPA directory. Set to serve static files + SPA fallback. */
   serveStatic?: string;
+}
+
+/**
+ * The registry backend: Turso when configured (durable across deploys),
+ * otherwise the local file store for development.
+ */
+async function openEventRegistry(config: ApiConfig): Promise<EventRegistry> {
+  if (!config.turso) return new EventStore(config.eventsFilePath);
+  const client = createClient({
+    url: config.turso.url,
+    ...(config.turso.authToken ? { authToken: config.turso.authToken } : {}),
+  });
+  const store = new TursoEventStore(client);
+  await store.init();
+  return store;
 }
 
 export async function buildApp(
@@ -44,7 +61,7 @@ export async function buildApp(
     maxAttempts: config.upstream.maxAttempts,
   });
 
-  const events = deps?.events ?? new EventStore(config.eventsFilePath);
+  const events = deps?.events ?? (await openEventRegistry(config));
   const verified = deps?.verified ?? new VerifiedEventCache();
 
   const ctx: AppContext = {

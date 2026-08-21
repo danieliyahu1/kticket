@@ -10,6 +10,11 @@ export interface UpstreamConfig {
   maxAttempts: number;
 }
 
+export interface TursoConfig {
+  url: string;
+  authToken?: string;
+}
+
 export interface ApiConfig {
   port: number;
   host: string;
@@ -19,6 +24,8 @@ export interface ApiConfig {
   tls?: TlsConfig;
   upstream: UpstreamConfig;
   eventsFilePath: string;
+  /** Set when TURSO_DATABASE_URL is configured; otherwise the file store is used. */
+  turso?: TursoConfig;
 }
 
 export class ConfigError extends Error {
@@ -38,6 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const host = env.HOST?.trim() || DEFAULT_HOST;
 
   const tls = resolveTls(env);
+  const turso = resolveTurso(env);
 
   return {
     port,
@@ -51,6 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     },
     eventsFilePath: env.EVENTS_FILE?.trim() || DEFAULT_EVENTS_FILE,
     ...(tls ? { tls } : {}),
+    ...(turso ? { turso } : {}),
   };
 }
 
@@ -72,4 +81,21 @@ function resolveTls(env: NodeJS.ProcessEnv): TlsConfig | undefined {
   }
 
   return { keyFile, certFile };
+}
+
+/**
+ * The registry backend: TURSO_DATABASE_URL selects the durable Turso store,
+ * anything unset keeps the local file store. A token without a URL is a
+ * misconfiguration; a URL without a token is valid (local file: databases).
+ */
+function resolveTurso(env: NodeJS.ProcessEnv): TursoConfig | undefined {
+  const url = env.TURSO_DATABASE_URL?.trim();
+  const authToken = env.TURSO_AUTH_TOKEN?.trim();
+
+  if (!url && !authToken) return undefined;
+  if (!url) {
+    throw new ConfigError("TURSO_AUTH_TOKEN requires TURSO_DATABASE_URL");
+  }
+
+  return { url, ...(authToken ? { authToken } : {}) };
 }

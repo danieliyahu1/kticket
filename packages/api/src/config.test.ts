@@ -61,3 +61,28 @@ describe("loadConfig (TLS)", () => {
     expect(() => loadConfig({ TLS_CERT: "cert.pem" })).toThrow(ConfigError);
   });
 });
+
+describe("loadConfig (Turso registry)", () => {
+  it("keeps the file store when no Turso env vars are set", () => {
+    expect(loadConfig({}).turso).toBeUndefined();
+  });
+
+  it("resolves the database url without a token (local file: mode)", () => {
+    expect(loadConfig({ TURSO_DATABASE_URL: "file:registry.db" }).turso).toEqual({
+      url: "file:registry.db",
+    });
+  });
+
+  it("resolves url and auth token together", () => {
+    expect(
+      loadConfig({
+        TURSO_DATABASE_URL: "libsql://kticket.turso.io",
+        TURSO_AUTH_TOKEN: "tok",
+      }).turso,
+    ).toEqual({ url: "libsql://kticket.turso.io", authToken: "tok" });
+  });
+
+  it("rejects a token without a database url", () => {
+    expect(() => loadConfig({ TURSO_AUTH_TOKEN: "tok" })).toThrow(ConfigError);
+  });
+});

@@ -254,9 +254,9 @@ function seedChain(kaspa: FakeKaspa): void {
   ]);
 }
 
-function buildAppWith(kaspa: FakeKaspa) {
+async function buildAppWith(kaspa: FakeKaspa) {
   const events = new EventStore();
-  events.register({
+  await events.register({
     covenantId: TEST_COVENANT_ID,
     deployTxId: G_ID,
     organizerAddress: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
