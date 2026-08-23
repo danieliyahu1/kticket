@@ -122,22 +122,32 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   };
 
   app.post("/v1/events/deploy/prepare", async (req) => {
-    const result = await deployPrepare(req.body, deployCtx);
-    req.log.info(
-      { deploy_id: result.deploy_id, template_inputs: result.template.inputs.length },
-      "deploy prepare",
-    );
-    return result;
+    try {
+      const result = await deployPrepare(req.body, deployCtx);
+      req.log.info(
+        { deploy_id: result.deploy_id, template_inputs: result.template.inputs.length },
+        "deploy prepare",
+      );
+      return result;
+    } catch (err) {
+      req.log.error({ err }, "deploy prepare failed");
+      throw err;
+    }
   });
 
   app.post("/v1/events/deploy/finalize", async (req) => {
     logSignatureOutcome(req, "deploy finalize", req.body as FinalizeBody);
-    const result = await deployFinalize(req.body, deployCtx);
-    req.log.info(
-      { deploy_id: (req.body as { deploy_id?: unknown })?.deploy_id, covenant_id: result.covenant_id },
-      "deploy finalize",
-    );
-    return result;
+    try {
+      const result = await deployFinalize(req.body, deployCtx);
+      req.log.info(
+        { deploy_id: (req.body as { deploy_id?: unknown })?.deploy_id, covenant_id: result.covenant_id },
+        "deploy finalize",
+      );
+      return result;
+    } catch (err) {
+      req.log.error({ err }, "deploy finalize failed");
+      throw err;
+    }
   });
 
   app.post("/v1/events", async (req) => {

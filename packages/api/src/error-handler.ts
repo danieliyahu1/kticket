@@ -19,7 +19,7 @@ const NOT_FOUND_ENVELOPE: ErrorEnvelope = {
   },
 };
 
-function handleError(error: FastifyError, _request: FastifyRequest, reply: FastifyReply): void {
+function handleError(error: FastifyError, request: FastifyRequest, reply: FastifyReply): void {
   if (isApiError(error)) {
     reply.code(error.statusCode).send(toErrorEnvelope(error));
     return;
@@ -40,6 +40,7 @@ function handleError(error: FastifyError, _request: FastifyRequest, reply: Fasti
     return;
   }
 
+  request.log.error({ err: error }, "unhandled error");
   reply.code(HTTP_INTERNAL_SERVER_ERROR).send(INTERNAL_ENVELOPE);
 }
 

@@ -16,5 +16,4 @@ packages/api/vendor/kaspa-wasm/kaspa_bg.wasm.d.ts
 packages/api/vendor/kaspa-wasm/kaspa.d.ts
 packages/api/vendor/kaspa-wasm/LICENSE
 packages/api/vendor/kaspa-wasm/README.md
-packages/api/vendor/kaspa-wasm/package.json
 web-dev.log

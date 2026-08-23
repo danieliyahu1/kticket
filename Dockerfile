@@ -1,3 +1,13 @@
+# --- silverc: build the per-event covenant compiler (Rust) ---
+FROM rust:1-slim AS silverc
+
+WORKDIR /app
+
+COPY packages/kit/silverc packages/kit/silverc
+
+RUN cargo build --release --manifest-path packages/kit/silverc/Cargo.toml
+
+# --- node build ---
 FROM node:22-slim AS build
 
 WORKDIR /app
@@ -42,6 +52,13 @@ RUN npm ci --omit=dev
 
 COPY --from=build /app/packages/api/dist packages/api/dist
 COPY --from=build /app/packages/web/dist packages/web/dist
+
+# The per-event covenant compiler (kticket-silverc) and its .sil sources, plus
+# the vendored kaspa-wasm (loaded as CommonJS at runtime for signing templates).
+COPY --from=silverc /app/packages/kit/silverc/target/release/kticket-silverc \
+  packages/kit/silverc/target/release/kticket-silverc
+COPY --from=build /app/packages/kit/contracts packages/kit/contracts
+COPY --from=build /app/packages/api/vendor packages/api/vendor
 
 ENV WEB_DIST=packages/web/dist
 ENV NODE_ENV=production
