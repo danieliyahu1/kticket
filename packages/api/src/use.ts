@@ -37,7 +37,7 @@ import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { buildTransaction } from "./tx.js";
-import { isRecord, str } from "./validate.js";
+import { isRecord, str, testnetAddress } from "./validate.js";
 import type { WireTransaction, WireUtxo, WireUtxoMeta } from "./wire.js";
 
 export interface UseContext {
@@ -115,7 +115,7 @@ function parsePrepare(raw: unknown): UsePrepareRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
   return {
     publicKey: validatePublicKey(raw.publicKey),
-    address: str(raw.address, "address"),
+    address: testnetAddress(raw.address, "address"),
   };
 }
 

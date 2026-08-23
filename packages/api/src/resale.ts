@@ -36,7 +36,7 @@ import type { UtxoResponse } from "./kaspa-types.js";
 import type { ListingStore } from "./listings.js";
 import { verifyEventFromChain, type VerifiedEvent } from "./provenance.js";
 import { buildTransaction } from "./tx.js";
-import { isRecord, str, uint } from "./validate.js";
+import { isRecord, str, testnetAddress, uint } from "./validate.js";
 import type { WireTransaction, WireUtxo, WireUtxoMeta } from "./wire.js";
 
 export interface ResaleContext {
@@ -225,7 +225,7 @@ function parseHolderRequest(raw: unknown): { publicKey: string; address: string 
   if (!isRecord(raw)) throw invalidError("request body must be an object");
   return {
     publicKey: validatePublicKey(raw.publicKey),
-    address: str(raw.address, "address"),
+    address: testnetAddress(raw.address, "address"),
   };
 }
 

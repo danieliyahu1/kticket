@@ -44,3 +44,19 @@ export function uint(value: unknown, label: string): number {
   if (n < 0) throw invalidError(`${label} must be non-negative`);
   return n;
 }
+
+/** Every testnet-10 bech32 address carries the `kaspatest:` HRP (the only network). */
+const TESTNET_ADDRESS_PREFIX = "kaspatest:";
+
+/**
+ * A holder's funding address. Failing fast here (400) surfaces a clear message
+ * instead of letting the upstream REST API reject a mainnet/malformed address
+ * with a 422 that bubbles up as a 500.
+ */
+export function testnetAddress(value: unknown, label: string): string {
+  const s = str(value, label);
+  if (!s.startsWith(TESTNET_ADDRESS_PREFIX)) {
+    throw invalidError(`${label} must be a testnet (kaspatest:) address`);
+  }
+  return s;
+}
