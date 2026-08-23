@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { injectState } from "@kticket/kit";
 import type { KaspaClientLike } from "./kaspa-client.js";
@@ -12,6 +12,11 @@ import type {
 import { compileEventArtifact } from "./compiler.js";
 import { buildTransaction, type WireTransaction } from "./tx.js";
 import { toCompilerConstants } from "./wire.js";
+
+vi.mock("./compiler.js", async () => {
+  const { createCompilerMock } = await import("./test-artifacts.js");
+  return createCompilerMock();
+});
 
 const TXID_BYTE_LENGTH = 32;
 const EVENT_TXID = "aa".repeat(TXID_BYTE_LENGTH);

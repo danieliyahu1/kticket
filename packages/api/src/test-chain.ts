@@ -9,9 +9,8 @@ import {
   p2pkAddress,
   type UnsignedTransaction,
 } from "@kticket/kit";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { hexToBytes } from "@noble/hashes/utils.js";
 import { buildApp } from "./app";
-import { compileBurnArtifact, compileEventArtifact } from "./compiler";
 import { loadConfig } from "./config";
 import { EventStore } from "./eventstore";
 import { ListingStoreFile } from "./listings";
@@ -23,6 +22,7 @@ import type {
   TxModel,
   UtxoResponse,
 } from "./kaspa-types";
+import { cannedBurnTemplateHash, cannedEventArtifact } from "./test-artifacts";
 import { VerifiedEventCache } from "./verified-cache";
 
 export const TXID_BYTE_LENGTH = 32;
@@ -37,9 +37,7 @@ export const USED_TXID = "ee".repeat(TXID_BYTE_LENGTH);
 export const ORG_PKH_HEX = "01".repeat(TXID_BYTE_LENGTH);
 export const ORG_SPK_HEX = `20${ORG_PKH_HEX}ac`;
 export const AUTH_TXID_HEX = AUTH_TXID;
-export const BURN_TEMPLATE_HASH = bytesToHex(
-  Uint8Array.from(compileBurnArtifact(AUTH_TXID_HEX).template_hash),
-);
+export const BURN_TEMPLATE_HASH = cannedBurnTemplateHash;
 
 export const EVENT_NAME = "Testnet Rave";
 export const EVENT_DATE = "2026-12-31";
@@ -54,12 +52,7 @@ export const OWNER_UTXO_TXID = "dd".repeat(TXID_BYTE_LENGTH);
 export const TICKET_ID = `${B0_ID}:0`;
 
 export function eventArtifact() {
-  return compileEventArtifact({
-    authorizingTxId: AUTH_TXID_HEX,
-    price: EVENT_PRICE,
-    orgSpk: ORG_SPK_HEX,
-    burnTemplateHash: BURN_TEMPLATE_HASH,
-  });
+  return cannedEventArtifact;
 }
 
 function deployArgs() {

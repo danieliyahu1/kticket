@@ -32,6 +32,11 @@ vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
 }));
 
+vi.mock("./compiler.js", async () => {
+  const { createCompilerMock } = await import("./test-artifacts.js");
+  return createCompilerMock();
+});
+
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
 
 const mockedSubmit = vi.mocked(submitTransactionOverWrpc);

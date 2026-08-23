@@ -10,7 +10,7 @@ import {
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app";
-import { compileBurnArtifact, compileEventArtifact } from "./compiler";
+import { compileBurnArtifact, compileEventArtifact } from "./compiler.js";
 import { loadConfig } from "./config";
 import { EventStore, type StoredEvent } from "./eventstore";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_OK } from "./http-status.js";
@@ -20,6 +20,11 @@ import { VerifiedEventCache } from "./verified-cache";
 vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
 }));
+
+vi.mock("./compiler.js", async () => {
+  const { createCompilerMock } = await import("./test-artifacts.js");
+  return createCompilerMock();
+});
 
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
 

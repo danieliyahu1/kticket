@@ -7,12 +7,17 @@ import {
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-import { describe, expect, it } from "vitest";
-import { compileBurnArtifact, compileEventArtifact } from "./compiler";
+import { describe, expect, it, vi } from "vitest";
+import { compileBurnArtifact, compileEventArtifact } from "./compiler.js";
 import { eventAvailability } from "./events";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
 import { verifyEventFromChain } from "./provenance";
+
+vi.mock("./compiler.js", async () => {
+  const { createCompilerMock } = await import("./test-artifacts.js");
+  return createCompilerMock();
+});
 
 const TXID_BYTE_LENGTH = 32;
 const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(0x01);
@@ -233,6 +238,17 @@ describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
     const deploy = deployModel(CAPACITY);
     const kaspa = new FakeKaspa(deploy);
     const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
+
+    // Verification re-derives the artifact from on-chain facts: assert the
+    // compiler received the recovered constants (verify the input we send).
+    expect(vi.mocked(compileEventArtifact)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizingTxId: AUTH_TXID,
+        price: PRICE,
+        orgSpk: ORG_SPK_HEX,
+      }),
+    );
+
     expect(verified).toMatchObject({
       deploy_txid: G_ID,
       name: NAME,

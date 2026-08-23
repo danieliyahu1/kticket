@@ -13,9 +13,17 @@ vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
 }));
 
+vi.mock("./compiler.js", async () => {
+  const { createCompilerMock } = await import("./test-artifacts.js");
+  return createCompilerMock();
+});
+
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
+import { burnTemplateHashOf, compileEventArtifact } from "./compiler.js";
 
 const mockedSubmit = vi.mocked(submitTransactionOverWrpc);
+const mockedCompileEvent = vi.mocked(compileEventArtifact);
+const mockedBurnHash = vi.mocked(burnTemplateHashOf);
 
 const TXID_BYTE_LENGTH = 32;
 const SIGNATURE_SCRIPT_BYTE_LENGTH = 70;
@@ -182,6 +190,17 @@ describe("buildTransaction (KTK-28) — deploy", () => {
   it("builds a fee-aware deploy template from a wallet request", async () => {
     const kaspa = new FakeKaspa();
     const result = await buildTransaction(deployRequest(EVENT_CAPACITY), ctx(kaspa));
+
+    // The compiler is an external boundary: assert we send it the recovered
+    // constants, then derive the tx from the canned artifact it returns.
+    expect(mockedBurnHash).toHaveBeenCalledWith(EVENT_ID);
+    expect(mockedCompileEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizingTxId: EVENT_ID,
+        price: TICKET_PRICE,
+        orgSpk: ORG_SPK_HEX,
+      }),
+    );
 
     expect(result.template.version).toBe(1);
     expect(result.template.outputs).toHaveLength(2); // event covenant + change

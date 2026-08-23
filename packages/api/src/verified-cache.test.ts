@@ -1,10 +1,15 @@
 import { buildDeploy } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-import { describe, expect, it } from "vitest";
-import { compileBurnArtifact, compileEventArtifact } from "./compiler";
+import { describe, expect, it, vi } from "vitest";
+import { compileBurnArtifact, compileEventArtifact } from "./compiler.js";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
 import { VerifiedEventCache } from "./verified-cache";
+
+vi.mock("./compiler.js", async () => {
+  const { createCompilerMock } = await import("./test-artifacts.js");
+  return createCompilerMock();
+});
 
 const TXID_BYTE_LENGTH = 32;
 const ORG_PKH = new Uint8Array(TXID_BYTE_LENGTH).fill(0x01);
