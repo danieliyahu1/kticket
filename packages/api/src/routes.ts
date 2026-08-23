@@ -340,16 +340,23 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     "/v1/events/:covenantId/buy/finalize",
     async (req) => {
       logSignatureOutcome(req, "buy finalize", req.body as FinalizeBody);
-      const result = await buyFinalize(req.body, buyCtx);
-      req.log.info(
-        {
-          buy_id: (req.body as { buy_id?: unknown })?.buy_id,
-          covenant_id: req.params.covenantId,
-          txid: result.txid,
-        },
-        "buy finalize",
-      );
-      return result;
+      try {
+        const result = await buyFinalize(req.body, buyCtx);
+        req.log.info(
+          {
+            buy_id: (req.body as { buy_id?: unknown })?.buy_id,
+            covenant_id: req.params.covenantId,
+            txid: result.txid,
+          },
+          "buy finalize",
+        );
+        return result;
+      } catch (err) {
+        if (isApiError(err)) {
+          req.log.error({ detail: err.detail }, "buy finalize failed");
+        }
+        throw err;
+      }
     },
   );
 

@@ -163,12 +163,21 @@ async function buyBuild(
 
 function eventRedeemPush(
   artifact: ReturnType<typeof compileEventArtifact>,
-  req: { event_owner: string },
+  req: { event_owner: string; remaining: number },
 ): Uint8Array {
   // P2SH reveal for the spent event covenant input: the wallet must provide the
   // full redeem script (bytecode with the current event state injected) so the
-  // node can execute the covenant check.
-  return ticketRedeem(artifact, req.event_owner, 0);
+  // node can execute the covenant check. The event covenant's live state carries
+  // `amount = remaining` (not a ticket's `amount = 1`), so the reveal must match
+  // that state or the P2SH commitment will not reproduce (KTK buy).
+  return injectState(artifact, {
+    owner: hexToBytes(req.event_owner),
+    identifierType: 0,
+    amount: req.remaining,
+    isMinter: false,
+    used: false,
+    salePrice: 0,
+  });
 }
 
 function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild {

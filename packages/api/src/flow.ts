@@ -42,7 +42,7 @@ export function mergeSignatures(template: WireTransaction, signed: unknown): Wir
   };
 }
 
-const CONFIRM_MAX_ATTEMPTS = 5;
+const CONFIRM_MAX_ATTEMPTS = 9;
 const CONFIRM_BASE_DELAY_MS = 1_000;
 const CONFIRM_MAX_DELAY_MS = 16_000;
 

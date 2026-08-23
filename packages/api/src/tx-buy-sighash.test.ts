@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { injectState } from "@kticket/kit";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type {
   FeeEstimateResponse,
@@ -7,7 +9,9 @@ import type {
   TxMass,
   TxModel,
 } from "./kaspa-types.js";
+import { compileEventArtifact } from "./compiler.js";
 import { buildTransaction, type WireTransaction } from "./tx.js";
+import { toCompilerConstants } from "./wire.js";
 
 const TXID_BYTE_LENGTH = 32;
 const EVENT_TXID = "aa".repeat(TXID_BYTE_LENGTH);
@@ -175,5 +179,45 @@ describe("sighash integrity — signing template vs broadcast template", () => {
     expect(signingJson.gas).toBe("0");
     expect(signingJson.lockTime).toBe("0");
     expect(signingJson.payload).toBe("");
+  });
+});
+
+describe("buy covenant reveal (KTK buy)", () => {
+  it("reveals the event covenant redeem script with the live `remaining` amount", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTx();
+
+    const request = buyRequest();
+    const result = await buildTransaction(
+      { ...request, input_utxo_metas: [BUYER_META] },
+      { kaspa, networkId: "testnet-10" },
+    );
+
+    // The event covenant UTXO (input 0) is spent via a P2SH reveal whose redeem
+    // script carries the covenant's *current* state. The live amount is the
+    // event's `remaining` — NOT a ticket's `amount: 1`. A wrong amount changes
+    // the redeem script bytes and therefore the P2SH commitment, so the node
+    // rejects the mint ("false stack entry at end of script execution").
+    const artifact = compileEventArtifact(toCompilerConstants(CONSTANTS));
+    const redeemRemaining = injectState(artifact, {
+      owner: hexToBytes(request.event_owner),
+      identifierType: 0,
+      amount: request.remaining,
+      isMinter: false,
+      used: false,
+      salePrice: 0,
+    });
+    const redeemOne = injectState(artifact, {
+      owner: hexToBytes(request.event_owner),
+      identifierType: 0,
+      amount: 1,
+      isMinter: false,
+      used: false,
+      salePrice: 0,
+    });
+
+    const sigHex = result.template.inputs[0]!.signature_script.toLowerCase();
+    expect(sigHex).toContain(bytesToHex(redeemRemaining));
+    expect(sigHex).not.toContain(bytesToHex(redeemOne));
   });
 });
