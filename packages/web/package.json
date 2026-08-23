@@ -5,9 +5,7 @@
   "type": "module",
   "description": "kticket Web SPA — React + Vite.",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "preview": "vite preview"
+    "build": "tsc -p tsconfig.json --noEmit && vite build"
   },
   "dependencies": {
     "@kticket/kit": "*",
