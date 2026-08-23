@@ -1,6 +1,7 @@
 import { buyFinalize, buyPrepare, ServerError } from "./client";
 import type { BuyPrepareResult } from "./client";
 import { signTemplate } from "../lib/signing";
+import { devError, devLog } from "../lib/log";
 
 export type BuyState =
   | { phase: "idle" }
@@ -24,11 +25,11 @@ function errorMsg(err: unknown): string {
 }
 
 function logError(context: string, err: unknown): void {
-  console.error(`[buy:${context}]`, err);
+  devError(`[buy:${context}]`, err);
 }
 
 function logStep(step: string, detail?: unknown): void {
-  console.log(`[buy:${step}]`, detail ?? "");
+  devLog(`[buy:${step}]`, detail ?? "");
 }
 
 /**
@@ -66,7 +67,7 @@ export async function executeBuy(
   setState({ phase: "building" });
 
   try {
-    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
+    const signed = await signTemplate(prepared.signing_template);
     setState({ phase: "broadcasting" });
     const result = await buyFinalize(params.covenantId, {
       buy_id: prepared.buy_id,

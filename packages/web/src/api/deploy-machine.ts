@@ -1,6 +1,7 @@
 import { deployFinalize, deployPrepare, ServerError } from "./client";
 import type { DeployPrepareRequest } from "./types";
 import { signTemplate } from "../lib/signing";
+import { devError, devLog } from "../lib/log";
 
 export type DeployState =
   | { phase: "idle" }
@@ -28,11 +29,11 @@ function errorMsg(err: unknown): string {
 }
 
 function logError(context: string, err: unknown): void {
-  console.error(`[deploy:${context}]`, err);
+  devError(`[deploy:${context}]`, err);
 }
 
 function logStep(step: string, detail?: unknown): void {
-  console.log(`[deploy:${step}]`, detail ?? "");
+  devLog(`[deploy:${step}]`, detail ?? "");
 }
 
 /**

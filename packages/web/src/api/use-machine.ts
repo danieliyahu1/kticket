@@ -2,6 +2,7 @@ import { encodeUsePayload } from "@kticket/kit";
 import type { WireTransaction } from "./types";
 import { ServerError, usePrepare, type UsePrepareResult } from "./client";
 import { signTemplate } from "../lib/signing";
+import { devError, devLog } from "../lib/log";
 
 export type CheckInState =
   | { phase: "idle" }
@@ -30,11 +31,11 @@ function errorMsg(err: unknown): string {
 }
 
 function logError(context: string, err: unknown): void {
-  console.error(`[check-in:${context}]`, err);
+  devError(`[check-in:${context}]`, err);
 }
 
 function logStep(step: string, detail?: unknown): void {
-  console.log(`[check-in:${step}]`, detail ?? "");
+  devLog(`[check-in:${step}]`, detail ?? "");
 }
 
 /**
@@ -77,7 +78,7 @@ export async function signCheckIn(
 ): Promise<PendingUse | undefined> {
   setState({ phase: "signing" });
   try {
-    const owner_signed = await signTemplate(prepared.signing_template, prepared.sign_inputs_owner);
+    const owner_signed = await signTemplate(prepared.signing_template);
     const pending: PendingUse = {
       use_id: prepared.use_id,
       template: prepared.template,

@@ -8,6 +8,7 @@ import {
   ServerError,
 } from "./client";
 import { signTemplate } from "../lib/signing";
+import { devError } from "../lib/log";
 
 /** One shared lifecycle for every resale flow: sell / cancel sale / buy resale. */
 export type ResaleState =
@@ -32,7 +33,7 @@ function errorMsg(err: unknown): string {
 }
 
 function logError(context: string, err: unknown): void {
-  console.error(`[resale:${context}]`, err);
+  devError(`[resale:${context}]`, err);
 }
 
 /**
@@ -61,7 +62,7 @@ export async function executeList(
 
   try {
     setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
+    const signed = await signTemplate(prepared.signing_template);
     setState({ phase: "broadcasting" });
     const result = await listFinalize(params.ticketId, {
       template: prepared.template,
@@ -96,7 +97,7 @@ export async function executeDelist(
 
   try {
     setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
+    const signed = await signTemplate(prepared.signing_template);
     setState({ phase: "broadcasting" });
     const result = await delistFinalize(params.ticketId, {
       template: prepared.template,
@@ -134,7 +135,7 @@ export async function executePurchase(
 
   try {
     setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
+    const signed = await signTemplate(prepared.signing_template);
     setState({ phase: "broadcasting" });
     const result = await purchaseFinalize(params.ticketId, {
       template: prepared.template,

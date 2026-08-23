@@ -114,14 +114,14 @@ describe("isForEvent (KTK-131)", () => {
 });
 
 describe("coSignAndFinalize (KTK-131)", () => {
-  it("co-signs only input 0 and relays both signatures via finalize", async () => {
+  it("co-signs the rebuilt template and relays both signatures via finalize", async () => {
     vi.mocked(useSignTemplate).mockResolvedValue({ signing_template: "{}" });
     vi.mocked(signTemplate).mockResolvedValue({ inputs: [{ index: 0, signatureScript: "41aa" }] });
     vi.mocked(useFinalize).mockResolvedValue({ txid: "dd".repeat(32) });
 
     const result = await coSignAndFinalize(payload);
 
-    expect(signTemplate).toHaveBeenCalledWith("{}", [{ index: 0 }]);
+    expect(signTemplate).toHaveBeenCalledWith("{}");
     expect(useFinalize).toHaveBeenCalledWith(`${TICKET_TXID}:0`, {
       use_id: payload.use_id,
       template: payload.template,
