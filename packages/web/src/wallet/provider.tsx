@@ -22,6 +22,14 @@ function getKastle(): KastleProvider | undefined {
   return window.kastle;
 }
 
+/** The bech32 HRP every testnet-10 address carries (the only supported network). */
+const TESTNET_ADDRESS_PREFIX = "kaspatest:";
+
+/** True when a wallet account address belongs to the network this app runs on. */
+function addressMatchesNetwork(address: string): boolean {
+  return address.startsWith(TESTNET_ADDRESS_PREFIX);
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), ms);
@@ -48,13 +56,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Network is advisory; don't block connection on it.
       }
-      accountRef.current = next;
-      if (walletNetwork !== null && walletNetwork !== network.networkId) {
-        setState({ status: "wrong-network", ...next });
-      } else {
-        setState({ status: "connected", ...next });
-      }
-      return true;
+    accountRef.current = next;
+    if (walletNetwork !== null && walletNetwork !== network.networkId) {
+      setState({ status: "wrong-network", ...next });
+    } else {
+      // The wallet may report the right network but hand back an address for a
+      // different one (e.g. a stale mainnet `kaspa:` address). Flag it for the
+      // UI but do not block — the user decides whether to proceed.
+      setState({ status: "connected", ...next, networkMismatch: !addressMatchesNetwork(account.address) });
+    }
+    return true;
     } catch {
       return false;
     }

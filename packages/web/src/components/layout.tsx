@@ -1,8 +1,12 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { network } from "../network";
+import { useWallet } from "../hooks/use-wallet";
 import { HeaderActions } from "./header-actions";
 
 export function Layout() {
+  const { state } = useWallet();
+  const networkMismatch = state.status === "connected" && state.networkMismatch;
+
   return (
     <div className="app">
       <header className="app-header">
@@ -27,6 +31,12 @@ export function Layout() {
           </NavLink>
         </nav>
       </header>
+      {networkMismatch && (
+        <div className="network-warning" role="status">
+          Your wallet&apos;s address is for a different network. kticket runs on{" "}
+          {network.label} — selling and checking in may fail.
+        </div>
+      )}
       <main className="app-main">
         <Outlet />
       </main>

@@ -34,7 +34,7 @@ export type WalletState =
   | { status: "not-installed" }
   | { status: "disconnected" }
   | { status: "connecting" }
-  | { status: "connected"; accounts: string[]; publicKey: string }
+  | { status: "connected"; accounts: string[]; publicKey: string; networkMismatch?: boolean }
   | { status: "wrong-network"; accounts: string[]; publicKey: string };
 
 declare global {
