@@ -325,7 +325,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
         assembleDelistSigScript(
           eventArtifact(),
           hexToBytes(`41${"aa".repeat(65)}`).slice(1),
-          redeemState("02".repeat(32), 0),
+          redeemState("02".repeat(32), LIST_PRICE),
         ),
       );
       expect(broadcastArg.inputs[0]?.signature_script).toBe(expected);

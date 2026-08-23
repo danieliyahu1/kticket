@@ -484,6 +484,13 @@ export async function delistFinalize(
   const verified = await verifiedTicketEvent(txid, index, ctx);
   const owner = ownerFromChangeOutput(req.template);
 
+  // The ticket being spent is the LISTED coin, so the reveal must carry the
+  // listing's asking price — the listed P2SH address commits to it. Revealing
+  // the unlisted (sale_price 0) state instead would hash to a different P2SH
+  // and the node rejects the spend.
+  const stored = ctx.listings.get(verified.covenant_id, `${txid}:${index}`);
+  if (!stored) throw policyError("this ticket is not listed for resale");
+
   const sigs = walletSignatures(req.signed);
   const holderSig = signatureFor(sigs, txid, index, "holder");
 
@@ -493,7 +500,7 @@ export async function delistFinalize(
     amount: 1,
     isMinter: false,
     used: false,
-    salePrice: 0,
+    salePrice: stored.price,
   });
   const sigScript = bytesToHex(assembleDelistSigScript(verified.artifact, holderSig, redeem));
   const merged = mergeKeepingInputZero(req.template, sigs, sigScript);
