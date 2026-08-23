@@ -31,9 +31,10 @@ import {
   type KaspaNetwork,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { buyFinalize, buyPrepare } from "./buy.js";
 import { invalidError, isApiError, notFoundError } from "./errors.js";
+import { describeWalletSignatures } from "./flow.js";
 import { deployFinalize, deployPrepare } from "./deploy.js";
 import type { EventRegistry, StoredEvent } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
@@ -55,6 +56,31 @@ import { usePrepare } from "./use.js";
 import { useFinalize, useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
+import type { WireTransaction } from "./wire.js";
+
+/** The wallet-relay fields every finalize body carries. */
+interface FinalizeBody {
+  template?: WireTransaction;
+  signed?: unknown;
+  owner_signed?: unknown;
+  gate_signed?: unknown;
+}
+
+/**
+ * Structured log of what each finalize's wallet payload actually covered,
+ * before merge/broadcast — the server-side counterpart of the (dev-only)
+ * client signing diagnostics. Positions only, all public chain data.
+ */
+function logSignatureOutcome(
+  req: FastifyRequest,
+  flow: string,
+  body: FinalizeBody,
+  ...payloads: unknown[]
+): void {
+  if (!body.template) return;
+  const rest = payloads.length > 0 ? payloads : [body.signed];
+  req.log.info(describeWalletSignatures(flow, body.template, ...rest), "wallet signatures");
+}
 
 export interface AppContext {
   kaspa: KaspaClientLike;
@@ -105,6 +131,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.post("/v1/events/deploy/finalize", async (req) => {
+    logSignatureOutcome(req, "deploy finalize", req.body as FinalizeBody);
     const result = await deployFinalize(req.body, deployCtx);
     req.log.info(
       { deploy_id: (req.body as { deploy_id?: unknown })?.deploy_id, covenant_id: result.covenant_id },
@@ -270,6 +297,8 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/use/finalize",
     async (req) => {
+      const body = req.body as FinalizeBody;
+      logSignatureOutcome(req, "use finalize", body, body.owner_signed, body.gate_signed);
       const result = await useFinalize(req.params.ticketId, req.body, useCtx);
       req.log.info(
         {
@@ -310,6 +339,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { covenantId: string } }>(
     "/v1/events/:covenantId/buy/finalize",
     async (req) => {
+      logSignatureOutcome(req, "buy finalize", req.body as FinalizeBody);
       const result = await buyFinalize(req.body, buyCtx);
       req.log.info(
         {
@@ -358,6 +388,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/list/finalize",
     async (req) => {
+      logSignatureOutcome(req, "list finalize", req.body as FinalizeBody);
       const result = await listFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
       req.log.info({ ticket_id: req.params.ticketId, txid: result.txid }, "list finalize");
       return result;
@@ -379,6 +410,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/delist/finalize",
     async (req) => {
+      logSignatureOutcome(req, "delist finalize", req.body as FinalizeBody);
       const result = await delistFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
       req.log.info({ ticket_id: req.params.ticketId, txid: result.txid }, "delist finalize");
       return result;
@@ -404,6 +436,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/purchase/finalize",
     async (req) => {
+      logSignatureOutcome(req, "purchase finalize", req.body as FinalizeBody);
       const result = await purchaseFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
       req.log.info({ ticket_id: req.params.ticketId, txid: result.txid }, "purchase finalize");
       return result;

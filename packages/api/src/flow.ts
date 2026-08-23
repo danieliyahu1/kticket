@@ -47,6 +47,65 @@ const CONFIRM_BASE_DELAY_MS = 1_000;
 const CONFIRM_MAX_DELAY_MS = 16_000;
 
 /**
+ * Operator-side diagnostics for wallet-signing regressions (e.g. Kastle
+ * declining to co-sign covenant inputs): for each wallet payload received at
+ * finalize, which template input positions it covered and which it left
+ * unsigned. Positions only — everything here is derivable from public chain
+ * data, so it belongs in server logs rather than the browser console.
+ */
+export function describeWalletSignatures(
+  flow: string,
+  template: WireTransaction,
+  ...payloads: unknown[]
+): { flow: string; inputs: number; wallets: { signed: number[]; missing: number[] }[] } {
+  return {
+    flow,
+    inputs: template.inputs.length,
+    wallets: payloads.map((payload) => {
+      const signed = walletSignedPositions(template, payload);
+      return {
+        signed,
+        missing: template.inputs.map((_, i) => i).filter((i) => !signed.includes(i)),
+      };
+    }),
+  };
+}
+
+function walletSignedPositions(template: WireTransaction, signed: unknown): number[] {
+  let parsed: unknown = signed;
+  if (typeof signed === "string") {
+    try {
+      parsed = JSON.parse(signed);
+    } catch {
+      return [];
+    }
+  }
+  const entries =
+    typeof parsed === "object" &&
+    parsed !== null &&
+    Array.isArray((parsed as { inputs?: unknown }).inputs)
+      ? (parsed as { inputs: unknown[] }).inputs
+      : [];
+  const hasSignature = new Map<string, boolean>();
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const rec = entry as { transactionId?: unknown; index?: unknown; signatureScript?: unknown };
+    if (typeof rec.transactionId !== "string") continue;
+    hasSignature.set(
+      `${rec.transactionId.toLowerCase()}:${String(rec.index ?? "")}`,
+      typeof rec.signatureScript === "string" && rec.signatureScript.length > 0,
+    );
+  }
+  return template.inputs.flatMap((input, i) =>
+    hasSignature.get(
+      `${input.previous_outpoint.transaction_id.toLowerCase()}:${input.previous_outpoint.index}`,
+    )
+      ? [i]
+      : [],
+  );
+}
+
+/**
  * Wait until a broadcast tx is accepted on chain (visible via `getTransaction`).
  * The timing (doubling backoff) is owned by `pollUntil`; this flow owns the
  * "visible is enough" policy. Throws `invalid` if it never appears.
