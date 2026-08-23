@@ -62,7 +62,7 @@ export async function executeList(
 
   try {
     setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template);
+    const signed = await signTemplate(prepared.signing_template, [{ inputIndex: 0 }]);
     setState({ phase: "broadcasting" });
     const result = await listFinalize(params.ticketId, {
       template: prepared.template,
@@ -97,7 +97,7 @@ export async function executeDelist(
 
   try {
     setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template);
+    const signed = await signTemplate(prepared.signing_template, [{ inputIndex: 0 }]);
     setState({ phase: "broadcasting" });
     const result = await delistFinalize(params.ticketId, {
       template: prepared.template,

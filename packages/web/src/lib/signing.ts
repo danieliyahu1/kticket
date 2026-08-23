@@ -1,24 +1,22 @@
 import { devError, devLog, devWarn } from "./log";
 import { network } from "../network";
+import type { KastleSignScript } from "../wallet/types";
 
 /**
  * Ask the wallet to sign a signing template. Signing stays in the frontend —
  * the wallet owns the keys.
  *
  * Kastle's `signTx` signs the template (kaspa-wasm safe-JSON built by the
- * backend) without broadcasting: inputs owned by the connected account are
- * signed with SIGHASH_ALL, already-signed inputs are left untouched. Finalize
- * matches signatures by outpoint on the backend.
- *
- * We assume Kastle also signs script/covenant-locked inputs (KasWare force-
- * signed them via explicit input lists; resale list/delist, check-in QR and
- * gate co-sign depend on it). Dev builds log which inputs carry a script lock
- * and which came back signed; the authoritative per-input outcome is logged
- * server-side at finalize (`describeWalletSignatures` in the API), where it
- * belongs — production clients log nothing here.
+ * backend) without broadcasting: P2PK inputs owned by the connected account
+ * are signed with SIGHASH_ALL automatically. Covenant/P2SH inputs are NOT
+ * auto-signed (Kastle can't map their script to the account key), so the
+ * caller must name them via `scripts` — `[{ inputIndex: 0 }]` for the ticket
+ * covenant input every resale/check-in flow spends. Finalize matches
+ * signatures by outpoint on the backend.
  */
 export async function signTemplate(
   signingTemplate: string | null | undefined,
+  scripts?: KastleSignScript[],
 ): Promise<unknown> {
   const kastle = window.kastle;
   if (!(kastle && typeof kastle.signTx === "function")) {
@@ -31,7 +29,7 @@ export async function signTemplate(
   devLog(`[kastle:sign] network=${network.networkId} inputs=[${kinds(requested)}]`);
   let result: unknown;
   try {
-    result = await kastle.signTx(network.networkId, signingTemplate);
+    result = await kastle.signTx(network.networkId, signingTemplate, scripts);
   } catch (err) {
     devError(
       "[kastle:sign] wallet rejected the signing request:",

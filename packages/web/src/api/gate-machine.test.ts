@@ -121,7 +121,7 @@ describe("coSignAndFinalize (KTK-131)", () => {
 
     const result = await coSignAndFinalize(payload);
 
-    expect(signTemplate).toHaveBeenCalledWith("{}");
+    expect(signTemplate).toHaveBeenCalledWith("{}", [{ inputIndex: 0 }]);
     expect(useFinalize).toHaveBeenCalledWith(`${TICKET_TXID}:0`, {
       use_id: payload.use_id,
       template: payload.template,

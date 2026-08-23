@@ -59,7 +59,13 @@ describe("signTemplate — Kastle signTx adapter", () => {
   it("passes the expected network id and template to signTx", async () => {
     const signTx = stubWallet(signedResult([]));
     await signTemplate(TEMPLATE);
-    expect(signTx).toHaveBeenCalledWith("testnet-10", TEMPLATE);
+    expect(signTx).toHaveBeenCalledWith("testnet-10", TEMPLATE, undefined);
+  });
+
+  it("forwards per-input script overrides to signTx", async () => {
+    const signTx = stubWallet(signedResult([]));
+    await signTemplate(TEMPLATE, [{ inputIndex: 0 }]);
+    expect(signTx).toHaveBeenCalledWith("testnet-10", TEMPLATE, [{ inputIndex: 0 }]);
   });
 
   it("returns whatever the wallet signed", async () => {

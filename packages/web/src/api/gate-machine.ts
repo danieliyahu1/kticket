@@ -122,7 +122,7 @@ export async function coSignAndFinalize(
 ): Promise<{ txid: string }> {
   const ticket = ticketIdOf(payload.template as WireTransaction);
   const { signing_template } = await useSignTemplate(ticket, payload.template as WireTransaction);
-  const gate_signed = await signTemplate(signing_template);
+  const gate_signed = await signTemplate(signing_template, [{ inputIndex: 0 }]);
   return useFinalize(ticket, {
     use_id: payload.use_id,
     template: payload.template as WireTransaction,

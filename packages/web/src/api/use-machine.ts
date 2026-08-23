@@ -78,7 +78,7 @@ export async function signCheckIn(
 ): Promise<PendingUse | undefined> {
   setState({ phase: "signing" });
   try {
-    const owner_signed = await signTemplate(prepared.signing_template);
+    const owner_signed = await signTemplate(prepared.signing_template, [{ inputIndex: 0 }]);
     const pending: PendingUse = {
       use_id: prepared.use_id,
       template: prepared.template,
