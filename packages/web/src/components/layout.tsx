@@ -17,11 +17,11 @@ export function Layout() {
           <HeaderActions />
         </div>
         <nav className="app-nav">
-          <NavLink to="/marketplace" className="app-nav-link">
-            Marketplace
-          </NavLink>
           <NavLink to="/" className="app-nav-link" end>
             Events
+          </NavLink>
+          <NavLink to="/marketplace" className="app-nav-link">
+            Marketplace
           </NavLink>
           <NavLink to="/tickets" className="app-nav-link">
             My tickets
