@@ -258,6 +258,11 @@ export function fetchEventListings(covenantId: string): Promise<ListingSummary[]
   return apiGet<ListingSummary[]>(`/v1/events/${encodeURIComponent(covenantId)}/listings`);
 }
 
+/** Every live listing across all events — the marketplace directory. */
+export function fetchAllListings(): Promise<ListingSummary[]> {
+  return apiGet<ListingSummary[]>("/v1/listings");
+}
+
 export interface ListPrepareResult {
   list_id: string;
   signing_template: string;

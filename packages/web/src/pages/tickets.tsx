@@ -148,7 +148,7 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
             className="button button-secondary button-sm ticket-checkin"
             onClick={handleCancelSale}
           >
-            Cancel sale
+            Cancel resale
           </button>
         )}
 
