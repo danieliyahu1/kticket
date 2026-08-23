@@ -174,6 +174,7 @@ export function eventScript(
     amount: state.amount,
     isMinter: false,
     used: false,
+    salePrice: 0,
   });
   return p2shScript(redeem);
 }

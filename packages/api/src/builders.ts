@@ -8,10 +8,14 @@
 // event's constants before assembling the transaction.
 
 import {
+  assemblePurchaseSigScript,
   buildBuy,
+  buildDelist,
   buildDeploy,
   buildHandover,
+  buildList,
   buildMarkUsed,
+  buildPurchase,
   injectState,
   pushData,
   type UnsignedTransaction,
@@ -159,18 +163,12 @@ async function buyBuild(
 
 function eventRedeemPush(
   artifact: ReturnType<typeof compileEventArtifact>,
-  req: { event_owner: string; remaining: number },
+  req: { event_owner: string },
 ): Uint8Array {
   // P2SH reveal for the spent event covenant input: the wallet must provide the
   // full redeem script (bytecode with the current event state injected) so the
   // node can execute the covenant check.
-  return injectState(artifact, {
-    owner: hexToBytes(req.event_owner),
-    identifierType: 0,
-    amount: req.remaining,
-    isMinter: false,
-    used: false,
-  });
+  return ticketRedeem(artifact, req.event_owner, 0);
 }
 
 function handoverBuild(req: BuildRequest & { type: "handover" }): PreparedBuild {
@@ -202,25 +200,13 @@ async function markUsedBuild(
 
   // The ticket covenant UTXO (input index 0) — the wallet needs its full
   // prev-output metadata (script, amount, daa, covenant id) to co-sign it.
-  const ticketTx = await kaspa.getTransaction(req.ticket_outpoint.transaction_id);
-  const ticketOutput = ticketTx?.outputs[req.ticket_outpoint.index];
-  const ticketMeta: WireUtxoMeta = {
-    transaction_id: req.ticket_outpoint.transaction_id,
-    index: req.ticket_outpoint.index,
-    value: ticketOutput?.amount ?? 0,
-    script_public_key: ticketOutput?.script_public_key
-      ? { version: 0, script: ticketOutput.script_public_key }
-      : { version: 0, script: "" },
-    block_daa_score: ticketTx?.accepting_block_blue_score ?? 0,
-    is_coinbase: false,
-    covenant_id: req.event_covenant_id,
-  };
+  const { meta: ticketMeta, value } = await ticketInputMeta(req, kaspa);
 
   const ownerMetas = req.input_utxo_metas ?? req.owner_utxos.map((u) => utxoMetaOf(u));
   const metas = [ticketMeta, ...ownerMetas];
 
   return {
-    inputTotal: ticketMeta.value + req.owner_utxos.reduce((a, u) => a + u.value, 0),
+    inputTotal: value + req.owner_utxos.reduce((a, u) => a + u.value, 0),
     payouts: [],
     inputUtxoMetas: metas,
     build: (fee) => ({
@@ -239,6 +225,143 @@ async function markUsedBuild(
   };
 }
 
+/**
+ * Shared prep for the resale builds (list / delist / purchase): the ticket
+ * covenant UTXO is input 0, and the wallet needs its full prev-output metadata
+ * (script, amount, daa, covenant id) to sign.
+ */
+async function ticketInputMeta(
+  req: { ticket_outpoint: { transaction_id: string; index: number }; event_covenant_id: string },
+  kaspa: KaspaClientLike,
+): Promise<{ meta: WireUtxoMeta; value: number }> {
+  const ticketTx = await kaspa.getTransaction(req.ticket_outpoint.transaction_id);
+  const ticketOutput = ticketTx?.outputs[req.ticket_outpoint.index];
+  const meta: WireUtxoMeta = {
+    transaction_id: req.ticket_outpoint.transaction_id,
+    index: req.ticket_outpoint.index,
+    value: ticketOutput?.amount ?? 0,
+    script_public_key: ticketOutput?.script_public_key
+      ? { version: 0, script: ticketOutput.script_public_key }
+      : { version: 0, script: "" },
+    block_daa_score: ticketTx?.accepting_block_blue_score ?? 0,
+    is_coinbase: false,
+    covenant_id: req.event_covenant_id,
+  };
+  return { meta, value: meta.value };
+}
+
+/** The redeem reveal for a ticket in the given state (the spend's P2SH witness). */
+function ticketRedeem(
+  artifact: ReturnType<typeof compileEventArtifact>,
+  owner: string,
+  salePrice: number,
+): Uint8Array {
+  return injectState(artifact, {
+    owner: hexToBytes(owner),
+    identifierType: 0,
+    amount: 1,
+    isMinter: false,
+    used: false,
+    salePrice,
+  });
+}
+
+async function listBuild(
+  req: BuildRequest & { type: "list" },
+  kaspa: KaspaClientLike,
+): Promise<PreparedBuild> {
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const { meta, value } = await ticketInputMeta(req, kaspa);
+  const holderMetas = req.input_utxo_metas ?? req.owner_utxos.map((u) => utxoMetaOf(u));
+
+  return {
+    inputTotal: value + req.owner_utxos.reduce((a, u) => a + u.value, 0),
+    payouts: [],
+    inputUtxoMetas: [meta, ...holderMetas],
+    build: (fee) => ({
+      tx: buildList({
+        ticketOutpoint: toOutpoint(req.ticket_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        eventArtifact,
+        owner: hexToBytes(req.owner),
+        used: false,
+        price: req.price,
+        holderUtxos: req.owner_utxos.map((u) => toOutpoint(u)),
+        holderUtxoValues: req.owner_utxos.map((u) => u.value),
+        changeScript: toSpk(req.change_spk),
+        fee,
+      }),
+    }),
+  };
+}
+
+async function delistBuild(
+  req: BuildRequest & { type: "delist" },
+  kaspa: KaspaClientLike,
+): Promise<PreparedBuild> {
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const { meta, value } = await ticketInputMeta(req, kaspa);
+  const holderMetas = req.input_utxo_metas ?? req.owner_utxos.map((u) => utxoMetaOf(u));
+
+  return {
+    inputTotal: value + req.owner_utxos.reduce((a, u) => a + u.value, 0),
+    payouts: [],
+    inputUtxoMetas: [meta, ...holderMetas],
+    build: (fee) => ({
+      tx: buildDelist({
+        ticketOutpoint: toOutpoint(req.ticket_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        eventArtifact,
+        owner: hexToBytes(req.owner),
+        used: false,
+        holderUtxos: req.owner_utxos.map((u) => toOutpoint(u)),
+        holderUtxoValues: req.owner_utxos.map((u) => u.value),
+        changeScript: toSpk(req.change_spk),
+        fee,
+      }),
+    }),
+  };
+}
+
+async function purchaseBuild(
+  req: BuildRequest & { type: "purchase" },
+  kaspa: KaspaClientLike,
+): Promise<PreparedBuild> {
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const { meta, value } = await ticketInputMeta(req, kaspa);
+  const buyerMetas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
+
+  // Input 0 needs NO signature — the covenant escrow enforces payment and
+  // delivery — so the sig-script can be assembled right here and stamped into
+  // the template. The wallet signs only the buyer's fee inputs (1..).
+  const redeem = ticketRedeem(eventArtifact, req.seller, req.price);
+  const purchaseSigScript = bytesToHex(
+    assemblePurchaseSigScript(eventArtifact, hexToBytes(req.buyer), redeem),
+  );
+
+  return {
+    inputTotal: value + req.buyer_utxos.reduce((a, u) => a + u.value, 0),
+    payouts: [req.price],
+    inputUtxoMetas: [meta, ...buyerMetas],
+    build: (fee) => ({
+      tx: buildPurchase({
+        ticketOutpoint: toOutpoint(req.ticket_outpoint),
+        eventCovenantId: req.event_covenant_id,
+        eventArtifact,
+        seller: hexToBytes(req.seller),
+        buyer: hexToBytes(req.buyer),
+        used: false,
+        price: req.price,
+        buyerUtxos: req.buyer_utxos.map((u) => toOutpoint(u)),
+        buyerUtxoValues: req.buyer_utxos.map((u) => u.value),
+        changeScript: toSpk(req.change_spk),
+        fee,
+      }),
+      covenantRedeemScript: purchaseSigScript,
+    }),
+  };
+}
+
 export async function preparedBuildFor(
   request: BuildRequest,
   kaspa: KaspaClientLike,
@@ -252,5 +375,11 @@ export async function preparedBuildFor(
       return handoverBuild(request);
     case "markUsed":
       return markUsedBuild(request, kaspa);
+    case "list":
+      return listBuild(request, kaspa);
+    case "delist":
+      return delistBuild(request, kaspa);
+    case "purchase":
+      return purchaseBuild(request, kaspa);
   }
 }

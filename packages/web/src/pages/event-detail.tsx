@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { fetchEvent, ServerError, type EventDetail } from "../api/client";
+import { fetchEvent, fetchEventListings, ServerError, type EventDetail, type ListingSummary } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
+import { executePurchase, type ResaleState } from "../api/resale-machine";
 import { useWallet } from "../hooks/use-wallet";
 import { OfflineEmpty, Empty } from "../components/empty";
 import { priceLabel, shortAddress, whenLabel } from "../lib/format";
@@ -177,6 +178,124 @@ export default function EventDetailPage() {
           <dd className="token-detail-plain mono">{event.event.covenant_id}</dd>
         </div>
       </dl>
+
+      {verified && <Listings covenantId={event.event.covenant_id} />}
     </article>
+  );
+}
+
+function Listings({ covenantId }: { covenantId: string }) {
+  const { state } = useWallet();
+  const [listings, setListings] = useState<ListingSummary[] | null>(null);
+  const [offline, setOffline] = useState(false);
+
+  const load = useCallback(async () => {
+    setOffline(false);
+    try {
+      setListings(await fetchEventListings(covenantId));
+    } catch (err) {
+      console.error("[listings] failed to load", err);
+      if (err instanceof ServerError) setOffline(true);
+      else setListings([]);
+    }
+  }, [covenantId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (offline) return null;
+  if (!listings) {
+    return (
+      <section aria-busy="true">
+        <div className="skeleton skeleton-row" aria-hidden="true" />
+      </section>
+    );
+  }
+  if (listings.length === 0) return null;
+
+  return (
+    <section>
+      <h2 className="section-heading">Tickets for sale</h2>
+      {listings.map((listing) => (
+        <ListingRow key={listing.ticket_id} listing={listing} onSold={load} connected={state.status === "connected"} />
+      ))}
+    </section>
+  );
+}
+
+function ListingRow({
+  listing,
+  onSold,
+  connected,
+}: {
+  listing: ListingSummary;
+  onSold: () => void;
+  connected: boolean;
+}) {
+  const { state } = useWallet();
+  const [buy, setBuy] = useState<ResaleState>({ phase: "idle" });
+  const busy = buy.phase === "loading" || buy.phase === "building" || buy.phase === "broadcasting";
+  const mine =
+    state.status === "connected" && state.publicKey.slice(-64) === listing.seller_pkh;
+
+  const handleBuy = useCallback(async () => {
+    if (state.status !== "connected" || !state.accounts[0]) return;
+    await executePurchase(setBuy, {
+      ticketId: listing.ticket_id,
+      publicKey: state.publicKey,
+      address: state.accounts[0],
+    });
+    onSold();
+  }, [state, listing.ticket_id, onSold]);
+
+  return (
+    <div className="ticket">
+      <div className="ticket-main">
+        <p className="ticket-line">
+          Seller <span className="mono">{shortAddress(listing.seller_pkh)}</span>
+        </p>
+        {buy.phase === "error" ? (
+          <div className="checkin-error" role="alert">
+            <p>{buy.message}</p>
+            <button
+              type="button"
+              className="button button-link button-sm"
+              onClick={() => setBuy({ phase: "idle" })}
+            >
+              Try again
+            </button>
+          </div>
+        ) : busy ? (
+          <div className="checkin-status" role="status">
+            <div className="spinner spinner-sm" />
+            <span>
+              {buy.phase === "building"
+                ? "Confirming in your wallet…"
+                : "Putting it on the chain…"}
+            </span>
+          </div>
+        ) : buy.phase === "success" ? (
+          <p className="checkin-copy" role="status">
+            It's yours — find it under My Tickets.
+          </p>
+        ) : null}
+      </div>
+      <div className="ticket-perforation" />
+      <div className="ticket-stub">
+        {mine ? (
+          <span className="stub-value">Your listing</span>
+        ) : buy.phase === "success" || busy || !connected ? null : (
+          <button
+            type="button"
+            className="button button-primary button-sm"
+            onClick={handleBuy}
+            disabled={busy}
+          >
+            Buy · {priceLabel(listing.price)}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

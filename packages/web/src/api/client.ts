@@ -188,6 +188,10 @@ export interface TicketEntry {
   event_name: string;
   event_date: string;
   event_time: string;
+  /** Present only when the ticket is currently listed for resale. */
+  listed?: true;
+  /** Asking price in sompi — only on listed entries. */
+  price?: number;
 }
 
 /** Fetch the connected user's on-chain tickets. Confirmation already happened backend-side. */
@@ -236,3 +240,109 @@ export function useFinalize(
     req,
   );
 }
+
+// --- resale (KTK-151) ---------------------------------------------------------
+
+/** A chain-proven resale listing as served by the directory. */
+export interface ListingSummary {
+  ticket_id: string;
+  price: number;
+  seller_pkh: string;
+  event_name: string;
+  event_date: string;
+  covenant_id: string;
+  verified: true;
+}
+
+/** Live listings for one event — every row is proven on-chain before serving. */
+export function fetchEventListings(covenantId: string): Promise<ListingSummary[]> {
+  return apiGet<ListingSummary[]>(`/v1/events/${encodeURIComponent(covenantId)}/listings`);
+}
+
+export interface ListPrepareResult {
+  list_id: string;
+  signing_template: string;
+  template: WireTransaction;
+  sign_inputs: { index: number }[];
+  price: number;
+  event: { name: string; date: string };
+}
+
+/** prepare: backend proves ownership and builds the list template. */
+export function listPrepare(
+  ticketId: string,
+  req: { publicKey: string; address: string; price: number },
+): Promise<ListPrepareResult> {
+  return apiFetch<ListPrepareResult>(
+    `/v1/tickets/${encodeURIComponent(ticketId)}/list/prepare`,
+    req,
+  );
+}
+
+export interface DelistPrepareResult {
+  delist_id: string;
+  signing_template: string;
+  template: WireTransaction;
+  sign_inputs: { index: number }[];
+  event: { name: string; date: string };
+}
+
+/** prepare: backend proves the caller owns the listing and builds the delist. */
+export function delistPrepare(
+  ticketId: string,
+  req: { publicKey: string; address: string },
+): Promise<DelistPrepareResult> {
+  return apiFetch<DelistPrepareResult>(
+    `/v1/tickets/${encodeURIComponent(ticketId)}/delist/prepare`,
+    req,
+  );
+}
+
+export interface PurchasePrepareResult {
+  purchase_id: string;
+  signing_template: string;
+  template: WireTransaction;
+  /** Only the buyer's fee inputs need signatures — input 0 is signatureless. */
+  sign_inputs: { index: number }[];
+  price: number;
+  seller_pkh: string;
+  event: { name: string; date: string };
+}
+
+/** prepare: backend proves the listing on-chain and builds the purchase escrow. */
+export function purchasePrepare(
+  ticketId: string,
+  req: { publicKey: string; address: string },
+): Promise<PurchasePrepareResult> {
+  return apiFetch<PurchasePrepareResult>(
+    `/v1/tickets/${encodeURIComponent(ticketId)}/purchase/prepare`,
+    req,
+  );
+}
+
+/** finalize: backend merges, broadcasts, confirms, and updates the index. */
+function resaleFinalize(
+  kind: "list" | "delist" | "purchase",
+  ticketId: string,
+  req: { template: WireTransaction; signed: unknown; price?: number },
+): Promise<{ txid: string }> {
+  return apiFetch<{ txid: string }>(
+    `/v1/tickets/${encodeURIComponent(ticketId)}/${kind}/finalize`,
+    req,
+  );
+}
+
+export const listFinalize = (
+  ticketId: string,
+  req: { template: WireTransaction; signed: unknown; price: number },
+): Promise<{ txid: string }> => resaleFinalize("list", ticketId, req);
+
+export const delistFinalize = (
+  ticketId: string,
+  req: { template: WireTransaction; signed: unknown },
+): Promise<{ txid: string }> => resaleFinalize("delist", ticketId, req);
+
+export const purchaseFinalize = (
+  ticketId: string,
+  req: { template: WireTransaction; signed: unknown },
+): Promise<{ txid: string }> => resaleFinalize("purchase", ticketId, req);

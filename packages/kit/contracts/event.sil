@@ -14,14 +14,18 @@ contract Event(
     // State slot — the deploy fills `owner` (organizer) and `amount` (capacity)
     // by injecting bytes into `state_layout`; `is_minter` stays false (fixed
     // supply). `used` tracks the door: a ticket marked used at the door can
-    // never re-enter (KTK-118). Constructor args are the per-event constants
-    // baked at compile; `org_pkh` is the organizer's 32-byte pubkey the gate
+    // never re-enter (KTK-118). `sale_price` is the resale listing: 0 means the
+    // ticket is not listed; > 0 anyone may purchase by paying exactly that many
+    // sompi to the holder's P2PK script (trustless escrow, no seller signature
+    // at purchase time). Constructor args are the per-event constants baked at
+    // compile; `org_pkh` is the organizer's 32-byte pubkey the gate
     // co-signature must verify against.
     byte[32] owner = byte[32](0x0000000000000000000000000000000000000000000000000000000000000000);
     byte identifier_type = 0x00;
     int amount = 0;
     bool is_minter = false;
     byte used = 0x00;
+    int sale_price = 0;
 
     // True when the tx pays `org_spk` exactly `price` sompi (FR-18). Free
     // events (price = 0) skip the payout requirement.
@@ -47,23 +51,16 @@ contract Event(
             require(hasPayout());
         }
         return(State[] {
-            State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: 0x00 },
-            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount - 1, is_minter: false, used: prev_state.used }
+            State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: 0x00, sale_price: 0 },
+            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount - 1, is_minter: false, used: prev_state.used, sale_price: 0 }
         });
-    }
-
-    // Transfer (FR-25): the holder re-keys the ticket to a new owner.
-    #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
-    function transfer(State prev_state, sig s, byte[32] new_owner) : State {
-        require(checkSig(s, pubkey(prev_state.owner)));
-        require(prev_state.amount == 1);
-        return State { owner: new_owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount, is_minter: false, used: prev_state.used };
     }
 
     // Use at the door (FR-3/5/23, KTK-118): owner + organizer co-sign the
     // ticket into its `used: true` state. The ticket stays in the owner's
-    // wallet — nothing is burned. `used` is the gate: a used ticket can be
-    // transferred but can never re-enter.
+    // wallet — nothing is burned. Check-in absorbs any listing (`sale_price`
+    // is forced to 0), and since `list` refuses used tickets, a checked-in
+    // ticket is unlisted forever: resale ends at the door.
     #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
     function mark_used(State prev_state, sig s, sig g) : State[] {
         require(checkSig(s, pubkey(prev_state.owner)));
@@ -71,8 +68,55 @@ contract Event(
         require(prev_state.amount == 1);
         require(prev_state.used == 0x00);
         return(State[] {
-            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: 0x01 }
+            State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: 0x01, sale_price: 0 }
         });
+    }
+
+    // Resale — list (holder-signed): the holder publishes an asking price in
+    // the covenant state itself. The listing lives on chain: anyone can verify
+    // it, and the holder keeps full custody until someone actually pays.
+    // Unused tickets only — a checked-in ticket can never be listed again.
+    #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
+    function list(State prev_state, sig s, int p) : State {
+        require(checkSig(s, pubkey(prev_state.owner)));
+        require(prev_state.amount == 1);
+        require(p > 0);
+        require(prev_state.used == 0x00);
+        return State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: prev_state.used, sale_price: p };
+    }
+
+    // Resale — purchase (trustless): NO seller signature. The covenant is the
+    // escrow — the tx must pay exactly `prev_state.sale_price` sompi to the
+    // seller's P2PK script (`20 || seller_pubkey || ac`, version-prefixed to
+    // match output introspection), and the ticket re-keys to `buyer_pkh` with
+    // the listing cleared. The authorizing input (the buyer's fee UTXO) binds
+    // the continuation output; whoever builds + funds the tx names their own
+    // pkh, so payment and delivery are atomic.
+    #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
+    function purchase(State prev_state, byte[32] buyer_pkh) : State {
+        require(prev_state.amount == 1);
+        require(prev_state.sale_price > 0);
+        require(prev_state.used == 0x00);
+        byte[34] seller_lock = new ScriptPubKeyP2PK(pubkey(prev_state.owner));
+        bool paid = false;
+        for(i, 0, tx.outputs.length, 100) {
+            if (tx.outputs[i].value == prev_state.sale_price) {
+                if (tx.outputs[i].scriptPubKey == byte[](seller_lock)) {
+                    paid = true;
+                }
+            }
+        }
+        require(paid);
+        return State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: prev_state.used, sale_price: 0 };
+    }
+
+    // Resale — delist (holder-signed): cancel the listing as long as no one
+    // has purchased yet.
+    #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
+    function delist(State prev_state, sig s) : State {
+        require(checkSig(s, pubkey(prev_state.owner)));
+        require(prev_state.amount == 1);
+        return State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: prev_state.used, sale_price: 0 };
     }
 
     // Legacy handover (FR-9): the ticket is consumed into the burn-owner

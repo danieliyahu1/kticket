@@ -8,7 +8,7 @@
 //   push(65B sig_owner) || push(65B sig_gate) || <selector> || push(redeem)
 //
 // where `<selector>` is the auth entrypoint's branch index (as with
-// mint/transfer/use) and `push(redeem)` reveals the full redeem script (the
+// mint/list/purchase/delist) and `push(redeem)` reveals the full redeem script (the
 // artifact bytecode with the ticket's live state injected) so the P2SH spend
 // can be validated.
 //
@@ -111,7 +111,7 @@ export function usedStateAddress(
 ): string {
   return addressFor(
     artifact,
-    { owner, identifierType: 0, amount: 1, isMinter: false, used },
+    { owner, identifierType: 0, amount: 1, isMinter: false, used, salePrice: 0 },
     network,
   );
 }

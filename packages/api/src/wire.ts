@@ -132,6 +132,43 @@ export type BuildRequest =
       owner_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
       input_utxo_metas?: WireUtxoMeta[];
+    }
+  | {
+      type: "list";
+      ticket_outpoint: WireOutpoint;
+      event_covenant_id: string;
+      constants: TicketConstantsJson;
+      owner: string;
+      /** Asking price in sompi — committed into the covenant state. */
+      price: number;
+      owner_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+      input_utxo_metas?: WireUtxoMeta[];
+    }
+  | {
+      type: "delist";
+      ticket_outpoint: WireOutpoint;
+      event_covenant_id: string;
+      constants: TicketConstantsJson;
+      owner: string;
+      owner_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+      input_utxo_metas?: WireUtxoMeta[];
+    }
+  | {
+      type: "purchase";
+      ticket_outpoint: WireOutpoint;
+      event_covenant_id: string;
+      constants: TicketConstantsJson;
+      /** The seller's 32-byte identifier — the ticket's current state. */
+      seller: string;
+      buyer: string;
+      /** The on-chain asking price the covenant enforces. */
+      price: number;
+      /** The buyer's fee-payer UTXOs (fee payer = buyer). */
+      buyer_utxos: WireUtxo[];
+      change_spk: WireScriptPublicKey;
+      input_utxo_metas?: WireUtxoMeta[];
     };
 
 export interface BuildResult {
@@ -297,6 +334,56 @@ function parseMarkUsed(raw: Record<string, unknown>): BuildRequest {
   };
 }
 
+function resaleBase(raw: Record<string, unknown>) {
+  return {
+    ticket_outpoint: outpoint(raw.ticket_outpoint, "ticket_outpoint"),
+    event_covenant_id: hex64(raw.event_covenant_id, "event_covenant_id"),
+    constants: parseConstants(raw.constants),
+  };
+}
+
+function fundingMetas(raw: Record<string, unknown>) {
+  return raw.input_utxo_metas !== undefined
+    ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
+    : {};
+}
+
+function parseList(raw: Record<string, unknown>): BuildRequest {
+  return {
+    type: "list",
+    ...resaleBase(raw),
+    price: uint(raw.price, "price"),
+    owner: hex64(raw.owner, "owner"),
+    owner_utxos: utxos(raw.owner_utxos, "owner_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...fundingMetas(raw),
+  };
+}
+
+function parseDelist(raw: Record<string, unknown>): BuildRequest {
+  return {
+    type: "delist",
+    ...resaleBase(raw),
+    owner: hex64(raw.owner, "owner"),
+    owner_utxos: utxos(raw.owner_utxos, "owner_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...fundingMetas(raw),
+  };
+}
+
+function parsePurchase(raw: Record<string, unknown>): BuildRequest {
+  return {
+    type: "purchase",
+    ...resaleBase(raw),
+    seller: hex64(raw.seller, "seller"),
+    buyer: hex64(raw.buyer, "buyer"),
+    price: uint(raw.price, "price"),
+    buyer_utxos: utxos(raw.buyer_utxos, "buyer_utxos"),
+    change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...fundingMetas(raw),
+  };
+}
+
 /** Parse + validate the build request body into a typed `BuildRequest`. */
 export function parseBuildRequest(raw: unknown): BuildRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
@@ -310,8 +397,16 @@ export function parseBuildRequest(raw: unknown): BuildRequest {
       return parseHandover(raw);
     case "markUsed":
       return parseMarkUsed(raw);
+    case "list":
+      return parseList(raw);
+    case "delist":
+      return parseDelist(raw);
+    case "purchase":
+      return parsePurchase(raw);
     default:
-      throw invalidError(`type must be deploy|buy|handover|markUsed, got ${type}`);
+      throw invalidError(
+        `type must be deploy|buy|handover|markUsed|list|delist|purchase, got ${type}`,
+      );
   }
 }
 

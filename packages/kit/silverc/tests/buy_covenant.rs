@@ -69,30 +69,9 @@ fn event_compiled(authorizing_txid: Vec<u8>, org_spk: Vec<u8>) -> CompiledContra
 }
 
 /// Inject the event state into the bytecode's state slot (owner, id=0,
-/// amount, is_minter=false, used=false) — the same 48-byte push-encoded layout
-/// the kit's `encodeState` produces.
-fn inject_state(compiled: &CompiledContract, owner: Vec<u8>, amount: i64) -> Vec<u8> {
-    let layout = compiled.state_layout;
-    let mut state = Vec::new();
-    state.push(0x20);
-    state.extend_from_slice(&owner);
-    state.push(0x01);
-    state.push(0x00);
-    state.push(0x08);
-    state.extend_from_slice(&amount.to_le_bytes());
-    state.push(0x01);
-    state.push(0x00);
-    state.push(0x01);
-    state.push(0x00);
-    assert_eq!(state.len(), layout.len, "encoded state must fill the state slot");
-
-    let mut bytecode = compiled.bytecode.clone();
-    bytecode.splice(layout.start..layout.start + layout.len, state.iter().cloned());
-    bytecode
-}
-
-/// Inject the event state with an explicit `used` flag (the door's mark_used).
-fn inject_state_used(compiled: &CompiledContract, owner: Vec<u8>, amount: i64, used: u8) -> Vec<u8> {
+/// amount, is_minter=false, used=false, sale_price) — the same 57-byte
+/// push-encoded layout the kit's `encodeState` produces.
+fn inject_state_full(compiled: &CompiledContract, owner: Vec<u8>, amount: i64, used: u8, sale_price: i64) -> Vec<u8> {
     let layout = compiled.state_layout;
     let mut state = Vec::new();
     state.push(0x20);
@@ -105,11 +84,25 @@ fn inject_state_used(compiled: &CompiledContract, owner: Vec<u8>, amount: i64, u
     state.push(0x00);
     state.push(0x01);
     state.push(used);
+    state.push(0x08);
+    state.extend_from_slice(&sale_price.to_le_bytes());
     assert_eq!(state.len(), layout.len, "encoded state must fill the state slot");
 
     let mut bytecode = compiled.bytecode.clone();
     bytecode.splice(layout.start..layout.start + layout.len, state.iter().cloned());
     bytecode
+}
+
+/// Inject the event state into the bytecode's state slot (owner, id=0,
+/// amount, is_minter=false, used=false) — the same 48-byte push-encoded layout
+/// the kit's `encodeState` produces.
+fn inject_state(compiled: &CompiledContract, owner: Vec<u8>, amount: i64) -> Vec<u8> {
+    inject_state_full(compiled, owner, amount, 0, 0)
+}
+
+/// Inject the event state with an explicit `used` flag (the door's mark_used).
+fn inject_state_used(compiled: &CompiledContract, owner: Vec<u8>, amount: i64, used: u8) -> Vec<u8> {
+    inject_state_full(compiled, owner, amount, used, 0)
 }
 
 fn push_redeem_script(bytecode: &[u8]) -> Vec<u8> {
@@ -424,6 +417,649 @@ fn real_buy_input1_signature_verifies_against_broadcast_tx() {
     // the Schnorr signature. Execute input 1 exactly as the node would.
     let result = execute_input_with_covenants(tx, entries, 1);
     assert!(result.is_ok(), "real buyer signature should verify: {result:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Resale (KTK-151): list / delist / purchase golden tests against the node VM.
+// ---------------------------------------------------------------------------
+
+/// Resale — list: the holder signs the `list` transition, embedding an asking
+/// price in the covenant state itself. The listing is fully on chain.
+#[test]
+fn list_covenant_passes_on_chain_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    let holder_kp = random_keypair();
+    let holder_x = holder_kp.x_only_public_key().0.serialize().to_vec();
+    let holder_spk = p2pk_script(&holder_x);
+
+    let org_kp = random_keypair();
+    let org_spk = p2pk_script(&org_kp.x_only_public_key().0.serialize());
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    let ticket_redeem = inject_state(&compiled, holder_x.clone(), 1);
+    let listed_redeem = inject_state_full(&compiled, holder_x.clone(), 1, 0, PRICE);
+
+    let ticket_value = DUST;
+    let holder_value = 1_000_000_000u64;
+    let change_value = holder_value - 100_000;
+
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&listed_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: change_value,
+                script_public_key: holder_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&ticket_redeem), 0, false, Some(COV_A));
+    let holder_entry = UtxoEntry::new(holder_value, holder_spk.clone(), 0, false, None);
+    let sig_holder = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 0, &holder_kp);
+
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl("list", vec![Expr::bytes(sig_holder), Expr::int(PRICE)], Default::default())
+        .expect("list sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&ticket_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 1, &holder_kp);
+    sig1.extend_from_slice(&holder_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, holder_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_ok(), "list covenant spend should pass: {result:?}");
+}
+
+/// Resale — purchase (trustless): NO seller signature anywhere. The covenant
+/// enforces that one output pays exactly the asking price to the seller's P2PK
+/// script while the ticket re-keys to the buyer atomically.
+#[test]
+fn purchase_covenant_passes_on_chain_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    let seller_kp = random_keypair();
+    let seller_x = seller_kp.x_only_public_key().0.serialize().to_vec();
+
+    let buyer_kp = random_keypair();
+    let buyer_x = buyer_kp.x_only_public_key().0.serialize().to_vec();
+    let buyer_spk = p2pk_script(&buyer_x);
+
+    let org_kp = random_keypair();
+    let org_spk = p2pk_script(&org_kp.x_only_public_key().0.serialize());
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    let listed_ticket_redeem = inject_state_full(&compiled, seller_x.clone(), 1, 0, PRICE);
+    let purchased_ticket_redeem = inject_state(&compiled, buyer_x.clone(), 1);
+
+    let ticket_value = DUST;
+    let buyer_value = 1_000_000_000u64;
+    let change_value = buyer_value - PRICE as u64 - 100_000;
+
+    // inputs [ticket(0), buyer fee(1)],
+    // outputs [ticket@buyer (bound), seller payout @asking price, buyer change].
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&purchased_ticket_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: PRICE as u64,
+                script_public_key: p2pk_script(&seller_x),
+                covenant: None,
+            },
+            TransactionOutput {
+                value: change_value,
+                script_public_key: buyer_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&listed_ticket_redeem), 0, false, Some(COV_A));
+    let buyer_entry = UtxoEntry::new(buyer_value, buyer_spk.clone(), 0, false, None);
+
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl("purchase", vec![Expr::bytes(buyer_x.clone())], Default::default())
+        .expect("purchase sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&listed_ticket_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), buyer_entry.clone()], 1, &buyer_kp);
+    sig1.extend_from_slice(&buyer_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, buyer_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_ok(), "trustless purchase covenant spend should pass: {result:?}");
+}
+
+/// The negative half of trustless escrow: a `purchase` spend whose outputs do
+/// NOT pay the asking price to the seller's P2PK script must be rejected by
+/// the VM. This is what makes the seller's custody safe without signatures.
+#[test]
+fn purchase_without_seller_payout_is_rejected_by_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    let seller_x = random_keypair().x_only_public_key().0.serialize().to_vec();
+
+    let buyer_kp = random_keypair();
+    let buyer_x = buyer_kp.x_only_public_key().0.serialize().to_vec();
+    let buyer_spk = p2pk_script(&buyer_x);
+
+    let org_kp = random_keypair();
+    let org_spk = p2pk_script(&org_kp.x_only_public_key().0.serialize());
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    let listed_ticket_redeem = inject_state_full(&compiled, seller_x.clone(), 1, 0, PRICE);
+    let purchased_ticket_redeem = inject_state(&compiled, buyer_x.clone(), 1);
+
+    let ticket_value = DUST;
+    let buyer_value = 1_000_000_000u64;
+
+    // Same as the passing test, but the seller payout output is missing — the
+    // buyer tries to keep the asking price for themselves.
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&purchased_ticket_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: buyer_value - 100_000,
+                script_public_key: buyer_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&listed_ticket_redeem), 0, false, Some(COV_A));
+    let buyer_entry = UtxoEntry::new(buyer_value, buyer_spk.clone(), 0, false, None);
+
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl("purchase", vec![Expr::bytes(buyer_x.clone())], Default::default())
+        .expect("purchase sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&listed_ticket_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), buyer_entry.clone()], 1, &buyer_kp);
+    sig1.extend_from_slice(&buyer_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, buyer_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_err(), "purchase without seller payout must be rejected by the VM");
+}
+
+/// Resale — delist: the holder cancels the listing before anyone buys.
+#[test]
+fn delist_covenant_passes_on_chain_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    let holder_kp = random_keypair();
+    let holder_x = holder_kp.x_only_public_key().0.serialize().to_vec();
+    let holder_spk = p2pk_script(&holder_x);
+
+    let org_kp = random_keypair();
+    let org_spk = p2pk_script(&org_kp.x_only_public_key().0.serialize());
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    let listed_redeem = inject_state_full(&compiled, holder_x.clone(), 1, 0, PRICE);
+    let unlisted_redeem = inject_state(&compiled, holder_x.clone(), 1);
+
+    let ticket_value = DUST;
+    let holder_value = 1_000_000_000u64;
+
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&unlisted_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: holder_value - 100_000,
+                script_public_key: holder_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&listed_redeem), 0, false, Some(COV_A));
+    let holder_entry = UtxoEntry::new(holder_value, holder_spk.clone(), 0, false, None);
+    let sig_holder = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 0, &holder_kp);
+
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl("delist", vec![Expr::bytes(sig_holder)], Default::default())
+        .expect("delist sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&listed_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 1, &holder_kp);
+    sig1.extend_from_slice(&holder_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, holder_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_ok(), "delist covenant spend should pass: {result:?}");
+}
+
+/// Check-in absorbs the listing (v3): a listed, unused ticket passes through
+/// `mark_used` and comes out `used` with `sale_price` forced to 0 — the door
+/// delists forever, without any seller cooperation beyond their own entry.
+#[test]
+fn mark_used_on_listed_ticket_clears_the_sale_price() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    let org_kp = random_keypair();
+    let org_x = org_kp.x_only_public_key().0.serialize().to_vec();
+    let org_spk = p2pk_script(&org_x);
+
+    let owner_kp = random_keypair();
+    let owner_x = owner_kp.x_only_public_key().0.serialize().to_vec();
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    // Listed AND unused at the door: the seller never cancelled their sale.
+    let listed_redeem = inject_state_full(&compiled, owner_x.clone(), 1, 0, PRICE);
+    // The door's continuation: used = 0x01, listing gone (sale_price = 0).
+    let checked_in_redeem = inject_state_used(&compiled, owner_x.clone(), 1, 1);
+
+    let ticket_value = DUST;
+    let owner_value = 1_000_000_000u64;
+    let owner_spk = p2pk_script(&owner_x);
+    let change_value = owner_value - 100_000;
+
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&checked_in_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: change_value,
+                script_public_key: owner_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&listed_redeem), 0, false, Some(COV_A));
+    let owner_entry = UtxoEntry::new(owner_value, owner_spk.clone(), 0, false, None);
+    let sig_owner = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &owner_kp);
+    let sig_gate = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &org_kp);
+
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl(
+            "mark_used",
+            vec![Expr::bytes(sig_owner), Expr::bytes(sig_gate)],
+            Default::default(),
+        )
+        .expect("mark_used sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&listed_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 1, &owner_kp);
+    sig1.extend_from_slice(&owner_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, owner_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_ok(), "check-in of a listed ticket must clear its sale price and pass: {result:?}");
+}
+
+/// v3 guard: `list` refuses checked-in tickets. A used ticket can never enter
+/// the market again — not even by hand-crafting the transition outside the app.
+#[test]
+fn list_on_used_ticket_is_rejected_by_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    let holder_kp = random_keypair();
+    let holder_x = holder_kp.x_only_public_key().0.serialize().to_vec();
+    let holder_spk = p2pk_script(&holder_x);
+
+    let org_kp = random_keypair();
+    let org_spk = p2pk_script(&org_kp.x_only_public_key().0.serialize());
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    // Already checked in: used = 0x01, unlisted.
+    let used_redeem = inject_state_full(&compiled, holder_x.clone(), 1, 1, 0);
+    // The market re-entry attempt: same ticket, now carrying an asking price.
+    let relisted_redeem = inject_state_full(&compiled, holder_x.clone(), 1, 1, PRICE);
+
+    let ticket_value = DUST;
+    let holder_value = 1_000_000_000u64;
+    let change_value = holder_value - 100_000;
+
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&relisted_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: change_value,
+                script_public_key: holder_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&used_redeem), 0, false, Some(COV_A));
+    let holder_entry = UtxoEntry::new(holder_value, holder_spk.clone(), 0, false, None);
+    let sig_holder = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 0, &holder_kp);
+
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl("list", vec![Expr::bytes(sig_holder), Expr::int(PRICE)], Default::default())
+        .expect("list sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&used_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 1, &holder_kp);
+    sig1.extend_from_slice(&holder_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, holder_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_err(), "listing a checked-in ticket must be rejected by the VM");
+}
+
+/// v3 guard: `purchase` refuses checked-in tickets. Even the unreachable
+/// used+listed hybrid (e.g. minted before v3) cannot change hands — buyers are
+/// mathematically safe from ever receiving a worthless ticket.
+#[test]
+fn purchase_of_used_ticket_is_rejected_by_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+
+    let seller_x = random_keypair().x_only_public_key().0.serialize().to_vec();
+
+    let buyer_kp = random_keypair();
+    let buyer_x = buyer_kp.x_only_public_key().0.serialize().to_vec();
+    let buyer_spk = p2pk_script(&buyer_x);
+
+    let org_kp = random_keypair();
+    let org_spk = p2pk_script(&org_kp.x_only_public_key().0.serialize());
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.script().to_vec());
+    // The pre-v3 hybrid: checked in but still carrying a price tag.
+    let hybrid_redeem = inject_state_full(&compiled, seller_x.clone(), 1, 1, PRICE);
+    let purchased_ticket_redeem = inject_state(&compiled, buyer_x.clone(), 1);
+
+    let ticket_value = DUST;
+    let buyer_value = 1_000_000_000u64;
+    let change_value = buyer_value - PRICE as u64 - 100_000;
+
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: ticket_value,
+                script_public_key: pay_to_script_hash_script(&purchased_ticket_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: PRICE as u64,
+                script_public_key: p2pk_script(&seller_x),
+                covenant: None,
+            },
+            TransactionOutput {
+                value: change_value,
+                script_public_key: buyer_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&hybrid_redeem), 0, false, Some(COV_A));
+    let buyer_entry = UtxoEntry::new(buyer_value, buyer_spk.clone(), 0, false, None);
+
+    let mut sigscript = compiled
+        .build_sig_script_for_covenant_decl("purchase", vec![Expr::bytes(buyer_x.clone())], Default::default())
+        .expect("purchase sigscript");
+    sigscript.extend_from_slice(&push_redeem_script(&hybrid_redeem));
+
+    let input0 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+        sigscript,
+        0,
+        50,
+    );
+
+    let mut sig1 = sign_input1(&unsigned, &[ticket_entry.clone(), buyer_entry.clone()], 1, &buyer_kp);
+    sig1.extend_from_slice(&buyer_spk.script());
+    let input1 = TransactionInput::new_with_compute_budget(
+        TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+        sig1,
+        0,
+        50,
+    );
+
+    let tx = Transaction::new(1, vec![input0, input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+    let entries = vec![ticket_entry, buyer_entry];
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_err(), "purchasing a checked-in ticket must be rejected by the VM");
 }
 
 

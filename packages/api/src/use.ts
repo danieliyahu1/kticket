@@ -3,10 +3,17 @@
 //
 //   prepare — backend verifies the ticket is the event's ticket (covenant
 //             family -> registry -> deploy -> verifyEventFromChain), that it is
-//             owned by the caller and unused (amount == 1, used == false), then
-//             builds the fixed mark_used template the owner pre-signs:
+//             owned by the caller and unused, then builds the fixed mark_used
+//             template the owner pre-signs:
 //               inputs  [ticket, owner fee UTXOs]
-//               outputs [ticket at used:true, owner change]
+//               outputs [ticket at used:true / sale_price 0, owner change]
+//             Ownership proof accepts BOTH live states (v3): unlisted
+//             (sale_price 0) or listed — a listed coin sits at an address that
+//             commits to its asking price, so prepare consults the listings
+//             index for this exact ticket and accepts when the price reproduces
+//             the on-chain address. Check-in while listed is allowed: mark_used
+//             absorbs the sale (price forced to 0), and list refuses used
+//             tickets afterwards — resale ends at the door.
 //             Returns `{use_id, template, signing_template, sign_inputs_owner,
 //             event}`. The `use_id` is a correlation id; a fresh prepare
 //             invalidates any earlier QR (re-sign path).
@@ -25,6 +32,7 @@ import {
 } from "@kticket/kit";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { invalidError, notFoundError, policyError } from "./errors.js";
+import type { ListingStore } from "./listings.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
 import { verifyEventFromChain } from "./provenance.js";
@@ -38,6 +46,8 @@ export interface UseContext {
   network: KaspaNetwork;
   /** Resolve the registry pointer for a covenant id (may be undefined). */
   byCovenantId: (covenantId: string) => { deployTxId: string } | undefined;
+  /** Listings index — proposes the asking price for a listed check-in. */
+  listings: ListingStore;
 }
 
 export interface UsePrepareRequest {
@@ -151,19 +161,31 @@ export async function usePrepare(
     throw invalidError("ticket does not belong to the verified event");
   }
 
-  // 3. Ownership + unused check: the ticket address derives from the owner's
-  //    key at amount 1 / used false. If the caller's key reproduces the ticket's
-  //    on-chain address, the ticket is theirs and unused (FR-9/FR-28).
+  // 3. Ownership + unused check (v3): the ticket address derives from the
+  //    owner's key at amount 1 / used false / sale_price. Try the unlisted
+  //    address first; on miss, a listed coin may be the caller's — the listings
+  //    index proposes this ticket's asking price and the derived listed address
+  //    must reproduce the on-chain script. Check-in while listed is allowed:
+  //    mark_used absorbs the sale (price -> 0), and list refuses used tickets
+  //    afterwards, so resale ends here either way.
   const ownerPkh = organizerPkh(req.publicKey);
   const ownerBytes = hexToBytes(ownerPkh);
-  const ownerAddress = addressFor(
-    verified.artifact,
-    { owner: ownerBytes, identifierType: 0, amount: 1, isMinter: false, used: false },
-    ctx.network,
-  );
   const ticketAddress = ticketAddressOf(ticketOutput.script_public_key, ctx.network);
-  if (ownerAddress !== ticketAddress) {
-    throw policyError("you have no ticket for this event");
+  const baseState = {
+    owner: ownerBytes,
+    identifierType: 0 as const,
+    amount: 1 as const,
+    isMinter: false as const,
+    used: false as const,
+  };
+  const unlistedAddress = addressFor(verified.artifact, { ...baseState, salePrice: 0 }, ctx.network);
+  if (unlistedAddress !== ticketAddress) {
+    const stored = ctx.listings.get(verified.covenant_id, `${txid}:${index}`);
+    if (!stored) throw policyError("you have no ticket for this event");
+    const listedAddress = addressFor(verified.artifact, { ...baseState, salePrice: stored.price }, ctx.network);
+    if (listedAddress !== ticketAddress) {
+      throw policyError("you have no ticket for this event");
+    }
   }
 
   // 4. The owner pays the fee: fetch their UTXOs.

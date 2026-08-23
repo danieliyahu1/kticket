@@ -7,10 +7,13 @@
 //   bytecode = template_prefix | state_slot | template_suffix
 //   state_slot = push(byte[32] owner) push(u8 identifier_type)
 //                push(u64 amount LE) push(u8 is_minter) push(u8 used)
+//                push(u64 sale_price LE)
 //
 // The push encoding is Bitcoin/Kaspa pushdata (direct length byte). The event
-// slot is 48 bytes: `0x20`+32, `0x01`+1, `0x08`+8, `0x01`+1, `0x01`+1. The burn
-// slot is 9 bytes: `0x08`+8 (its single `int count` field).
+// slot is 57 bytes: `0x20`+32, `0x01`+1, `0x08`+8, `0x01`+1, `0x01`+1,
+// `0x08`+8 (the trailing `sale_price` is the KTK-151 resale listing: 0 =
+// unlisted). The burn slot is 9 bytes: `0x08`+8 (its single `int count`
+// field).
 //
 // `injectState` replaces the slot bytes with a freshly-encoded state so each
 // covenant instance (event at capacity, ticket at amount=1) gets its own
@@ -30,6 +33,8 @@ export interface DecodedState {
   isMinter: boolean;
   /** Whether the door marked this ticket used (FR-3/5/23, KTK-118). */
   used: boolean;
+  /** Resale asking price in sompi; 0 = not listed (KTK-151). */
+  salePrice: number;
 }
 
 export interface DecodedConstants {
@@ -48,12 +53,13 @@ export class PreimageError extends Error {
 
 const HASH_LENGTH = 32;
 const U64_LENGTH = 8;
-const STATE_BYTES_LEN = HASH_LENGTH + 1 + U64_LENGTH + 1 + 1; // 43 raw bytes
+const STATE_BYTES_LEN = HASH_LENGTH + 1 + U64_LENGTH + 1 + 1 + U64_LENGTH; // 51 raw bytes
 
 const IDENTIFIER_TYPE_OFFSET = HASH_LENGTH;
 const AMOUNT_OFFSET = IDENTIFIER_TYPE_OFFSET + 1;
 const IS_MINTER_OFFSET = AMOUNT_OFFSET + U64_LENGTH;
 const USED_OFFSET = IS_MINTER_OFFSET + 1;
+const SALE_PRICE_OFFSET = USED_OFFSET + 1;
 
 function assertSafeAmount(amount: number): void {
   if (!Number.isSafeInteger(amount) || amount < 0) {
@@ -101,8 +107,9 @@ function le64(value: number): Uint8Array {
 
 /**
  * Encode the state slot bytes for the event/ticket covenant: one push per
- * field in declaration order — owner, identifier_type, amount, is_minter, used.
- * Matches the compiler's field-prolog encoding (KTK-88 A4).
+ * field in declaration order — owner, identifier_type, amount, is_minter,
+ * used, sale_price. Matches the compiler's field-prolog encoding (KTK-88 A4,
+ * extended by the KTK-151 resale field).
  */
 export function encodeState(
   owner: Uint8Array,
@@ -110,17 +117,20 @@ export function encodeState(
   amount: number,
   isMinter = false,
   used = false,
+  salePrice = 0,
 ): Uint8Array {
   if (owner.length !== HASH_LENGTH) {
     throw new PreimageError(`owner must be 32 bytes, got ${owner.length}`);
   }
   assertSafeAmount(amount);
+  assertSafeAmount(salePrice);
   const parts = [
     pushBytes(owner),
     pushBytes(Uint8Array.of(identifierType)),
     pushBytes(le64(amount)),
     pushBytes(Uint8Array.of(isMinter ? 1 : 0)),
     pushBytes(Uint8Array.of(used ? 1 : 0)),
+    pushBytes(le64(salePrice)),
   ];
   const total = parts.reduce((sum, part) => sum + part.length, 0);
   const out = new Uint8Array(total);
@@ -132,7 +142,7 @@ export function encodeState(
   return out;
 }
 
-/** Raw (unpushed) 43-byte state bytes — `owner | id | amount LE | is_minter | used`. */
+/** Raw (unpushed) 51-byte state bytes — `owner | id | amount LE | is_minter | used | sale_price LE`. */
 function rawStateBytes(state: DecodedState): Uint8Array {
   const out = new Uint8Array(STATE_BYTES_LEN);
   out.set(state.owner, 0);
@@ -140,6 +150,7 @@ function rawStateBytes(state: DecodedState): Uint8Array {
   new DataView(out.buffer).setBigUint64(AMOUNT_OFFSET, BigInt(state.amount), true);
   out[IS_MINTER_OFFSET] = state.isMinter ? 1 : 0;
   out[USED_OFFSET] = state.used ? 1 : 0;
+  new DataView(out.buffer).setBigUint64(SALE_PRICE_OFFSET, BigInt(state.salePrice), true);
   return out;
 }
 
@@ -188,6 +199,7 @@ export function decodeState(bytes: Uint8Array): DecodedState {
   const amountBytes = nextPush();
   const minterBytes = nextPush();
   const usedBytes = nextPush();
+  const priceBytes = nextPush();
 
   if (owner.length !== HASH_LENGTH) {
     throw new PreimageError(`owner must be 32 bytes, got ${owner.length}`);
@@ -196,7 +208,8 @@ export function decodeState(bytes: Uint8Array): DecodedState {
     idBytes.length !== 1 ||
     amountBytes.length !== U64_LENGTH ||
     minterBytes.length !== 1 ||
-    usedBytes.length !== 1
+    usedBytes.length !== 1 ||
+    priceBytes.length !== U64_LENGTH
   ) {
     throw new PreimageError("state slot field sizes do not match the event layout");
   }
@@ -212,6 +225,7 @@ export function decodeState(bytes: Uint8Array): DecodedState {
     amount: Number(new DataView(amountBytes.buffer).getBigUint64(0, true)),
     isMinter: minterBytes[0] === 1,
     used: usedBytes[0] === 1,
+    salePrice: Number(new DataView(priceBytes.buffer).getBigUint64(0, true)),
   };
 }
 
@@ -329,7 +343,7 @@ export function decodeVarint(bytes: Uint8Array, offset: number): { value: number
 
 export function encodePreimage(state: DecodedState, constants: DecodedConstants): Preimage {
   return {
-    state: encodeState(state.owner, state.identifierType, state.amount, state.isMinter, state.used),
+    state: encodeState(state.owner, state.identifierType, state.amount, state.isMinter, state.used, state.salePrice),
     constants: encodeConstants(constants),
   };
 }
@@ -382,12 +396,14 @@ export function decodePreimage(redeemScript: Uint8Array): {
   const amountBytes = nextPush();
   const minterBytes = nextPush();
   const usedBytes = nextPush();
+  const priceBytes = nextPush();
 
   if (
     owner.length !== HASH_LENGTH ||
     idBytes.length !== 1 ||
     minterBytes.length !== 1 ||
-    usedBytes.length !== 1
+    usedBytes.length !== 1 ||
+    priceBytes.length !== U64_LENGTH
   ) {
     throw new PreimageError("state slot field sizes do not match the event layout");
   }
@@ -398,6 +414,7 @@ export function decodePreimage(redeemScript: Uint8Array): {
     amount: Number(new DataView(amountBytes.buffer, amountBytes.byteOffset).getBigUint64(0, true)),
     isMinter: minterBytes[0] === 1,
     used: usedBytes[0] === 1,
+    salePrice: Number(new DataView(priceBytes.buffer, priceBytes.byteOffset).getBigUint64(0, true)),
   };
   const constants = decodeConstants(redeemScript.subarray(offset));
   return { state, constants };

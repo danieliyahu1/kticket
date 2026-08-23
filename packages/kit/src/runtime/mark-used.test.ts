@@ -22,14 +22,15 @@ const ticketRedeem = (used: boolean) =>
     amount: 1,
     isMinter: false,
     used,
+    salePrice: 0,
   });
 
 describe("markUsedSelector", () => {
   it("derives the mark_used branch index from the artifact ABI", () => {
-    // The event contract's auth entrypoints in order: mint (0), transfer (1),
-    // mark_used (2), use (3). The selector is the branch index the compiler
-    // emits — matching silverc's `function_branch_index`.
-    expect(markUsedSelector(EVENT_ARTIFACT)).toBe(2);
+    // The event contract's auth entrypoints in order: mint (0), mark_used (1),
+    // list (2), purchase (3), delist (4). The selector is the branch index the
+    // compiler emits — matching silverc's `function_branch_index`.
+    expect(markUsedSelector(EVENT_ARTIFACT)).toBe(1);
   });
 });
 
@@ -52,9 +53,9 @@ describe("assembleMarkUsedSigScript", () => {
     const redeem = ticketRedeem(false);
     const script = assembleMarkUsedSigScript(EVENT_ARTIFACT, SIG_OWNER, SIG_GATE, redeem);
     // silverc emits the same bytes for mark_used: two 65-byte pushes (0x41),
-    // then OP_2 (selector 2), then the redeem reveal push.
+    // then OP_1 (selector 1), then the redeem reveal push.
     expect(script).toEqual(
-      concat([pushData(SIG_OWNER), pushData(SIG_GATE), pushSelector(2), pushData(redeem)]),
+      concat([pushData(SIG_OWNER), pushData(SIG_GATE), pushSelector(1), pushData(redeem)]),
     );
   });
 
@@ -97,7 +98,7 @@ describe("usedStateAddress", () => {
     const address = usedStateAddress(EVENT_ARTIFACT, OWNER, false, network);
     const expected = addressFor(
       EVENT_ARTIFACT,
-      { owner: OWNER, identifierType: 0, amount: 1, isMinter: false, used: false },
+      { owner: OWNER, identifierType: 0, amount: 1, isMinter: false, used: false, salePrice: 0 },
       network,
     );
     expect(address).toBe(expected);

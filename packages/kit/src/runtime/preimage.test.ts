@@ -58,7 +58,7 @@ const CONSTANTS = {
   burnTemplateHash: BURN_HASH,
 };
 
-describe("state slot layout (push owner | push identifier_type | push amount | push is_minter | push used)", () => {
+describe("state slot layout (push owner | push identifier_type | push amount | push is_minter | push used | push sale_price)", () => {
   it("encodes each field as its own push, matching the artifact's state_layout length", () => {
     const owner = new Uint8Array(HASH_LENGTH).fill(OWNER_FILL);
     const state = encodeState(owner, 0, 10, false);
@@ -78,6 +78,9 @@ describe("state slot layout (push owner | push identifier_type | push amount | p
     // fifth push: 0x01 + used
     expect(state[46]).toBe(0x01);
     expect(state[47]).toBe(0);
+    // sixth push (KTK-151): 0x08 + u64 LE sale_price
+    expect(state[48]).toBe(0x08);
+    expect(new DataView(state.buffer).getBigUint64(49, true)).toBe(0n);
   });
 
   it("encodes the used flag as the fifth field", () => {
@@ -97,9 +100,16 @@ describe("state slot layout (push owner | push identifier_type | push amount | p
       amount: 10,
       isMinter: false,
       used: false,
+      salePrice: 0,
     });
     expect(decodeState(encodeState(owner, 0, 1)).amount).toBe(1);
     expect([...decodeState(encodeState(owner, 0, 5)).owner]).toEqual([...owner]);
+  });
+
+  it("round-trips a listed ticket's asking price", () => {
+    const owner = new Uint8Array(HASH_LENGTH).fill(OWNER_FILL);
+    const listed = encodeState(owner, 0, 1, false, false, 123456789);
+    expect(decodeState(listed).salePrice).toBe(123456789);
   });
 
   it("rejects an owner that is not 32 bytes and a negative amount", () => {
@@ -191,7 +201,7 @@ describe("decodePreimage", () => {
   it("recovers state + constants from an encoded preimage", () => {
     const owner = new Uint8Array(HASH_LENGTH).fill(OWNER_FILL);
     const preimage = encodePreimage(
-      { owner, identifierType: 0, amount: 1, isMinter: false, used: false },
+      { owner, identifierType: 0, amount: 1, isMinter: false, used: false, salePrice: 0 },
       CONSTANTS,
     );
     const decoded = decodePreimage(new Uint8Array([...preimage.state, ...preimage.constants]));
@@ -203,7 +213,7 @@ describe("decodePreimage", () => {
 
   it("throws on a truncated preimage rather than guessing (DEC-12)", () => {
     const preimage = encodePreimage(
-      { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: 1, isMinter: false, used: false },
+      { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: 1, isMinter: false, used: false, salePrice: 0 },
       CONSTANTS,
     );
     expect(() => decodePreimage(new Uint8Array(10))).toThrow(PreimageError);

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { describe, expect, it } from "vitest";
-import { EventStore } from "./eventstore";
+import { EventStore, REGISTRY_VERSION } from "./eventstore";
 
 const fixturesDir = resolve(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -53,7 +53,7 @@ describe("EventStore", () => {
     const organizer = "kaspatest:qqqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszapw00vun";
     const byOrganizer = store.list(organizer);
     expect(byOrganizer).toHaveLength(1);
-    expect(byOrganizer[0].covenantId).toBe(
+    expect(byOrganizer[0]?.covenantId).toBe(
       "234f446748ff76774c8ca9c99531a34111066f902daa95663a399f4a2893a3ba",
     );
     expect(store.list("kaspatest:nobody")).toHaveLength(0);
@@ -87,8 +87,12 @@ describe("EventStore", () => {
       const reloaded = new EventStore(idsPath);
       expect(reloaded.byCovenantId("ee".repeat(32))?.deployTxId).toBe("dd".repeat(32));
 
-      const raw = JSON.parse(readFileSync(idsPath, "utf-8")) as Record<string, string>[];
-      expect(raw).toEqual([
+      const raw = JSON.parse(readFileSync(idsPath, "utf-8")) as {
+        version: number;
+        events: Record<string, string>[];
+      };
+      expect(raw.version).toBe(REGISTRY_VERSION);
+      expect(raw.events).toEqual([
         {
           deploy_txid: "dd".repeat(32),
           covenant_id: "ee".repeat(32),
@@ -106,6 +110,36 @@ describe("EventStore", () => {
       writeFileSync(idsPath, "{ not json", "utf-8");
       const store = new EventStore(idsPath);
       expect(store.list()).toHaveLength(0);
+    } finally {
+      cleanupTemp(idsPath);
+    }
+  });
+
+  it("wipes a legacy (v1 bare-array) registry — the contract changed under it (KTK-151)", async () => {
+    const idsPath = tempIdsPath();
+    try {
+      writeFileSync(
+        idsPath,
+        JSON.stringify([
+          {
+            deploy_txid: "aa".repeat(32),
+            covenant_id: "bb".repeat(32),
+            organizer_address: "kaspatest:qlegacy",
+          },
+        ]),
+        "utf-8",
+      );
+      const store = new EventStore(idsPath);
+      expect(store.list()).toHaveLength(0);
+
+      // The wipe is persisted on the next save so the stale rows never return.
+      await store.register({
+        deployTxId: "cc".repeat(32),
+        covenantId: "dd".repeat(32),
+        organizerAddress: "kaspatest:qnew",
+      });
+      const reloaded = new EventStore(idsPath);
+      expect(reloaded.list()).toHaveLength(1);
     } finally {
       cleanupTemp(idsPath);
     }

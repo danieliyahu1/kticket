@@ -384,6 +384,7 @@ export function buildDeploy(input: DeployInput): DeployResult {
     amount: input.capacity,
     isMinter: false,
     used: false,
+    salePrice: 0,
   };
   const eventScript = covenantScript(input.eventArtifact, eventState);
   const eventCovenantId = eventCovenantIdOf(input.authorizingOutpoint, eventScript);
@@ -458,11 +459,11 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
   const binding = covenantBinding(input.eventCovenantId);
   const ticket = covenantScript(
     input.eventArtifact,
-    { owner: input.buyer, identifierType: 0, amount: 1, isMinter: false, used: false },
+    { owner: input.buyer, identifierType: 0, amount: 1, isMinter: false, used: false, salePrice: 0 },
   );
   const remainingEvent = covenantScript(
     input.eventArtifact,
-    { owner: input.eventOwner, identifierType: 0, amount: input.remaining - 1, isMinter: false, used: false },
+    { owner: input.eventOwner, identifierType: 0, amount: input.remaining - 1, isMinter: false, used: false, salePrice: 0 },
   );
 
   const outputs: TxOutput[] = [
@@ -566,6 +567,7 @@ export function buildMarkUsed(input: MarkUsedInput): UnsignedTransaction {
     amount: 1,
     isMinter: false,
     used: true,
+    salePrice: 0,
   });
 
   return {
@@ -573,6 +575,216 @@ export function buildMarkUsed(input: MarkUsedInput): UnsignedTransaction {
     inputs: inputsWithTicket(input.ticketOutpoint, input.ownerUtxos),
     outputs: [
       { value: ticketDustOf(input.ticketDust), scriptPublicKey: usedTicket, covenant: binding },
+      changeOutput(input.changeScript, change),
+    ],
+    lockTime: 0,
+  };
+}
+
+// --- resale: list / delist / purchase (KTK-151) -----------------------------
+//
+// The listing lives in the covenant state itself (`sale_price`), so these
+// builders only shape the transaction — custody and payment are enforced by
+// the contract:
+//
+//   list     — holder re-writes their own ticket state with `sale_price = p`
+//              (holder-signed). The ticket never leaves the holder's control.
+//   delist   — holder clears the listing (holder-signed).
+//   purchase — trustless escrow: NO seller signature. Anyone may spend a
+//              listed ticket through `purchase` as long as one output pays
+//              exactly the asking price to the seller's P2PK script; the
+//              covenant re-keys the ticket to the buyer atomically.
+
+const OP_CHECKSIG = 0xac;
+/** 32-byte pubkey x-coordinate / owner identifier length. */
+const HASH_LENGTH = 32;
+
+/** P2PK output script for a 32-byte pubkey x-coordinate (`20 <x> ac`). */
+export function p2pkScriptFromPubkey(pubkey: Uint8Array): ScriptPublicKey {
+  if (pubkey.length !== HASH_LENGTH) {
+    throw new Error(`pubkey must be ${HASH_LENGTH} bytes, got ${pubkey.length}`);
+  }
+  const script = new Uint8Array(HASH_LENGTH + 2);
+  script[0] = PUSH32;
+  script.set(pubkey, 1);
+  script[HASH_LENGTH + 1] = OP_CHECKSIG;
+  return { version: 0, script: bytesToHex(script) };
+}
+
+function assertResalePrice(price: number): void {
+  if (!Number.isSafeInteger(price) || price <= 0) {
+    throw new Error(`resale price ${price} must be a positive safe integer`);
+  }
+}
+
+export interface ListInput {
+  /** The listed ticket covenant UTXO (input index 0). */
+  ticketOutpoint: Outpoint;
+  /** The event covenant family id (the ticket's covenant_id). */
+  eventCovenantId: string;
+  /** The per-event compiled Event contract artifact. */
+  eventArtifact: CompiledContractArtifact;
+  /** The ticket holder's owner identifier (preserved). */
+  owner: Uint8Array;
+  /** The ticket's current used flag (preserved by the listing). */
+  used: boolean;
+  /** Asking price in sompi (> 0). */
+  price: number;
+  /** Holder KAS UTXOs covering the fee (fee payer = holder). */
+  holderUtxos: Outpoint[];
+  /** Holder input values (sompi). */
+  holderUtxoValues: readonly number[];
+  /** Holder change script public key. */
+  changeScript: ScriptPublicKey;
+  /** Network fee in sompi (paid by the holder). */
+  fee: number;
+  /** Dust preserved on the listed ticket output. */
+  ticketDust?: number;
+}
+
+/**
+ * The listing template: the ticket is spent back to itself with `sale_price =
+ * price` embedded in the covenant state. The holder keeps full custody —
+ * anyone can read the asking price off the chain, and the sale itself needs no
+ * further holder action.
+ */
+export function buildList(input: ListInput): UnsignedTransaction {
+  validatePairedValues(input.holderUtxoValues, input.holderUtxos, "holder");
+  assertResalePrice(input.price);
+  const change = totalOf(input.holderUtxoValues) - input.fee;
+  if (change < 0) {
+    throw new Error(`holder inputs cannot cover fee ${input.fee}`);
+  }
+
+  const binding = covenantBinding(input.eventCovenantId);
+  const listedTicket = covenantScript(input.eventArtifact, {
+    owner: input.owner,
+    identifierType: 0,
+    amount: 1,
+    isMinter: false,
+    used: input.used,
+    salePrice: input.price,
+  });
+
+  return {
+    version: TX_VERSION_V1,
+    inputs: inputsWithTicket(input.ticketOutpoint, input.holderUtxos),
+    outputs: [
+      { value: ticketDustOf(input.ticketDust), scriptPublicKey: listedTicket, covenant: binding },
+      changeOutput(input.changeScript, change),
+    ],
+    lockTime: 0,
+  };
+}
+
+export interface DelistInput {
+  ticketOutpoint: Outpoint;
+  eventCovenantId: string;
+  eventArtifact: CompiledContractArtifact;
+  /** The ticket holder's owner identifier (preserved). */
+  owner: Uint8Array;
+  /** The ticket's current used flag (preserved). */
+  used: boolean;
+  /** Holder KAS UTXOs covering the fee (fee payer = holder). */
+  holderUtxos: Outpoint[];
+  holderUtxoValues: readonly number[];
+  changeScript: ScriptPublicKey;
+  fee: number;
+  ticketDust?: number;
+}
+
+/** Cancel a listing before anyone buys: clear `sale_price` back to 0. */
+export function buildDelist(input: DelistInput): UnsignedTransaction {
+  validatePairedValues(input.holderUtxoValues, input.holderUtxos, "holder");
+  const change = totalOf(input.holderUtxoValues) - input.fee;
+  if (change < 0) {
+    throw new Error(`holder inputs cannot cover fee ${input.fee}`);
+  }
+
+  const binding = covenantBinding(input.eventCovenantId);
+  const unlistedTicket = covenantScript(input.eventArtifact, {
+    owner: input.owner,
+    identifierType: 0,
+    amount: 1,
+    isMinter: false,
+    used: input.used,
+    salePrice: 0,
+  });
+
+  return {
+    version: TX_VERSION_V1,
+    inputs: inputsWithTicket(input.ticketOutpoint, input.holderUtxos),
+    outputs: [
+      { value: ticketDustOf(input.ticketDust), scriptPublicKey: unlistedTicket, covenant: binding },
+      changeOutput(input.changeScript, change),
+    ],
+    lockTime: 0,
+  };
+}
+
+export interface PurchaseInput {
+  /** The listed ticket covenant UTXO being bought (input index 0). */
+  ticketOutpoint: Outpoint;
+  /** The event covenant family id (the ticket's covenant_id). */
+  eventCovenantId: string;
+  /** The per-event compiled Event contract artifact. */
+  eventArtifact: CompiledContractArtifact;
+  /** The seller's 32-byte owner identifier (the listing's `owner`). */
+  seller: Uint8Array;
+  /** The buyer's 32-byte owner identifier (the ticket's next owner). */
+  buyer: Uint8Array;
+  /** The ticket's current used flag (preserved across the purchase). */
+  used: boolean;
+  /** The asking price in sompi (paid to the seller's P2PK script). */
+  price: number;
+  /** Buyer KAS UTXOs covering price + fee (fee payer = buyer). */
+  buyerUtxos: Outpoint[];
+  /** Buyer input values (sompi). */
+  buyerUtxoValues: readonly number[];
+  /** Buyer change script public key. */
+  changeScript: ScriptPublicKey;
+  /** Network fee in sompi (paid by the buyer). */
+  fee: number;
+  /** Dust preserved on the purchased ticket output. */
+  ticketDust?: number;
+}
+
+/**
+ * The trustless purchase template: inputs `[ticket, buyer fee…]`, outputs
+ * `[ticket@buyer (covenant-bound), seller payout @asking price, buyer change]`.
+ * The seller signature does not exist — the covenant IS the escrow.
+ */
+export function buildPurchase(input: PurchaseInput): UnsignedTransaction {
+  validatePairedValues(input.buyerUtxoValues, input.buyerUtxos, "buyer");
+  assertResalePrice(input.price);
+  if (input.seller.length !== HASH_LENGTH) {
+    throw new Error(`seller must be ${HASH_LENGTH} bytes, got ${input.seller.length}`);
+  }
+  if (input.buyer.length !== HASH_LENGTH) {
+    throw new Error(`buyer must be ${HASH_LENGTH} bytes, got ${input.buyer.length}`);
+  }
+  const buyerTotal = totalOf(input.buyerUtxoValues);
+  const change = buyerTotal - input.price - input.fee;
+  if (change < 0) {
+    throw new Error(`buyer inputs ${buyerTotal} cannot cover price ${input.price} + fee ${input.fee}`);
+  }
+
+  const binding = covenantBinding(input.eventCovenantId);
+  const purchasedTicket = covenantScript(input.eventArtifact, {
+    owner: input.buyer,
+    identifierType: 0,
+    amount: 1,
+    isMinter: false,
+    used: input.used,
+    salePrice: 0,
+  });
+
+  return {
+    version: TX_VERSION_V1,
+    inputs: inputsWithTicket(input.ticketOutpoint, input.buyerUtxos),
+    outputs: [
+      { value: ticketDustOf(input.ticketDust), scriptPublicKey: purchasedTicket, covenant: binding },
+      { value: input.price, scriptPublicKey: p2pkScriptFromPubkey(input.seller), covenant: null },
       changeOutput(input.changeScript, change),
     ],
     lockTime: 0,

@@ -36,6 +36,32 @@ export interface EventRegistry {
 
 type IdsJSON = Record<string, unknown>[];
 
+/**
+ * Registry format version. Bumped when the on-chain contract changes in a
+ * breaking way: entries recorded under an older contract point at deploys the
+ * current artifact can no longer verify (template hash mismatch), so they are
+ * wiped on load rather than carried as dead weight. Discovery pointers only —
+ * wiping never loses authoritative state.
+ */
+export const REGISTRY_VERSION = 3;
+
+interface VersionedIdsJSON {
+  version: number;
+  events: IdsJSON;
+}
+
+function parseIdsFile(raw: unknown): IdsJSON {
+  // v1 files were a bare array — treat them as a legacy registry and wipe.
+  if (Array.isArray(raw)) return [];
+  if (!isVersionedObject(raw)) return [];
+  if (raw.version !== REGISTRY_VERSION) return [];
+  return Array.isArray(raw.events) ? (raw.events as IdsJSON) : [];
+}
+
+function isVersionedObject(raw: unknown): raw is VersionedIdsJSON {
+  return typeof raw === "object" && raw !== null && "version" in raw && "events" in raw;
+}
+
 function normalizeHex(s: string): string {
   return s.toLowerCase();
 }
@@ -63,6 +89,7 @@ export class EventStore implements EventRegistry {
   }
 
   #loadIds(): void {
+    if (this.#idsPath === undefined) return;
     if (!existsSync(this.#idsPath)) return;
     let raw: unknown;
     try {
@@ -70,9 +97,9 @@ export class EventStore implements EventRegistry {
     } catch {
       return;
     }
-    if (!Array.isArray(raw)) return;
+    const entries = parseIdsFile(raw);
 
-    const events = raw.map((entry, i) => {
+    const events = entries.map((entry, i) => {
       if (typeof entry !== "object" || entry === null) {
         throw new Error(`events.json[${i}] must be an object`);
       }
@@ -131,11 +158,14 @@ export class EventStore implements EventRegistry {
 
   #saveIds(): void {
     if (!this.#idsPath) return;
-    const json: IdsJSON = this.#events.map((e) => ({
-      deploy_txid: e.deployTxId,
-      covenant_id: e.covenantId,
-      organizer_address: e.organizerAddress,
-    }));
+    const json: VersionedIdsJSON = {
+      version: REGISTRY_VERSION,
+      events: this.#events.map((e) => ({
+        deploy_txid: e.deployTxId,
+        covenant_id: e.covenantId,
+        organizer_address: e.organizerAddress,
+      })),
+    };
     writeFileSync(this.#idsPath, JSON.stringify(json, null, 2) + "\n", "utf-8");
   }
 }

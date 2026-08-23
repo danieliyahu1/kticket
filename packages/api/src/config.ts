@@ -24,6 +24,8 @@ export interface ApiConfig {
   tls?: TlsConfig;
   upstream: UpstreamConfig;
   eventsFilePath: string;
+  /** The listings index file (resale discovery store, KTK-151). */
+  listingsFilePath: string;
   /** Set when TURSO_DATABASE_URL is configured; otherwise the file store is used. */
   turso?: TursoConfig;
 }
@@ -37,6 +39,7 @@ const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_EVENTS_FILE = "events.json";
+const DEFAULT_LISTINGS_FILE = "listings.json";
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const network = getNetworkConfig(env.KASPANET);
@@ -58,6 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       maxAttempts: positiveInt(env.KASPA_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS),
     },
     eventsFilePath: env.EVENTS_FILE?.trim() || DEFAULT_EVENTS_FILE,
+    listingsFilePath: env.LISTINGS_FILE?.trim() || DEFAULT_LISTINGS_FILE,
     ...(tls ? { tls } : {}),
     ...(turso ? { turso } : {}),
   };

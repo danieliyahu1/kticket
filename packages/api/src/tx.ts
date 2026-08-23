@@ -32,6 +32,7 @@ import {
   type TxContext,
   toWireTx,
   type WireTransaction,
+  type WireUtxoMeta,
 } from "./wire.js";
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
 

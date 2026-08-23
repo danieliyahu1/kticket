@@ -5,6 +5,7 @@ import { compileBurnArtifact, compileEventArtifact } from "./compiler";
 import { EventStore } from "./eventstore";
 import type { KaspaClientLike } from "./kaspa-client";
 import type { TxModel, UtxoResponse } from "./kaspa-types";
+import { ListingStoreFile } from "./listings";
 import { VerifiedEventCache } from "./verified-cache";
 import { warmVerifiedEvents } from "./warmup";
 
@@ -131,6 +132,7 @@ describe("warmVerifiedEvents", () => {
       kaspa,
       events,
       verified,
+      listings: new ListingStoreFile(),
       network: NETWORK,
       networkId: "testnet-10",
     });
@@ -149,7 +151,7 @@ describe("warmVerifiedEvents", () => {
     const verified = new VerifiedEventCache();
 
     await expect(
-      warmVerifiedEvents({ kaspa, events, verified, network: NETWORK, networkId: "testnet-10" }),
+      warmVerifiedEvents({ kaspa, events, verified, listings: new ListingStoreFile(), network: NETWORK, networkId: "testnet-10" }),
     ).resolves.toBeUndefined();
     await expect(verified.verify(kaspa, NETWORK, G_ID)).resolves.toMatchObject({
       deploy_txid: G_ID,

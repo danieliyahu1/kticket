@@ -26,13 +26,17 @@ import {
 } from "./runtime/address.js";
 import {
   buildBuy,
+  buildDelist,
   buildDeploy,
   buildHandover,
+  buildList,
   buildMarkUsed,
+  buildPurchase,
   decodeMetadataFromPayload,
   DUST,
   encodeMetadataPayload,
   MAX_EVENT_CAPACITY,
+  p2pkScriptFromPubkey,
   p2shScript,
 } from "./runtime/builder.js";
 import { covenantId } from "./runtime/covenant.js";
@@ -69,6 +73,14 @@ import {
   markUsedSelector,
   usedStateAddress,
 } from "./runtime/mark-used.js";
+import {
+  assembleDelistSigScript,
+  assembleListSigScript,
+  assemblePurchaseSigScript,
+  listedStateAddress,
+  pushI64,
+  resaleSelector,
+} from "./runtime/resale.js";
 
 export type {
   CompiledContractArtifact,
@@ -93,11 +105,14 @@ export type {
 export type { EventState } from "./runtime/provenance.js";
 export type {
   BuyInput,
+  DelistInput,
   DeployInput,
   DeployResult,
   EventMetadata,
   HandoverInput,
+  ListInput,
   MarkUsedInput,
+  PurchaseInput,
 } from "./runtime/builder.js";
 export type { AuthorizedOutput, Outpoint } from "./runtime/covenant.js";
 export type { FeeInput, FeeResult, MassAndSize } from "./runtime/fee.js";
@@ -122,14 +137,25 @@ export {
   usedStateAddress,
 } from "./runtime/mark-used.js";
 export {
+  assembleDelistSigScript,
+  assembleListSigScript,
+  assemblePurchaseSigScript,
+  listedStateAddress,
+  pushI64,
+  resaleSelector,
+} from "./runtime/resale.js";
+export {
   addressFor,
   addressFromScriptHash,
   availableTicketAddress,
   buildBurnRedeemScript,
   buildBuy,
+  buildDelist,
   buildDeploy,
   buildHandover,
+  buildList,
   buildMarkUsed,
+  buildPurchase,
   buildRedeemScript,
   BURN_ARTIFACT,
   computeFee,
@@ -169,6 +195,7 @@ export {
   p2pkAddress,
   p2pkAddressFromScript,
   P2PK_ADDRESS_VERSION,
+  p2pkScriptFromPubkey,
   p2shScript,
   payloadDigest,
   pubkeyFromP2pkScript,

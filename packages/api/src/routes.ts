@@ -2,12 +2,19 @@
 //   GET  /v1/events                              — directory of verified events (from the registry)
 //   POST /v1/events                              — register an event after deploy (discovery only)
 //   GET  /v1/events/{covenant_id}                — verified event facts + raw chain facts
+//   GET  /v1/events/{covenant_id}/listings       — chain-proven resale listings (KTK-151)
 //   POST /v1/events/deploy/prepare               — backend-owned deploy: build the unsigned template
 //   POST /v1/events/deploy/finalize              — backend-owned deploy: merge, broadcast, register
 //   POST /v1/events/{covenant_id}/buy/prepare    — backend-owned buy: verify event, build template
 //   POST /v1/events/{covenant_id}/buy/finalize   — backend-owned buy: merge, broadcast, confirm
 //   GET  /v1/tickets                             — user's on-chain tickets (?owner_pkh=)
 //   POST /v1/tickets/{ticket_id}/use/prepare     — owner pre-signs a check-in (door flow, KTK-118)
+//   POST /v1/tickets/{ticket_id}/list/prepare    — holder lists a ticket for resale (KTK-151)
+//   POST /v1/tickets/{ticket_id}/list/finalize   — merge, broadcast, index the listing
+//   POST /v1/tickets/{ticket_id}/delist/prepare  — holder clears a listing
+//   POST /v1/tickets/{ticket_id}/delist/finalize — merge, broadcast, drop the index row
+//   POST /v1/tickets/{ticket_id}/purchase/prep.. — trustless buyer flow (no seller online)
+//   POST /v1/tickets/{ticket_id}/purchase/final..— validate escrow, broadcast, drop the index row
 //
 // KTK-89 (stateless backend): the identifier registry holds only
 // `{deploy_txid, covenant_id, organizer_address}` for discovery. Every event
@@ -18,18 +25,32 @@
 
 import {
   addressFor,
+  addressFromScriptHash,
+  listedStateAddress,
   organizerPkh,
   type KaspaNetwork,
 } from "@kticket/kit";
-import { hexToBytes } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { FastifyInstance } from "fastify";
 import { buyFinalize, buyPrepare } from "./buy.js";
 import { invalidError, isApiError, notFoundError } from "./errors.js";
 import { deployFinalize, deployPrepare } from "./deploy.js";
 import type { EventRegistry, StoredEvent } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import type { ListingStore } from "./listings.js";
 import type { VerifiedEvent } from "./provenance.js";
 import { verifyEventFromChain } from "./provenance.js";
+import {
+  delistFinalize,
+  delistPrepare,
+  listFinalize,
+  listPrepare,
+  listingsDirectory,
+  parseTicketId,
+  purchaseFinalize,
+  purchasePrepare,
+  type ResaleContext,
+} from "./resale.js";
 import { usePrepare } from "./use.js";
 import { useFinalize, useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
@@ -38,9 +59,22 @@ import { HEX64, hex64, isRecord } from "./validate.js";
 export interface AppContext {
   kaspa: KaspaClientLike;
   events: EventRegistry;
+  /** The resale listings index (discovery only — the chain stays the truth). */
+  listings: ListingStore;
   network: KaspaNetwork;
   networkId: string;
   verified: VerifiedEventCache;
+}
+
+/** The subset the resale flows need — routes pass it straight through. */
+function resaleCtx(ctx: AppContext): ResaleContext {
+  return {
+    kaspa: ctx.kaspa,
+    network: ctx.network,
+    networkId: ctx.networkId,
+    byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
+    listings: ctx.listings,
+  };
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -128,7 +162,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     for (const event of verified) {
       const address = addressFor(
         event.artifact,
-        { owner: ownerBytes, identifierType: 0, amount: 1, isMinter: false, used: false },
+        { owner: ownerBytes, identifierType: 0, amount: 1, isMinter: false, used: false, salePrice: 0 },
         ctx.network,
       );
       eventByAddress.set(address, event);
@@ -137,7 +171,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (eventByAddress.size === 0) return [];
 
     const utxos = await ctx.kaspa.getUtxosForAddresses([...eventByAddress.keys()]);
-    return utxos.flatMap((u) => {
+    const unlisted = utxos.flatMap((u) => {
       const event = u.address ? eventByAddress.get(u.address) : undefined;
       if (!event) return [];
       return [{
@@ -148,6 +182,52 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         event_time: event.time,
       }];
     });
+
+    // Listed tickets this caller owns: the index proposes (seller match), the
+    // chain disposes (the live coin must sit on the derived listed-state
+    // address). Without this walk a listed ticket would vanish from My Tickets
+    // — its address moved when sale_price was set.
+    const ownerHex = bytesToHex(ownerBytes);
+    const listed = (
+      await Promise.all(
+        verified.map(async (event) =>
+          Promise.all(
+            ctx.listings
+              .byCovenantId(event.covenant_id)
+              .filter((l) => l.sellerPkh === ownerHex)
+              .map(async (l): Promise<Record<string, unknown> | undefined> => {
+                try {
+                  const { txid, index } = parseTicketId(l.ticketId);
+                  const tx = await ctx.kaspa.getTransaction(txid);
+                  const script = tx?.outputs[index]?.script_public_key;
+                  if (!script) return undefined;
+                  const actual = addressFromScriptHash(script, ctx.network);
+                  const expected = listedStateAddress(
+                    event.artifact,
+                    ownerBytes,
+                    l.price,
+                    ctx.network,
+                  );
+                  if (actual !== expected) return undefined;
+                  return {
+                    ticket_id: l.ticketId,
+                    covenant_id: event.covenant_id,
+                    event_name: event.name,
+                    event_date: event.date,
+                    event_time: event.time,
+                    listed: true,
+                    price: l.price,
+                  };
+                } catch {
+                  return undefined;
+                }
+              }),
+          ),
+        ),
+      )
+    ).flat();
+
+    return [...unlisted, ...listed.filter((l): l is Record<string, unknown> => l !== undefined)];
   });
 
   const useCtx = {
@@ -155,6 +235,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     networkId: ctx.networkId,
     network: ctx.network,
     byCovenantId: (covenantId: string) => ctx.events.byCovenantId(covenantId),
+    listings: ctx.listings,
   };
 
   app.post<{ Params: { ticketId: string } }>(
@@ -238,6 +319,93 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         },
         "buy finalize",
       );
+      return result;
+    },
+  );
+
+  // --- resale (KTK-151) ------------------------------------------------------
+
+  app.get<{ Params: { covenantId?: string } }>(
+    "/v1/listings",
+    async (req) => listingsDirectory(undefined, resaleCtx(ctx)),
+  );
+
+  app.get<{ Params: { covenantId: string } }>(
+    "/v1/events/:covenantId/listings",
+    async (req) => {
+      const listings = await listingsDirectory(req.params.covenantId, resaleCtx(ctx));
+      req.log.info({ covenant_id: req.params.covenantId, count: listings.length }, "listings");
+      return listings;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/list/prepare",
+    async (req) => {
+      const result = await listPrepare(req.params.ticketId, req.body, resaleCtx(ctx));
+      req.log.info(
+        {
+          list_id: result.list_id,
+          ticket_id: req.params.ticketId,
+          price: result.price,
+        },
+        "list prepare",
+      );
+      return result;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/list/finalize",
+    async (req) => {
+      const result = await listFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
+      req.log.info({ ticket_id: req.params.ticketId, txid: result.txid }, "list finalize");
+      return result;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/delist/prepare",
+    async (req) => {
+      const result = await delistPrepare(req.params.ticketId, req.body, resaleCtx(ctx));
+      req.log.info(
+        { delist_id: result.delist_id, ticket_id: req.params.ticketId },
+        "delist prepare",
+      );
+      return result;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/delist/finalize",
+    async (req) => {
+      const result = await delistFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
+      req.log.info({ ticket_id: req.params.ticketId, txid: result.txid }, "delist finalize");
+      return result;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/purchase/prepare",
+    async (req) => {
+      const result = await purchasePrepare(req.params.ticketId, req.body, resaleCtx(ctx));
+      req.log.info(
+        {
+          purchase_id: result.purchase_id,
+          ticket_id: req.params.ticketId,
+          price: result.price,
+        },
+        "purchase prepare",
+      );
+      return result;
+    },
+  );
+
+  app.post<{ Params: { ticketId: string } }>(
+    "/v1/tickets/:ticketId/purchase/finalize",
+    async (req) => {
+      const result = await purchaseFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
+      req.log.info({ ticket_id: req.params.ticketId, txid: result.txid }, "purchase finalize");
       return result;
     },
   );

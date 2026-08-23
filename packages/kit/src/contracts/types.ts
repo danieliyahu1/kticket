@@ -7,7 +7,10 @@
 //     and `isMinter = false` (fixed supply). `mint` (buy) splits off one
 //     ticket covenant (`amount = 1`) and decrements the event covenant.
 //   - A ticket covenant is `amount = 1`, owned by the buyer's identifier.
-//   - `transfer` re-binds a covenant to a new owner (holder-only).
+//   - `mark_used` checks the ticket in at the door (owner + organizer
+//     co-signature); the ticket stays with its owner, resale ends.
+//   - Resale moves a ticket via the market only: list / purchase / delist —
+//     there is no direct re-bind entrypoint (v3).
 //   - `use` (handover) spends a ticket into the event's burn-owner covenant —
 //     an unspendable identifier, so the ticket (dust included) is consumed.
 //
@@ -34,14 +37,14 @@ export interface Kcc20Constants {
   burnTemplateHash: Uint8Array;
 }
 
-export type TicketEntrypoint = "mint" | "transfer" | "use";
+export type TicketEntrypoint = "mint" | "use";
 
 export interface CovenantContext {
   /** Number of covenant (authorized) outputs in the transaction. */
   authOutputCount: number;
   /** Whether the organizer signed the event covenant spend (mint). */
   organizerSigned: boolean;
-  /** Whether the holder signed the ticket spend (transfer/use). */
+  /** Whether the holder signed the ticket spend (mark_used / list / delist). */
   holderSigned: boolean;
   /** Whether the handover successor is the event's burn-owner covenant. */
   successorIsBurn: boolean;

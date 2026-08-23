@@ -10,6 +10,7 @@
 import type { Client } from "@libsql/client";
 import {
   normalizeStoredEvent,
+  REGISTRY_VERSION,
   type EventRegistry,
   type StoredEvent,
 } from "./eventstore.js";
@@ -19,6 +20,13 @@ const SCHEMA = `
     covenant_id       TEXT PRIMARY KEY,
     deploy_txid       TEXT NOT NULL,
     organizer_address TEXT NOT NULL
+  )
+`;
+
+const META_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS registry_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
   )
 `;
 
@@ -32,9 +40,11 @@ export class TursoEventStore implements EventRegistry {
     this.#client = client;
   }
 
-  /** Create the schema if missing and mirror existing rows into memory. */
+  /** Create the schema if missing, wipe stale-contract rows, mirror into memory. */
   async init(): Promise<void> {
     await this.#client.execute(SCHEMA);
+    await this.#client.execute(META_SCHEMA);
+    await this.#wipeOnVersionMismatch();
     const result = await this.#client.execute(
       "SELECT covenant_id, deploy_txid, organizer_address FROM events ORDER BY rowid",
     );
@@ -45,6 +55,28 @@ export class TursoEventStore implements EventRegistry {
         organizerAddress: String(row.organizer_address),
       });
     }
+  }
+
+  /**
+   * Entries recorded under an older contract version can never re-verify (the
+   * artifact's template hash changed), so drop them once per version bump.
+   * Same policy as the file store's versioned envelope — discovery pointers
+   * only, nothing authoritative is lost.
+   */
+  async #wipeOnVersionMismatch(): Promise<void> {
+    const stored = await this.#client.execute({
+      sql: "SELECT value FROM registry_meta WHERE key = 'registry_version'",
+      args: [],
+    });
+    const value = stored.rows[0]?.value;
+    if (value !== undefined && Number(value) === REGISTRY_VERSION) return;
+
+    await this.#client.execute("DELETE FROM events");
+    await this.#client.execute({
+      sql: `INSERT INTO registry_meta (key, value) VALUES ('registry_version', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      args: [String(REGISTRY_VERSION)],
+    });
   }
 
   /** Release the underlying connection (tests and shutdown). */

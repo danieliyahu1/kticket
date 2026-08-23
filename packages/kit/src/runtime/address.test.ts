@@ -31,6 +31,7 @@ const ticketState = (owner: Uint8Array = ZERO_OWNER) => ({
   amount: 1,
   isMinter: false,
   used: false,
+  salePrice: 0,
 });
 
 const eventState = (owner: Uint8Array = ZERO_OWNER) => ({
@@ -39,6 +40,7 @@ const eventState = (owner: Uint8Array = ZERO_OWNER) => ({
   amount: 100,
   isMinter: false,
   used: false,
+  salePrice: 0,
 });
 
 describe("bech32 address encoding (vectors from crypto/addresses/src/lib.rs)", () => {

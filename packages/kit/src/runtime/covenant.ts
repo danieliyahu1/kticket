@@ -5,7 +5,7 @@
 // of an event's fanout transaction share one `event_cov_id` — outputs are
 // grouped by `(authorizing_input, covenant_id)`, and the genesis hash commits
 // to the whole authorized output list. Every ticket of an event therefore
-// carries the same covenant_id across buy / transfer / handover.
+// carries the same covenant_id across buy / resale / check-in.
 //
 // Hashing (KIP-20 §3): BLAKE2b-256 keyed with domain tag "CovenantID".
 //

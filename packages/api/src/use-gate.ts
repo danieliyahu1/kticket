@@ -18,10 +18,12 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import {
   assembleMarkUsedSigScript,
   injectState,
+  p2shScript,
   pubkeyFromP2pkScript,
   type KaspaNetwork,
 } from "@kticket/kit";
 import { invalidError, notFoundError, policyError } from "./errors.js";
+import type { ListingStore } from "./listings.js";
 import { broadcastAndConfirm } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { verifyEventFromChain, type VerifiedEvent } from "./provenance.js";
@@ -35,6 +37,8 @@ export interface UseGateContext {
   network: KaspaNetwork;
   /** Resolve the registry pointer for a covenant id (may be undefined). */
   byCovenantId: (covenantId: string) => { deployTxId: string } | undefined;
+  /** Listings index — proposes the asking price for a listed check-in. */
+  listings: ListingStore;
 }
 
 export interface UseSignTemplateResult {
@@ -256,15 +260,29 @@ export async function useFinalize(
   const artifact = verified.artifact;
 
   // Recover the ticket owner from the change output; rebuild the redeem the
-  // ticket currently commits to (amount 1, unused) for the spend reveal.
+  // ticket currently commits to for the spend reveal. v3: an unlisted coin
+  // reveals sale_price 0; a listed one reveals its asking price (the index
+  // proposes, the script equality below disposes). Check-in absorbs the
+  // listing on chain — mark_used emits sale_price 0.
   const owner = ownerPkhFromChangeOutput(template);
-  const redeem = injectState(artifact, {
-    owner,
-    identifierType: 0,
-    amount: 1,
-    isMinter: false,
-    used: false,
-  });
+  const liveScript = (
+    await ctx.kaspa.getTransaction(ticketTxid)
+  )?.outputs?.[ticketIndex]?.script_public_key;
+  if (typeof liveScript !== "string") {
+    throw notFoundError(`ticket ${ticketTxid}:${ticketIndex} not found on chain`);
+  }
+  const baseState = { owner, identifierType: 0 as const, amount: 1 as const, isMinter: false as const };
+  let redeem = injectState(artifact, { ...baseState, used: false, salePrice: 0 });
+  if (p2shScript(redeem).script !== liveScript.toLowerCase()) {
+    const stored = ctx.listings.get(covenantIdHex, `${ticketTxid}:${ticketIndex}`);
+    if (!stored) {
+      throw invalidError("ticket is neither unlisted nor carries a known listing");
+    }
+    redeem = injectState(artifact, { ...baseState, used: false, salePrice: stored.price });
+    if (p2shScript(redeem).script !== liveScript.toLowerCase()) {
+      throw invalidError("stale or unknown listing — cannot assemble the check-in reveal");
+    }
+  }
 
   const ownerSigs = walletSignatures(req.owner_signed);
   const gateSigs = walletSignatures(req.gate_signed);

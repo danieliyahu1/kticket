@@ -7,16 +7,36 @@ import {
   type UsePrepareResult,
 } from "../api/client";
 import { prepareCheckIn, signCheckIn, type CheckInState } from "../api/use-machine";
-import { whenLabel } from "../lib/format";
+import { executeDelist, executeList, type ResaleState } from "../api/resale-machine";
+import { priceLabel, whenLabel } from "../lib/format";
 import { Empty, OfflineEmpty } from "../components/empty";
 import { QrCode } from "../components/qr-code";
 
-function TicketCard({ ticket }: { ticket: TicketEntry }) {
+/** The sell dialog collects KAS; the backend wants sompi. */
+function kasToSompi(input: string): number | null {
+  const value = Number.parseFloat(input);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.round(value * 100_000_000);
+}
+
+const RESALE_PHASE_COPY: Record<Exclude<ResaleState["phase"], "idle" | "error">, string> = {
+  loading: "Talking to the server…",
+  building: "Confirming in your wallet…",
+  broadcasting: "Putting it on the chain…",
+  success: "",
+};
+
+function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () => void }) {
   const { state } = useWallet();
   const [checkIn, setCheckIn] = useState<CheckInState>({ phase: "idle" });
   const [prepared, setPrepared] = useState<UsePrepareResult | null>(null);
+  const [resale, setResale] = useState<ResaleState>({ phase: "idle" });
+  const [sellOpen, setSellOpen] = useState(false);
+  const [priceInput, setPriceInput] = useState("");
   const connected = state.status === "connected";
   const busy = checkIn.phase === "preparing" || checkIn.phase === "signing";
+  const resaleBusy =
+    resale.phase === "loading" || resale.phase === "building" || resale.phase === "broadcasting";
 
   const handleCheckIn = useCallback(async () => {
     if (state.status !== "connected" || !state.accounts[0]) return;
@@ -42,19 +62,93 @@ function TicketCard({ ticket }: { ticket: TicketEntry }) {
     setCheckIn({ phase: "idle" });
   }, [checkIn.phase]);
 
+  const runResale = useCallback(
+    async (run: (setState: (s: ResaleState) => void) => Promise<void>) => {
+      if (state.status !== "connected" || !state.accounts[0]) return;
+      await run(setResale);
+      onChanged();
+    },
+    [state, onChanged],
+  );
+
+  const handleSell = useCallback(() => {
+    const sompi = kasToSompi(priceInput);
+    if (!sompi || state.status !== "connected" || !state.accounts[0]) return;
+    const publicKey = state.publicKey;
+    const address = state.accounts[0];
+    void runResale((set) =>
+      executeList(set, {
+        ticketId: ticket.ticket_id,
+        publicKey,
+        address,
+        priceSompi: sompi,
+      }),
+    );
+  }, [priceInput, state, ticket.ticket_id, runResale]);
+
+  const handleCancelSale = useCallback(() => {
+    if (state.status !== "connected" || !state.accounts[0]) return;
+    const publicKey = state.publicKey;
+    const address = state.accounts[0];
+    void runResale((set) =>
+      executeDelist(set, {
+        ticketId: ticket.ticket_id,
+        publicKey,
+        address,
+      }),
+    );
+  }, [state, ticket.ticket_id, runResale]);
+
+  const closeSell = useCallback(() => {
+    setSellOpen(false);
+    setPriceInput("");
+    if (resale.phase !== "idle") setResale({ phase: "idle" });
+  }, [resale.phase]);
+
   return (
     <div className="ticket">
       <div className="ticket-main">
         <h3 className="ticket-name">{ticket.event_name}</h3>
         <p className="ticket-line">{whenLabel(ticket.event_date, ticket.event_time || undefined)}</p>
 
+        {ticket.listed && (
+          <p className="ticket-line">
+            <span className="badge badge-ok">For sale &middot; {priceLabel(ticket.price ?? 0)}</span>
+          </p>
+        )}
+
         {checkIn.phase === "idle" && connected && (
+          <>
+            <button
+              type="button"
+              className="button button-secondary button-sm ticket-checkin"
+              onClick={handleCheckIn}
+            >
+              Check in
+            </button>
+            {ticket.listed && (
+              <p className="checkin-copy">Checking in ends your sale.</p>
+            )}
+            {!ticket.listed && !sellOpen && (
+              <button
+                type="button"
+                className="button button-link button-sm"
+                onClick={() => setSellOpen(true)}
+                disabled={busy}
+              >
+                Sell…
+              </button>
+            )}
+          </>
+        )}
+
+        {ticket.listed && connected && !resaleBusy && resale.phase !== "success" && (
           <button
             type="button"
             className="button button-secondary button-sm ticket-checkin"
-            onClick={handleCheckIn}
+            onClick={handleCancelSale}
           >
-            Check in
+            Cancel sale
           </button>
         )}
 
@@ -101,6 +195,34 @@ function TicketCard({ ticket }: { ticket: TicketEntry }) {
             </button>
           </div>
         )}
+
+        {resale.phase !== "idle" &&
+          resale.phase !== "error" &&
+          RESALE_PHASE_COPY[resale.phase] && (
+            <div className="checkin-status" role="status">
+              <div className="spinner spinner-sm" />
+              <span>{RESALE_PHASE_COPY[resale.phase]}</span>
+            </div>
+          )}
+
+        {resale.phase === "success" && (
+          <p className="checkin-copy" role="status">
+            {ticket.listed ? "Your listing is live." : "Sale cancelled."}
+          </p>
+        )}
+
+        {resale.phase === "error" && (
+          <div className="checkin-error" role="alert">
+            <p>{resale.message}</p>
+            <button
+              type="button"
+              className="button button-link button-sm"
+              onClick={() => setResale({ phase: "idle" })}
+            >
+              Try again
+            </button>
+          </div>
+        )}
       </div>
       <div className="ticket-perforation" />
       <div className="ticket-stub">
@@ -112,32 +234,76 @@ function TicketCard({ ticket }: { ticket: TicketEntry }) {
         </div>
       </div>
 
-      {prepared && (
-        <div className="overlay" role="dialog" aria-modal="true" aria-label="Check in">
+      {(prepared || sellOpen) && (
+        <div className="overlay" role="dialog" aria-modal="true" aria-label={sellOpen ? "Sell ticket" : "Check in"}>
           <div className="dialog">
-            <h3 className="dialog-title">Hand over your ticket to {ticket.event_name}?</h3>
-            <p className="dialog-copy">
-              Approve to pre-sign your check-in. Nothing is spent — you get a QR the gate can
-              scan.
-            </p>
-            <div className="form-actions">
-              <button
-                type="button"
-                className="button button-secondary"
-                onClick={handleCancel}
-                disabled={busy}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button button-primary"
-                onClick={handleApprove}
-                disabled={busy}
-              >
-                Approve
-              </button>
-            </div>
+            {sellOpen ? (
+              <>
+                <h3 className="dialog-title">Sell your ticket to {ticket.event_name}?</h3>
+                <p className="dialog-copy">
+                  Your ticket goes into covenant escrow. Anyone can buy it at this exact price — no
+                  trust needed.
+                </p>
+                <label className="field">
+                  <span className="field-label">Asking price (KAS)</span>
+                  <input
+                    className="input mono"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="1.5"
+                    value={priceInput}
+                    autoFocus
+                    onChange={(e) => setPriceInput(e.target.value)}
+                    disabled={resaleBusy}
+                  />
+                </label>
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={closeSell}
+                    disabled={resaleBusy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={handleSell}
+                    disabled={resaleBusy || !kasToSompi(priceInput)}
+                  >
+                    List for sale
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="dialog-title">Hand over your ticket to {ticket.event_name}?</h3>
+                <p className="dialog-copy">
+                  Approve to pre-sign your check-in. Nothing is spent — you get a QR the gate can
+                  scan.
+                </p>
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={handleCancel}
+                    disabled={busy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={handleApprove}
+                    disabled={busy}
+                  >
+                    Approve
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -156,7 +322,7 @@ function TicketsEmpty() {
   );
 }
 
-function TicketsSection({ tickets }: { tickets: TicketEntry[] }) {
+function TicketsSection({ tickets, onChanged }: { tickets: TicketEntry[]; onChanged: () => void }) {
   return (
     <div className="ticket-group-list">
       {groupByEvent(tickets).map(({ eventName, eventTickets }) => (
@@ -165,7 +331,7 @@ function TicketsSection({ tickets }: { tickets: TicketEntry[] }) {
             {eventName} &middot; {eventTickets.length} {eventTickets.length === 1 ? "ticket" : "tickets"}
           </h3>
           {eventTickets.map((ticket) => (
-            <TicketCard key={ticket.ticket_id} ticket={ticket} />
+            <TicketCard key={ticket.ticket_id} ticket={ticket} onChanged={onChanged} />
           ))}
         </div>
       ))}
@@ -226,7 +392,7 @@ export default function TicketsPage() {
       ) : tickets.length === 0 ? (
         <TicketsEmpty />
       ) : (
-        <TicketsSection tickets={tickets} />
+        <TicketsSection tickets={tickets} onChanged={load} />
       )}
     </div>
   );

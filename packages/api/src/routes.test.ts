@@ -2,7 +2,9 @@ import {
   addressFromScriptHash,
   buildBuy,
   buildDeploy,
+  injectState,
   p2pkAddress,
+  p2shScript,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
@@ -12,6 +14,7 @@ import { compileBurnArtifact, compileEventArtifact } from "./compiler";
 import { loadConfig } from "./config";
 import { EventStore, type StoredEvent } from "./eventstore";
 import { HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_OK } from "./http-status.js";
+import { ListingStoreFile } from "./listings";
 import { VerifiedEventCache } from "./verified-cache";
 
 vi.mock("./wrpc-client.js", () => ({
@@ -206,12 +209,18 @@ function makeEventStore(): EventStore {
   return store;
 }
 
-function readerApp(kaspa: KaspaClientLike, events: EventStore = makeEventStore()) {
+function readerApp(
+  kaspa: KaspaClientLike,
+  events: EventStore = makeEventStore(),
+  listings: ListingStoreFile = new ListingStoreFile(),
+) {
   return buildApp(config(), {
     kaspa,
     events,
+    listings,
     network: NETWORK,
     networkId: "testnet-10",
+    verified: new VerifiedEventCache(),
   });
 }
 
@@ -425,6 +434,84 @@ describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
     ]);
     await app.close();
   });
+
+  it("also walks LISTED tickets the caller owns (index proposes, chain disposes)", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    seedTicket(kaspa);
+
+    // The listed ticket lives at a NEW outpoint whose script commits to the
+    // listed state (owner, price) — exactly what a real list tx produces.
+    const LIST_TXID = "cc".repeat(TXID_BYTE_LENGTH);
+    const LIST_PRICE = 150_000_000;
+    const listedScript = p2shScript(
+      injectState(eventArtifact(), {
+        owner: hexToBytes(TICKET_OWNER_HEX),
+        identifierType: 0,
+        amount: 1,
+        isMinter: false,
+        used: false,
+        salePrice: LIST_PRICE,
+      }),
+    ).script;
+    const listedAddress = addressFromScriptHash(listedScript, NETWORK);
+    kaspa.transactions.set(LIST_TXID, {
+      transaction_id: LIST_TXID,
+      inputs: [],
+      outputs: [
+        {
+          transaction_id: LIST_TXID,
+          index: 0,
+          amount: 10_000_000,
+          script_public_key: listedScript,
+          covenant_authorizing_input: null,
+          covenant_id: TEST_COVENANT_ID,
+        },
+      ],
+    });
+
+    const listings = new ListingStoreFile();
+    await listings.upsert({
+      covenantId: TEST_COVENANT_ID,
+      ticketId: `${LIST_TXID}:0`,
+      sellerPkh: TICKET_OWNER_HEX,
+      price: LIST_PRICE,
+    });
+    // A stale row (no such coin on chain) and a foreign seller's row must not
+    // leak into this caller's walk.
+    await listings.upsert({
+      covenantId: TEST_COVENANT_ID,
+      ticketId: `${LIST_TXID.slice(0, -2)}ff:0`,
+      sellerPkh: TICKET_OWNER_HEX,
+      price: LIST_PRICE,
+    });
+    const app = await readerApp(kaspa, makeEventStore(), listings);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/tickets?owner_pkh=${TICKET_OWNER_HEX}`,
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual([
+      {
+        ticket_id: `${B0_ID}:0`,
+        covenant_id: TEST_COVENANT_ID,
+        event_name: EVENT_NAME,
+        event_date: EVENT_DATE,
+        event_time: EVENT_TIME,
+      },
+      {
+        ticket_id: `${LIST_TXID}:0`,
+        covenant_id: TEST_COVENANT_ID,
+        event_name: EVENT_NAME,
+        event_date: EVENT_DATE,
+        event_time: EVENT_TIME,
+        listed: true,
+        price: LIST_PRICE,
+      },
+    ]);
+    await app.close();
+  });
 });
 
 function txApp() {
@@ -433,6 +520,8 @@ function txApp() {
     events: makeEventStore(),
     network: NETWORK,
     networkId: "testnet-10",
+    verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
   });
 }
 
@@ -510,6 +599,8 @@ describe("POST /v1/events/{covenantId}/buy/prepare", () => {
       events: makeEventStore(),
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
     const res = await app.inject({
       method: "POST",
@@ -535,6 +626,8 @@ describe("POST /v1/events/{covenantId}/buy/prepare", () => {
       events: makeEventStore(),
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
     const res = await app.inject({
       method: "POST",
@@ -560,6 +653,8 @@ describe("POST /v1/events/{covenantId}/buy/finalize", () => {
       events: makeEventStore(),
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
     const res = await app.inject({
       method: "POST",
@@ -660,6 +755,8 @@ describe("POST /v1/tickets/{ticket_id}/use/prepare (door check-in, KTK-118)", ()
       events: makeEventStore(),
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
   }
 
@@ -812,6 +909,8 @@ describe("POST /v1/tickets/{ticket_id}/use/sign-template (gate, KTK-128)", () =>
       events: makeEventStore(),
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
   }
 
@@ -928,6 +1027,8 @@ describe("POST /v1/tickets/{ticket_id}/use/finalize (gate, KTK-129)", () => {
       events: makeEventStore(),
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
   }
 
@@ -1030,7 +1131,7 @@ describe("POST /v1/tickets/{ticket_id}/use/finalize (gate, KTK-129)", () => {
     const app = await gateApp(kaspa);
 
     const otherTemplate = gateTemplate();
-    otherTemplate.inputs[0].previous_outpoint = {
+    otherTemplate.inputs[0]!.previous_outpoint = {
       transaction_id: "ff".repeat(TXID_BYTE_LENGTH),
       index: 0,
     };
@@ -1060,6 +1161,8 @@ describe("reader routes — POST /v1/events", () => {
       events,
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
 
     const res = await app.inject({
@@ -1079,6 +1182,8 @@ describe("reader routes — POST /v1/events", () => {
       events,
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
 
     const res = await app.inject({
@@ -1109,6 +1214,8 @@ describe("reader routes — POST /v1/events", () => {
       events,
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
 
     const res = await app.inject({
@@ -1148,6 +1255,8 @@ describe("POST /v1/events/deploy/prepare", () => {
       events: makeEventStore(),
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
     const res = await app.inject({
       method: "POST",
@@ -1183,6 +1292,7 @@ describe("POST /v1/events/deploy/prepare", () => {
       network: NETWORK,
       networkId: "testnet-10",
       verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
     const res = await app.inject({
       method: "POST",
@@ -1267,6 +1377,8 @@ describe("POST /v1/events/deploy/finalize", () => {
       events,
       network: NETWORK,
       networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
     });
 
     const res = await app.inject({

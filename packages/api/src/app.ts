@@ -8,6 +8,8 @@ import { type ApiConfig, loadConfig } from "./config";
 import { registerErrorHandler } from "./error-handler";
 import { EventStore, type EventRegistry } from "./eventstore";
 import { TursoEventStore } from "./eventstore-turso";
+import { ListingStoreFile, type ListingStore } from "./listings";
+import { TursoListingStore } from "./listings-turso";
 import { KaspaClient } from "./kaspa-client";
 import { type AppContext, registerRoutes } from "./routes";
 import { VerifiedEventCache } from "./verified-cache";
@@ -31,6 +33,18 @@ async function openEventRegistry(config: ApiConfig): Promise<EventRegistry> {
     ...(config.turso.authToken ? { authToken: config.turso.authToken } : {}),
   });
   const store = new TursoEventStore(client);
+  await store.init();
+  return store;
+}
+
+/** The listings index backend — same split as the event registry. */
+async function openListingStore(config: ApiConfig): Promise<ListingStore> {
+  if (!config.turso) return new ListingStoreFile(config.listingsFilePath);
+  const client = createClient({
+    url: config.turso.url,
+    ...(config.turso.authToken ? { authToken: config.turso.authToken } : {}),
+  });
+  const store = new TursoListingStore(client);
   await store.init();
   return store;
 }
@@ -62,11 +76,13 @@ export async function buildApp(
   });
 
   const events = deps?.events ?? (await openEventRegistry(config));
+  const listings = deps?.listings ?? (await openListingStore(config));
   const verified = deps?.verified ?? new VerifiedEventCache();
 
   const ctx: AppContext = {
     kaspa,
     events,
+    listings,
     verified,
     network: deps?.network ?? config.kaspaNet,
     networkId: deps?.networkId ?? config.networkId,
