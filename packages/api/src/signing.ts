@@ -1,6 +1,6 @@
 // wasm-built signing template (forge reference — `serializeToSafeJSON()`).
 //
-// Kasware's `signPskt` expects the kaspa-wasm safe-JSON shape: camelCase
+// Kastle's `signTx` expects the kaspa-wasm safe-JSON shape: camelCase
 // fields, bigints as strings, and a full `utxo` (amount / script / daa /
 // coinbase / covenantId) on every input. Hand-rolling that shape is error-prone
 // (the earlier E2E caught the divergence), so we build the same

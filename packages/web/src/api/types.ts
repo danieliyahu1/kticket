@@ -46,7 +46,7 @@ export interface WireTransaction {
 
 export interface BuildResult {
   template: WireTransaction;
-  /** Unsigned tx in the kaspa-wasm safe-JSON shape Kasware's `signPskt` signs. */
+  /** Unsigned tx in the kaspa-wasm safe-JSON shape Kastle's `signTx` signs. */
   signing_template?: string;
   event_covenant_id?: string;
 }

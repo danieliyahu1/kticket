@@ -51,7 +51,7 @@ export type PreparedBuild = {
   payouts: readonly number[];
   /**
    * Full prev-output metadata for every spending input, in input order â€” the
-   * wallet needs these to sign (`signPskt` safe-JSON carries `utxo` per input).
+    * wallet needs these to sign (`signTx` safe-JSON carries `utxo` per input).
    */
   inputUtxoMetas: WireUtxoMeta[];
 };

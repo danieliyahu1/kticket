@@ -1,7 +1,7 @@
 // Unsigned v1 transaction template types (HLD v0.21 §2.1 "Transactions (v1)").
 //
 // The kit produces *unsigned* templates; signing and broadcast are handled by
-// the wallet (Kasware) and the API. Templates are plain data — the concrete
+// the wallet (Kastle) and the API. Templates are plain data — the concrete
 // kaspa-wasm v1 serialization (`Transaction`, `CovenantBinding`,
 // `populateGenesisCovenants`) is applied at the network boundary (see the
 // spike decision note).

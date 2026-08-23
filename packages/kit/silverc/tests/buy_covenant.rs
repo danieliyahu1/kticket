@@ -370,7 +370,7 @@ fn mark_used_covenant_passes_on_chain_vm() {
     assert!(result.is_ok(), "mark_used covenant spend should pass: {result:?}");
 }
 
-/// Verifies the REAL buyer P2PK signature (from Kasware) against the REAL
+/// Verifies the REAL buyer P2PK signature (from Kastle) against the REAL
 /// broadcast buy tx. If this fails, the wallet signed a different transaction
 /// than the one the API broadcasts — the root cause of the node rejection.
 #[test]

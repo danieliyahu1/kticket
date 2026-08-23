@@ -24,12 +24,12 @@ export interface WireUtxo extends WireOutpoint {
 
 /**
  * A funding UTXO with the full prev-output metadata the wallet needs to sign
- * (`signPskt` safe-JSON carries `utxo.scriptPublicKey` etc. per input). The
+ * (`signTx` safe-JSON carries `utxo.scriptPublicKey` etc. per input). The
  * wallet supplies these from its own lookup; the API forwards them into the
  * wasm-built signing template.
  */
 export interface WireUtxoMeta extends WireUtxo {
-  /** `{version, script}` public key of the previous output (v0 P2PK for kasware). */
+  /** `{version, script}` public key of the previous output (v0 P2PK for Kastle). */
   script_public_key: WireScriptPublicKey;
   block_daa_score: number;
   is_coinbase: boolean;
@@ -174,8 +174,8 @@ export type BuildRequest =
 export interface BuildResult {
   template: WireTransaction;
   /**
-   * The unsigned transaction in the kaspa-wasm safe-JSON shape Kasware's
-   * `signPskt` expects (`serializeToSafeJSON()`), built on-chain-style so the
+   * The unsigned transaction in the kaspa-wasm safe-JSON shape Kastle's
+   * `signTx` expects (`serializeToSafeJSON()`), built on-chain-style so the
    * wallet can produce signatures (HLD §2.2 / forge reference).
    */
   signing_template?: string;
