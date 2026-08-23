@@ -4,6 +4,7 @@ import type {
   WireOutpoint,
   WireTransaction,
 } from "./types";
+import { devError, devLog } from "../lib/log";
 
 /** An API error carrying the backend's taxonomy (type / message / retryable). */
 export class ApiError extends Error {
@@ -28,7 +29,7 @@ export class ServerError extends Error {
 
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   const url = path;
-  console.log(`[api] POST ${url}`, JSON.stringify(body));
+  devLog(`[api] POST ${url}`);
   let res: Response;
   try {
     res = await fetch(url, {
@@ -37,13 +38,13 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
       body: JSON.stringify(body),
     });
   } catch (err) {
-    console.error(`[api] fetch failed: ${url}`, err);
+    devError(`[api] fetch failed: ${url}`);
     throw new ServerError();
   }
 
   if (!res.ok) {
     const text = await res.text();
-    console.error(`[api] ${res.status} ${url}`, text);
+    devError(`[api] ${res.status} ${url}`);
     if (res.status >= 500) {
       throw new ServerError();
     }
@@ -52,7 +53,6 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   }
 
   const text = await res.text();
-  console.log(`[api] 200 ${url}`, text);
   return JSON.parse(text) as T;
 }
 
@@ -135,17 +135,17 @@ export interface EventDetail {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  console.log(`[api] GET ${path}`);
+  devLog(`[api] GET ${path}`);
   let res: Response;
   try {
     res = await fetch(path);
   } catch (err) {
-    console.error(`[api] fetch GET failed: ${path}`, err);
+    devError(`[api] fetch GET failed: ${path}`);
     throw new ServerError();
   }
   if (!res.ok) {
     const text = await res.text();
-    console.error(`[api] ${res.status} ${path}`, text);
+    devError(`[api] ${res.status} ${path}`);
     if (res.status >= 500) {
       throw new ServerError();
     }
@@ -153,7 +153,6 @@ async function apiGet<T>(path: string): Promise<T> {
     throw new ApiError(err?.message ?? `API error ${res.status}`, err?.type, err?.retryable);
   }
   const text = await res.text();
-  console.log(`[api] 200 ${path}`, text);
   return JSON.parse(text) as T;
 }
 
