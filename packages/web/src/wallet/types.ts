@@ -25,6 +25,8 @@ export interface KastleProvider {
     txJson: string,
     scripts?: KastleSignScript[],
   ) => Promise<string | { txJson?: string; signedTx?: string; tx?: string }>;
+  /** Signs a plain message (Schnorr) — used for the wallet-identity claim. */
+  signMessage: (message: string) => Promise<string>;
   on: (event: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
 }

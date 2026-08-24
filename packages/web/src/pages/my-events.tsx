@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "../hooks/use-wallet";
+import { useAuth } from "../auth/AuthProvider";
 import { fetchEventsList, ServerError, type EventListItem } from "../api/client";
 import { Empty, OfflineEmpty } from "../components/empty";
 import { EventCard } from "../components/event-card";
@@ -19,14 +20,16 @@ function MyEventsEmpty() {
 
 export default function MyEventsPage() {
   const { state, connect } = useWallet();
+  const auth = useAuth();
   const connected = state.status === "connected";
+  const authed = auth.status === "ready";
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    if (state.status !== "connected") {
+    if (state.status !== "connected" || auth.status !== "ready") {
       setLoading(false);
       setEvents([]);
       return;
@@ -54,7 +57,7 @@ export default function MyEventsPage() {
     return () => {
       cancelled = true;
     };
-  }, [state.status, state.status === "connected" ? state.accounts[0] : undefined, retryKey]);
+  }, [state.status, auth.status, state.status === "connected" ? state.accounts[0] : undefined, retryKey]);
 
   return (
     <div>
@@ -65,6 +68,11 @@ export default function MyEventsPage() {
           actionLabel="Connect wallet"
           onAction={connect}
         />
+      ) : !authed ? (
+        <div className="checkin-status" role="status">
+          <div className="spinner spinner-sm" />
+          <span>Signing you in…</span>
+        </div>
       ) : offline ? (
         <OfflineEmpty onRetry={() => setRetryKey((k) => k + 1)} />
       ) : loading ? (

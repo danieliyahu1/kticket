@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "./auth/AuthProvider";
 import { CreateDialogProvider } from "./components/create-dialog-context";
 import { Layout } from "./components/layout";
 import EventDetailPage from "./pages/event-detail";
@@ -12,20 +13,22 @@ import { WalletProvider } from "./wallet/provider";
 export default function App() {
   return (
     <WalletProvider>
-      <BrowserRouter>
-        <CreateDialogProvider>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route index element={<EventsPage />} />
-              <Route path="marketplace" element={<MarketplacePage />} />
-              <Route path="tickets" element={<TicketsPage />} />
-              <Route path="my-events" element={<MyEventsPage />} />
-              <Route path="events/:covenantId" element={<EventDetailPage />} />
-              <Route path="gate/:covenantId" element={<GatePage />} />
-            </Route>
-          </Routes>
-        </CreateDialogProvider>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <CreateDialogProvider>
+            <Routes>
+              <Route element={<Layout />}>
+                <Route index element={<EventsPage />} />
+                <Route path="marketplace" element={<MarketplacePage />} />
+                <Route path="tickets" element={<TicketsPage />} />
+                <Route path="my-events" element={<MyEventsPage />} />
+                <Route path="events/:covenantId" element={<EventDetailPage />} />
+                <Route path="gate/:covenantId" element={<GatePage />} />
+              </Route>
+            </Routes>
+          </CreateDialogProvider>
+        </BrowserRouter>
+      </AuthProvider>
     </WalletProvider>
   );
 }

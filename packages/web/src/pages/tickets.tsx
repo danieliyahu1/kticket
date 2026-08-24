@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWallet } from "../hooks/use-wallet";
+import { useAuth } from "../auth/AuthProvider";
 import {
   fetchMyTickets,
   ServerError,
@@ -341,18 +342,21 @@ function TicketsSection({ tickets, onChanged }: { tickets: TicketEntry[]; onChan
 
 export default function TicketsPage() {
   const { state, connect } = useWallet();
+  const auth = useAuth();
   const connected = state.status === "connected";
+  const authed = auth.status === "ready";
+  const publicKey = state.status === "connected" ? state.publicKey : "";
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
   const load = useCallback(async () => {
-    if (state.status !== "connected") return;
+    if (!publicKey || auth.status !== "ready") return;
     setOffline(false);
     setLoading(true);
     try {
-      const list = await fetchMyTickets(state.publicKey);
+      const list = await fetchMyTickets(publicKey);
       setTickets(list);
     } catch (err) {
       console.error("[tickets] failed to load", err);
@@ -364,13 +368,13 @@ export default function TicketsPage() {
     } finally {
       setLoading(false);
     }
-  }, [state.status, state.status === "connected" ? state.publicKey : undefined]);
+  }, [publicKey, auth.status]);
 
   useEffect(() => {
-    if (state.status === "connected") {
+    if (publicKey && auth.status === "ready") {
       load();
     }
-  }, [state.status === "connected" ? state.publicKey : "", load]);
+  }, [publicKey, auth.status, load]);
 
   return (
     <div>
@@ -381,6 +385,11 @@ export default function TicketsPage() {
           actionLabel="Connect wallet"
           onAction={connect}
         />
+      ) : !authed ? (
+        <div className="checkin-status" role="status">
+          <div className="spinner spinner-sm" />
+          <span>Signing you in…</span>
+        </div>
       ) : offline ? (
         <OfflineEmpty onRetry={() => setRetryKey((k) => k + 1)} />
       ) : loading ? (

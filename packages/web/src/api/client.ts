@@ -27,33 +27,29 @@ export class ServerError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string, body: unknown): Promise<T> {
-  const url = path;
-  devLog(`[api] POST ${url}`);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    devError(`[api] fetch failed: ${url}`);
-    throw new ServerError();
-  }
+// --- auth token (wallet-identity session, mirrors daftari) -------------------
 
-  if (!res.ok) {
-    const text = await res.text();
-    devError(`[api] ${res.status} ${url}`);
-    if (res.status >= 500) {
-      throw new ServerError();
-    }
-    const err = parseErrorJson(text);
-    throw new ApiError(err?.message ?? `API error ${res.status}`, err?.type, err?.retryable);
-  }
+let authToken: string | null = null;
+let reauthHandler: (() => Promise<void>) | null = null;
 
-  const text = await res.text();
-  return JSON.parse(text) as T;
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
+/** The AuthProvider registers this so a 401 can silently re-sign + retry. */
+export function setReauthHandler(handler: (() => Promise<void>) | null): void {
+  reauthHandler = handler;
+}
+
+function authHeaders(hasBody: boolean): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (hasBody) headers["Content-Type"] = "application/json";
+  if (authToken !== null) headers.Authorization = `Bearer ${authToken}`;
+  return headers;
 }
 
 function parseErrorJson(text: string): { message?: string; type?: string; retryable?: boolean } | null {
@@ -63,6 +59,73 @@ function parseErrorJson(text: string): { message?: string; type?: string; retrya
   } catch {
     return null;
   }
+}
+
+async function fail(status: number, text: string, url: string): Promise<never> {
+  devError(`[api] ${status} ${url}`);
+  if (status >= 500) throw new ServerError();
+  const err = parseErrorJson(text);
+  throw new ApiError(err?.message ?? `API error ${status}`, err?.type, err?.retryable);
+}
+
+/**
+ * Core request helper: attaches the auth token, and on a 401 clears it, lets the
+ * AuthProvider re-sign (silently) once, then retries the request.
+ */
+async function request<T>(method: string, url: string, body: unknown): Promise<T> {
+  const hasBody = body !== undefined;
+  devLog(`[api] ${method} ${url}`);
+
+  const run = async (): Promise<Response> => {
+    try {
+      return await fetch(url, {
+        method,
+        headers: authHeaders(hasBody),
+        body: hasBody ? JSON.stringify(body) : undefined,
+      });
+    } catch (err) {
+      devError(`[api] fetch failed: ${url}`);
+      throw new ServerError();
+    }
+  };
+
+  let res = await run();
+  if (res.status === 401 && authToken !== null && reauthHandler) {
+    setAuthToken(null);
+    try {
+      await reauthHandler();
+    } catch {
+      // Re-auth failed; surface the original 401.
+    }
+    if (authToken !== null) res = await run();
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    return fail(res.status, text, url);
+  }
+
+  const text = await res.text();
+  return JSON.parse(text) as T;
+}
+
+async function apiFetch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("POST", path, body);
+}
+
+/** The wallet-identity sign-in flow (daftari-style): challenge -> sign -> session. */
+export function createChallenge(address: string): Promise<{ nonce: string; message: string }> {
+  return apiFetch<{ nonce: string; message: string }>("/v1/auth/challenge", { address });
+}
+
+export function createSession(
+  message: string,
+  signature: string,
+): Promise<{ token: string; expires_in_seconds: number }> {
+  return apiFetch<{ token: string; expires_in_seconds: number }>("/v1/auth/session", {
+    message,
+    signature,
+  });
 }
 
 /** prepare: backend fetches UTXOs + builds the unsigned template the wallet signs. */
@@ -135,25 +198,7 @@ export interface EventDetail {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  devLog(`[api] GET ${path}`);
-  let res: Response;
-  try {
-    res = await fetch(path);
-  } catch (err) {
-    devError(`[api] fetch GET failed: ${path}`);
-    throw new ServerError();
-  }
-  if (!res.ok) {
-    const text = await res.text();
-    devError(`[api] ${res.status} ${path}`);
-    if (res.status >= 500) {
-      throw new ServerError();
-    }
-    const err = parseErrorJson(text);
-    throw new ApiError(err?.message ?? `API error ${res.status}`, err?.type, err?.retryable);
-  }
-  const text = await res.text();
-  return JSON.parse(text) as T;
+  return request<T>("GET", path, undefined);
 }
 
 export function fetchEvent(covenantId: string): Promise<EventDetail> {
