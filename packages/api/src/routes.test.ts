@@ -8,6 +8,7 @@ import {
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { SignJWT } from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app";
 import { compileBurnArtifact, compileEventArtifact } from "./compiler.js";
@@ -204,7 +205,20 @@ function buyTx(): TxModel {
 }
 
 function config() {
-  return loadConfig({ KASPANET: NETWORK });
+  return loadConfig({ KASPANET: NETWORK, AUTH_SECRET: "test-secret-for-kticket-api" });
+}
+
+const AUTH_SECRET = new TextEncoder().encode("test-secret-for-kticket-api");
+
+/** Mint a bearer token for an address using the test auth secret. */
+async function bearerFor(address: string): Promise<string> {
+  const token = await new SignJWT({})
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(address)
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(AUTH_SECRET);
+  return `Bearer ${token}`;
 }
 
 function makeEventStore(): EventStore {
@@ -376,6 +390,7 @@ describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
   // buyTx() mints the ticket to owner = 0x02 * 32 (the buyer's x-coordinate).
   const TICKET_OWNER_HEX = "02".repeat(TXID_BYTE_LENGTH);
   const COMPRESSED_PUBKEY_HEX = `02${TICKET_OWNER_HEX}`;
+  const OWNER_ADDRESS = p2pkAddress(hexToBytes(TICKET_OWNER_HEX), NETWORK);
 
   function seedTicket(kaspa: FakeKaspa): void {
     const buy = buyTx();
@@ -404,6 +419,7 @@ describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
     const res = await app.inject({
       method: "GET",
       url: `/v1/tickets?owner_pkh=${COMPRESSED_PUBKEY_HEX}`,
+      headers: { authorization: await bearerFor(OWNER_ADDRESS) },
     });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual([
@@ -426,6 +442,7 @@ describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
     const res = await app.inject({
       method: "GET",
       url: `/v1/tickets?owner_pkh=${TICKET_OWNER_HEX}`,
+      headers: { authorization: await bearerFor(OWNER_ADDRESS) },
     });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual([
@@ -495,6 +512,7 @@ describe("reader routes (KTK-89) — GET /v1/tickets (my tickets)", () => {
     const res = await app.inject({
       method: "GET",
       url: `/v1/tickets?owner_pkh=${TICKET_OWNER_HEX}`,
+      headers: { authorization: await bearerFor(OWNER_ADDRESS) },
     });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual([

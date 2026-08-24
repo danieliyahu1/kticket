@@ -238,7 +238,7 @@ export async function buildAppWith(kaspa: FakeKaspa, listings = new ListingStore
     deployTxId: G_ID,
     organizerAddress: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
   });
-  return buildApp(loadConfig({ KASPANET: NETWORK }), {
+  return buildApp(loadConfig({ KASPANET: NETWORK, AUTH_SECRET: "test-secret-for-kticket-api" }), {
     kaspa,
     events,
     listings,

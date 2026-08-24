@@ -1,4 +1,5 @@
 import { getNetworkConfig, type KaspaNetwork } from "@kticket/kit";
+import { SESSION_TTL_MS, type AuthConfig } from "./auth/auth.js";
 
 export interface TlsConfig {
   keyFile: string;
@@ -28,6 +29,8 @@ export interface ApiConfig {
   listingsFilePath: string;
   /** Set when TURSO_DATABASE_URL is configured; otherwise the file store is used. */
   turso?: TursoConfig;
+  /** Set when AUTH_SECRET is configured; otherwise the app refuses to boot (fail-closed). */
+  auth?: AuthConfig;
 }
 
 export class ConfigError extends Error {
@@ -40,6 +43,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_EVENTS_FILE = "events.json";
 const DEFAULT_LISTINGS_FILE = "listings.json";
+const DEFAULT_AUTH_ORIGIN = "http://localhost:3000";
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const network = getNetworkConfig(env.KASPANET);
@@ -49,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   const tls = resolveTls(env);
   const turso = resolveTurso(env);
+  const auth = resolveAuth(env, port);
 
   return {
     port,
@@ -64,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     listingsFilePath: env.LISTINGS_FILE?.trim() || DEFAULT_LISTINGS_FILE,
     ...(tls ? { tls } : {}),
     ...(turso ? { turso } : {}),
+    ...(auth ? { auth } : {}),
   };
 }
 
@@ -102,4 +108,20 @@ function resolveTurso(env: NodeJS.ProcessEnv): TursoConfig | undefined {
   }
 
   return { url, ...(authToken ? { authToken } : {}) };
+}
+
+/**
+ * Resolve the auth config from `AUTH_SECRET`. When unset, `auth` is undefined
+ * and `buildApp` refuses to boot (fail-closed). `AUTH_ORIGIN` is the expected
+ * `URI` field of the signed claim; it defaults to the local dev origin.
+ */
+function resolveAuth(env: NodeJS.ProcessEnv, port: number): AuthConfig | undefined {
+  const secret = env.AUTH_SECRET?.trim();
+  if (!secret) return undefined;
+  return {
+    secret: new TextEncoder().encode(secret),
+    origin: env.AUTH_ORIGIN?.trim() || DEFAULT_AUTH_ORIGIN,
+    networkId: getNetworkConfig(env.KASPANET).networkId,
+    sessionTtlMs: positiveInt(env.AUTH_SESSION_TTL_MS, SESSION_TTL_MS),
+  };
 }

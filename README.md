@@ -90,3 +90,27 @@ unset or invalid, every host falls back to `testnet10`.
 - **Web** reads `VITE_KASPANET` at build time (`import.meta.env`); the API
   serves the built SPA.
 - **Kit** exposes the shared resolver (`getNetworkConfig`) used by all hosts.
+
+## Wallet authentication (SIWS, daftari-style)
+
+User-specific reads that carry no transaction signature (My Tickets, My Events)
+require the caller to prove they control the wallet they claim. The model
+mirrors Daftari: a one-time nonce challenge → the wallet signs a structured
+message (`kastle.signMessage`) → the API verifies the Schnorr signature and
+issues a short-lived JWT whose subject is the address → protected reads present
+`Authorization: Bearer <token>`.
+
+- `POST /v1/auth/challenge {address}` → `{ nonce, message }`
+- `POST /v1/auth/session {message, signature}` → `{ token, expires_in_seconds }`
+- `GET /v1/tickets` and `GET /v1/events?organizer_address=` require the token
+  and are scoped to the authenticated address; other endpoints are unchanged
+  (writes are verified by the chain at broadcast, reads of events/listings are
+  public chain facts).
+
+Auth is **fail-closed**: the API refuses to boot without `AUTH_SECRET`. The
+nonce store is in-memory (single-instance deploy). Configuration:
+
+- `AUTH_SECRET` — required; the HS256 JWT signing secret.
+- `AUTH_ORIGIN` — the origin the SPA is served from; the signed claim's `URI`
+  must match it (default `http://localhost:3000`).
+- `AUTH_SESSION_TTL_MS` — JWT lifetime in ms (default 15 minutes).

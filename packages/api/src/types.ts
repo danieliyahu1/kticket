@@ -4,6 +4,7 @@ export type ErrorType =
   | "policy"
   | "network"
   | "upstream"
+  | "unauthorized"
   | `unknown-${string}`;
 
 export interface ErrorEnvelope {

@@ -4,10 +4,11 @@ import { createClient } from "@libsql/client";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
-import { type ApiConfig, loadConfig } from "./config";
+import { type ApiConfig, ConfigError, loadConfig } from "./config";
 import { registerErrorHandler } from "./error-handler";
 import { EventStore, type EventRegistry } from "./eventstore";
 import { TursoEventStore } from "./eventstore-turso";
+import { InMemoryAuthStore } from "./auth/auth-store.js";
 import { ListingStoreFile, type ListingStore } from "./listings";
 import { TursoListingStore } from "./listings-turso";
 import { KaspaClient } from "./kaspa-client";
@@ -79,11 +80,19 @@ export async function buildApp(
   const listings = deps?.listings ?? (await openListingStore(config));
   const verified = deps?.verified ?? new VerifiedEventCache();
 
+  // Wallet auth is fail-closed: the app refuses to boot without an AUTH_SECRET
+  // (or an injected auth context for tests). User-specific reads depend on it.
+  const authCtx = deps?.auth ?? (config.auth ? { store: new InMemoryAuthStore(), config: config.auth } : undefined);
+  if (!authCtx) {
+    throw new ConfigError("AUTH_SECRET is required — wallet auth is fail-closed");
+  }
+
   const ctx: AppContext = {
     kaspa,
     events,
     listings,
     verified,
+    auth: authCtx,
     network: deps?.network ?? config.kaspaNet,
     networkId: deps?.networkId ?? config.networkId,
   };

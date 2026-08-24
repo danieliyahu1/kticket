@@ -21,7 +21,7 @@ import {
 } from "./http-status.js";
 
 async function appWithFailures() {
-  const app = await buildApp(loadConfig({ PORT: "0" }));
+  const app = await buildApp(loadConfig({ PORT: "0", AUTH_SECRET: "test-secret-for-kticket-api" }));
 
   app.get("/fail/invalid", async () => {
     throw invalidError("bad covenant");
@@ -50,7 +50,7 @@ async function appWithFailures() {
 
 describe("error taxonomy middleware", () => {
   it("health endpoint reports ok + network", async () => {
-    const app = await buildApp(loadConfig({ KASPANET: "testnet10", PORT: "0" }));
+    const app = await buildApp(loadConfig({ KASPANET: "testnet10", PORT: "0", AUTH_SECRET: "test-secret-for-kticket-api" }));
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(HTTP_OK);
     expect(res.json()).toEqual({ status: "ok", network: "testnet10" });

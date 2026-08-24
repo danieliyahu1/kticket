@@ -27,13 +27,20 @@ import {
   addressFor,
   addressFromScriptHash,
   listedStateAddress,
-  organizerPkh,
   type KaspaNetwork,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { buyFinalize, buyPrepare } from "./buy.js";
-import { invalidError, isApiError, notFoundError } from "./errors.js";
+import {
+  handleCreateChallenge,
+  handleCreateSession,
+  verifyToken,
+} from "./auth/auth.js";
+import { addressXPubkey } from "./auth/kaspa-signature.js";
+import type { AuthStore } from "./auth/auth-store.js";
+import type { AuthConfig } from "./auth/auth.js";
+import { invalidError, isApiError, notFoundError, toErrorEnvelope, unauthorizedError } from "./errors.js";
 import { describeWalletSignatures } from "./flow.js";
 import { deployFinalize, deployPrepare } from "./deploy.js";
 import type { EventRegistry, StoredEvent } from "./eventstore.js";
@@ -56,6 +63,7 @@ import { usePrepare } from "./use.js";
 import { useFinalize, useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
+import { HTTP_UNAUTHORIZED } from "./http-status.js";
 import type { WireTransaction } from "./wire.js";
 
 /** The wallet-relay fields every finalize body carries. */
@@ -90,6 +98,28 @@ export interface AppContext {
   network: KaspaNetwork;
   networkId: string;
   verified: VerifiedEventCache;
+  /** Wallet auth (fail-closed): required for user-specific reads. */
+  auth: { store: AuthStore; config: AuthConfig };
+}
+
+/** Fastify preHandler: verifies the Bearer token and attaches `req.user`. */
+function requireAuth(ctx: AppContext) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    const user = await verifyToken(req.headers.authorization, ctx.auth.config.secret);
+    if (user === null) {
+      return reply
+        .code(HTTP_UNAUTHORIZED)
+        .send(toErrorEnvelope(unauthorizedError("You need to sign in.")));
+    }
+    (req as FastifyRequest & { user?: { address: string } }).user = user;
+  };
+}
+
+/** A user-specific read guard: rejects when the caller isn't authenticated. */
+function userOrThrow(req: FastifyRequest & { user?: { address: string } }): string {
+  const address = req.user?.address;
+  if (!address) throw unauthorizedError("You need to sign in.");
+  return address;
 }
 
 /** The subset the resale flows need — routes pass it straight through. */
@@ -104,9 +134,31 @@ function resaleCtx(ctx: AppContext): ResaleContext {
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.post("/v1/auth/challenge", async (req, reply) => {
+    const result = await handleCreateChallenge(ctx.auth.store, req.body, ctx.auth.config);
+    return reply.code(200).send(result);
+  });
+
+  app.post("/v1/auth/session", async (req, reply) => {
+    const result = await handleCreateSession(ctx.auth.store, req.body, ctx.auth.config);
+    return reply.code(200).send(result);
+  });
+
   app.get<{ Querystring: { organizer_address?: string } }>(
     "/v1/events",
+    { preHandler: async (req, reply) => {
+      if (req.query.organizer_address === undefined) return;
+      await requireAuth(ctx)(req, reply);
+    } },
     async (req) => {
+      if (req.query.organizer_address !== undefined) {
+        // "My events" — a user-specific read that carries no tx signature, so it
+        // requires auth and must be scoped to the authenticated address.
+        const me = userOrThrow(req as FastifyRequest & { user?: { address: string } });
+        if (req.query.organizer_address !== me) {
+          throw unauthorizedError("organizer_address must match the signed-in wallet");
+        }
+      }
       const entries = ctx.events.list(req.query.organizer_address);
       const verified = await verifyAll(entries, ctx);
       return verified.map(toEventSummary);
@@ -183,14 +235,22 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     };
   });
 
-  app.get<{ Querystring: { owner_pkh?: string } }>("/v1/tickets", async (req) => {
-    const ownerPkh = req.query.owner_pkh;
-    if (!ownerPkh) throw invalidError("owner_pkh query parameter is required");
+  app.get<{ Querystring: { owner_pkh?: string } }>(
+    "/v1/tickets",
+    { preHandler: requireAuth(ctx) },
+    async (req) => {
+      // "My tickets" — a user-specific read that carries no tx signature, so it
+      // requires auth and serves only the signed-in wallet's tickets. The pkh is
+      // derived from the authenticated address; any caller-supplied owner_pkh is
+      // ignored (the wallet proof is authoritative).
+      const me = userOrThrow(req as FastifyRequest & { user?: { address: string } });
+      const xPubkey = await addressXPubkey(me);
+      if (xPubkey === null) throw unauthorizedError("Authenticated address is not a P2PK wallet");
 
-    // Normalize to the 32-byte x-coordinate (strip the 02/03 prefix) — the same
-    // owner identifier the buy path mints tickets to, so the derived address
-    // matches the on-chain ticket covenant output.
-    const ownerBytes = hexToBytes(organizerPkh(ownerPkh));
+      // Normalize to the 32-byte x-coordinate — the same owner identifier the buy
+      // path mints tickets to, so the derived address matches the on-chain ticket
+      // covenant output.
+      const ownerBytes = hexToBytes(xPubkey);
 
     // Verify every event in parallel (memoized), then ask the chain about all
     // the owner's ticket addresses in a single batch request.

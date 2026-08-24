@@ -5,6 +5,7 @@ import {
   HTTP_INTERNAL_SERVER_ERROR,
   HTTP_NOT_FOUND,
   HTTP_SERVICE_UNAVAILABLE,
+  HTTP_UNAUTHORIZED,
   HTTP_UNPROCESSABLE_ENTITY,
 } from "./http-status.js";
 import type { ErrorEnvelope, ErrorType } from "./types.js";
@@ -15,6 +16,7 @@ export const ERROR_TYPES = {
   policy: "policy",
   network: "network",
   upstream: "upstream",
+  unauthorized: "unauthorized",
 } as const;
 
 export class ApiError extends Error {
@@ -66,6 +68,15 @@ export function policyError(message: string, detail?: unknown): ApiError {
 
 export function networkError(message: string, detail?: unknown): ApiError {
   return new ApiError({ type: "network", message, statusCode: HTTP_BAD_GATEWAY, detail });
+}
+
+export function unauthorizedError(message: string, detail?: unknown): ApiError {
+  return new ApiError({
+    type: "unauthorized",
+    message,
+    statusCode: HTTP_UNAUTHORIZED,
+    detail,
+  });
 }
 
 export function upstreamError(
