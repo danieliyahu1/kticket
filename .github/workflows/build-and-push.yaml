@@ -1,0 +1,57 @@
+# Builds the kticket Docker image and pushes it to ghcr.io on every push to main.
+# Argo CD then deploys the pinned image SHA to the OCI k3s box (oci-k3s-starter).
+#
+# Oracle's Always Free tier is Ampere — ARM, aarch64. An amd64 image would pull,
+# start, and fail with `exec format error`. This repo is PUBLIC, so GitHub's
+# native ARM runners (`ubuntu-24.04-arm`) are free and much faster than QEMU
+# emulation — important here because the Dockerfile builds the Rust `silverc`
+# covenant compiler, which is slow under emulation.
+name: build-and-push
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write # lets GITHUB_TOKEN push to ghcr.io
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          # Tag with the commit SHA as well as `latest`. Deploy the SHA, not
+          # `latest`: Kubernetes cannot tell that a moving tag changed, so
+          # `latest` gives you a deployment that does not redeploy.
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
