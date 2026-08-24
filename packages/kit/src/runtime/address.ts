@@ -229,6 +229,61 @@ export function encodeAddress(prefix: string, payload: Uint8Array): string {
   return `${prefix}:${String.fromCharCode(...out)}`;
 }
 
+/** Inverse of `conv8to5`: 5-bit groups back into bytes. Trailing padding dropped. */
+function conv5to8(fiveBit: number[]): number[] {
+  const out: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const value of fiveBit) {
+    buffer = ((buffer << CHUNK_BITS) | value) & 0xffffffff;
+    bits += CHUNK_BITS;
+    while (bits >= BYTE_BITS) {
+      bits -= BYTE_BITS;
+      out.push((buffer >> bits) & 0xff);
+      buffer &= (1 << bits) - 1;
+    }
+  }
+  return out;
+}
+
+export interface DecodedAddress {
+  /** The address version byte (e.g. `0` for P2PK, `8` for P2SH). */
+  version: number;
+  /** The payload bytes following the version byte. */
+  payload: Uint8Array;
+}
+
+/**
+ * Decode a Kaspa bech32-style `prefix:payload` address back into its version
+ * byte + payload bytes. Returns null for a malformed address or a checksum /
+ * prefix mismatch. Byte-for-byte the inverse of `encodeAddress`.
+ */
+export function decodeAddress(address: string, expectedPrefix: string): DecodedAddress | null {
+  const sep = address.lastIndexOf(":");
+  if (sep <= 0 || sep >= address.length - 1) return null;
+  const prefix = address.slice(0, sep);
+  if (prefix !== expectedPrefix) return null;
+  const data = address.slice(sep + 1);
+
+  const values: number[] = [];
+  for (const ch of data) {
+    const value = CHARSET.indexOf(ch);
+    if (value < 0) return null;
+    values.push(value);
+  }
+  // The Kaspa variant uses an 8-group (40-bit) checksum.
+  if (values.length < 8) return null;
+
+  const prefixChars = [...prefix].map((c) => c.charCodeAt(0) & CHUNK_MASK);
+  // polymod XORs with POLYMOD_XOR_CONST (1) at the end, so a valid checksum
+  // yields 0 (polymodRAW == 1).
+  if (polymod([...prefixChars, 0, ...values]) !== 0n) return null;
+
+  const payload = conv5to8(values.slice(0, values.length - 8));
+  if (payload.length < 1) return null;
+  return { version: payload[0] ?? 0, payload: Uint8Array.from(payload.slice(1)) };
+}
+
 export interface AddressOptions {
   prefix?: string;
   /** Override the hash used as the P2SH payload (defaults to `scriptHash` = blake3-32). */

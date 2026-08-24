@@ -8,8 +8,10 @@ import {
   addressFromScriptHash,
   availableTicketAddress,
   buildRedeemScript,
+  decodeAddress,
   encodeAddress,
   injectState,
+  p2pkAddress,
   pushData,
   readStateFromRedeem,
   scriptHash,
@@ -150,5 +152,30 @@ describe("addressFromScriptHash (the reader's on-chain address derivation)", () 
   it("rejects a script that is not a 32-byte hash", () => {
     expect(() => addressFromScriptHash("00", network)).toThrow();
     expect(() => addressFromScriptHash("00".repeat(OVERLONG_HASH), network)).toThrow();
+  });
+});
+
+describe("decodeAddress (bech32 decode)", () => {
+  const network: AddressNetwork = "testnet10";
+
+  it("round-trips a P2PK address back to its version + payload", () => {
+    const x = new Uint8Array(HASH_LENGTH).fill(0x11);
+    const encoded = p2pkAddress(x, network);
+    const decoded = decodeAddress(encoded, "kaspatest");
+    expect(decoded?.version).toBe(0);
+    expect(decoded && bytesToHex(decoded.payload)).toBe(bytesToHex(x));
+  });
+
+  it("rejects a bad checksum", () => {
+    const x = new Uint8Array(HASH_LENGTH).fill(0x11);
+    const encoded = p2pkAddress(x, network);
+    const tampered = `${encoded.slice(0, -1)}q`;
+    expect(decodeAddress(tampered, "kaspatest")).toBeNull();
+  });
+
+  it("rejects a wrong prefix", () => {
+    const x = new Uint8Array(HASH_LENGTH).fill(0x11);
+    const encoded = p2pkAddress(x, network);
+    expect(decodeAddress(encoded, "kaspa")).toBeNull();
   });
 });
