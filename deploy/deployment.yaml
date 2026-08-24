@@ -25,11 +25,22 @@ spec:
           envFrom:
             - configMapRef:
                 name: kticket-config
-            - secretRef:
-                name: kticket-secrets
 
+          # Secrets are mapped explicitly to the env names kticket expects
+          # (envFrom would expose the raw secret keys like `turso-database-url`,
+          # which are not valid env var names and wouldn't match TURSO_*/AUTH_*).
           # kticket is fail-closed: it refuses to boot without AUTH_SECRET.
           env:
+            - name: TURSO_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kticket-secrets
+                  key: turso-database-url
+            - name: TURSO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: kticket-secrets
+                  key: turso-auth-token
             - name: AUTH_SECRET
               valueFrom:
                 secretKeyRef:
