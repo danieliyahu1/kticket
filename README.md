@@ -3,6 +3,8 @@
 On-chain event ticketing on Kaspa: tickets are covenant-bound assets, deployed
 by event organisers and bought / held by attendees — all on chain.
 
+**Live:** https://kticket.danieliyahu.com/
+
 ## Packages
 
 | Package | Path | Stack | Responsibility |
