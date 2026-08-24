@@ -1,0 +1,15 @@
+# Non-secret kticket configuration. Values that must stay secret (Turso creds,
+# AUTH_SECRET) live in the vault and arrive via the kticket-secrets ExternalSecret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kticket-config
+  namespace: kticket
+data:
+  KASPANET: testnet10
+  PORT: "3000"
+  HOST: 0.0.0.0
+  # The origin the SPA is served from — the wallet sign-in claim's URI must match
+  # it exactly, or the API rejects the session as "not for this app".
+  AUTH_ORIGIN: https://kticket.danieliyahu.com
+  AUTH_SESSION_TTL_MS: "900000"

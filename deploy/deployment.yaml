@@ -1,0 +1,52 @@
+# kticket — Deployment. The API serves the built web SPA on port 3000.
+#
+# The image tag is the commit SHA (immutable) rather than `latest`: Kubernetes
+# cannot tell that a moving tag changed, so `latest` would not redeploy on push.
+# The build-and-push workflow tags every push to main with its SHA.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kticket
+  namespace: kticket
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kticket }
+  template:
+    metadata:
+      labels: { app: kticket }
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/danieliyahu1/kticket:sha-33c8159a72b16a21c8b021216b9e9f3d1a7d2257
+          ports:
+            - containerPort: 3000
+
+          envFrom:
+            - configMapRef:
+                name: kticket-config
+            - secretRef:
+                name: kticket-secrets
+
+          # kticket is fail-closed: it refuses to boot without AUTH_SECRET.
+          env:
+            - name: AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kticket-secrets
+                  key: auth-secret
+
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          readinessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 30
