@@ -1,13 +1,11 @@
 name: silverc-commit-tracker
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   schedule:
     # Track upstream silverscript commits deliberately (KTK-88 A7): nightly
     # re-pin + recompile to surface breaking changes before they bite.
     - cron: "0 4 * * *"
+  workflow_dispatch:
 
 jobs:
   check-artifacts:

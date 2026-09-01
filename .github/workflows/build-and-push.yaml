@@ -13,6 +13,7 @@ on:
     branches: [main]
     paths-ignore:
       - deploy/**
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -41,10 +42,14 @@ jobs:
 
       - run: npm ci
       - run: cargo build --release --manifest-path packages/kit/silverc/Cargo.toml
+      - name: Verify committed SilverC artifacts
+        working-directory: packages/kit
+        run: node scripts/silverc.mjs --check
       - run: npm test
       - run: npm run build
 
   build:
+    if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]'
     needs: verify
     runs-on: ubuntu-24.04-arm
     permissions:
