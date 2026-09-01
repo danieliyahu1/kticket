@@ -37,7 +37,10 @@ jobs:
           node-version: 22
           cache: npm
 
+      - uses: dtolnay/rust-toolchain@stable
+
       - run: npm ci
+      - run: cargo build --release --manifest-path packages/kit/silverc/Cargo.toml
       - run: npm test
       - run: npm run build
 
