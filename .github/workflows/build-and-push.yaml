@@ -11,14 +11,38 @@ name: build-and-push
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - deploy/**
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
   IMAGE: ${{ github.repository }}
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
   build:
+    needs: verify
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -55,3 +79,28 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  update-manifest:
+    if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pin manifest to published image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE }}:sha-${{ github.sha }}
+        run: |
+          sed -i "s|^          image: .*|          image: ${IMAGE}|" deploy/deployment.yaml
+
+      - name: Commit manifest handoff
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/deployment.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: pin image to ${GITHUB_SHA}"
+          git push origin HEAD:main
