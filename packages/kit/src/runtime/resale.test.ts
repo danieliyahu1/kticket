@@ -183,11 +183,11 @@ describe("buildPurchase", () => {
     expect(ticket?.scriptPublicKey.script).toBe(p2shScript(expectedTicket).script);
     expect(ticket?.covenant).toEqual({ authorizingInput: 0, covenantId: EVENT_COVENANT_ID });
 
-    expect(payout?.value).toBe(ASKING_PRICE);
+    expect(payout?.value).toBe(ASKING_PRICE + TICKET_DUST);
     expect(payout?.scriptPublicKey).toEqual(p2pkScriptFromPubkey(filled(SELLER_FILL)));
     expect(payout?.covenant).toBeNull();
 
-    expect(change?.value).toBe(FUNDED_UTXO_VALUE - ASKING_PRICE - RESALE_FEE);
+    expect(change?.value).toBe(FUNDED_UTXO_VALUE - ASKING_PRICE - TICKET_DUST - RESALE_FEE);
   });
 
   it("p2pkScriptFromPubkey emits `20 <x> ac`", () => {
@@ -196,12 +196,16 @@ describe("buildPurchase", () => {
     expect(script.script).toBe(`20${"08".repeat(32)}ac`);
   });
 
-  it("rejects bad prices, short keys, and unfunded buyers", () => {
+    it("rejects bad prices, short keys, and unfunded buyers", () => {
     expect(() => buildPurchase({ ...args, price: 0 })).toThrow(/resale price/);
     expect(() => buildPurchase({ ...args, seller: new Uint8Array(31) })).toThrow(/seller must be/);
     expect(() => buildPurchase({ ...args, buyer: new Uint8Array(33) })).toThrow(/buyer must be/);
     expect(() =>
-      buildPurchase({ ...args, buyerUtxoValues: [ASKING_PRICE], fee: RESALE_FEE }),
+      buildPurchase({
+        ...args,
+        buyerUtxoValues: [ASKING_PRICE + RESALE_FEE],
+        fee: RESALE_FEE,
+      }),
     ).toThrow(/cannot cover price/);
   });
 });

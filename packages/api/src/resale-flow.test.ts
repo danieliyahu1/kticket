@@ -401,6 +401,8 @@ describe("resale flow end-to-end (KTK-151)", () => {
       expect(prepare.statusCode).toBe(HTTP_OK);
       const body = prepare.json();
       expect(body.price).toBe(LIST_PRICE);
+      expect(body.ticket_deposit).toBe(50_000_000);
+      expect(body.seller_proceeds).toBe(LIST_PRICE + 50_000_000);
       expect(body.seller_pkh).toBe("02".repeat(32));
       expect(body.sign_inputs).toEqual([{ index: 1 }]);
       expect(body.template.inputs[0].previous_outpoint).toEqual({

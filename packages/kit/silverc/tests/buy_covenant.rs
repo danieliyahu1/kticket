@@ -528,8 +528,8 @@ fn list_covenant_passes_on_chain_vm() {
 }
 
 /// Resale — purchase (trustless): NO seller signature anywhere. The covenant
-/// enforces that one output pays exactly the asking price to the seller's P2PK
-/// script while the ticket re-keys to the buyer atomically.
+/// enforces that one output pays the asking price plus the ticket deposit to
+/// the seller's P2PK script while the ticket re-keys to the buyer atomically.
 #[test]
 fn purchase_covenant_passes_on_chain_vm() {
     let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
@@ -550,10 +550,10 @@ fn purchase_covenant_passes_on_chain_vm() {
 
     let ticket_value = DUST;
     let buyer_value = 1_000_000_000u64;
-    let change_value = buyer_value - PRICE as u64 - 100_000;
+    let change_value = buyer_value - PRICE as u64 - DUST - 100_000;
 
     // inputs [ticket(0), buyer fee(1)],
-    // outputs [ticket@buyer (bound), seller payout @asking price, buyer change].
+        // outputs [ticket@buyer (bound), seller payout @asking price + deposit, buyer change].
     let unsigned = Transaction::new(
         1,
         vec![
@@ -577,7 +577,7 @@ fn purchase_covenant_passes_on_chain_vm() {
                 covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
             },
             TransactionOutput {
-                value: PRICE as u64,
+                value: PRICE as u64 + DUST,
                 script_public_key: p2pk_script(&seller_x),
                 covenant: None,
             },

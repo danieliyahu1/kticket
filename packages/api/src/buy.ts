@@ -13,7 +13,7 @@
 // the template + the wallet's output. It never merges, retries, or owns state.
 
 import { randomUUID } from "node:crypto";
-import { MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey } from "@kticket/kit";
+import { MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey, TICKET_DUST } from "@kticket/kit";
 import type { KaspaNetwork } from "@kticket/kit";
 import { invalidError, policyError } from "./errors.js";
 import { eventAvailability } from "./events.js";
@@ -55,6 +55,8 @@ export interface BuyPrepareResult {
   sign_inputs: { index: number }[];
   /** Ticket price in sompi (from the verified event) for the confirm dialog. */
   price: number;
+  /** Deposit carried by the newly minted ticket. */
+  ticket_deposit: number;
 }
 
 export interface BuyFinalizeResult {
@@ -185,6 +187,7 @@ export async function buyPrepare(
     template: result.template,
     sign_inputs: result.template.inputs.slice(1).map((_, i) => ({ index: i + 1 })),
     price: verified.price,
+    ticket_deposit: TICKET_DUST,
   };
 }
 

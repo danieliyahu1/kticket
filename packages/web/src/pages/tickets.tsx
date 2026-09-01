@@ -242,8 +242,8 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
               <>
                 <h3 className="dialog-title">Sell your ticket to {ticket.event_name}?</h3>
                 <p className="dialog-copy">
-                  Your ticket goes into covenant escrow. Anyone can buy it at this exact price — no
-                  trust needed.
+                  Your ticket goes into covenant escrow. Anyone can buy it at this asking price, and
+                  you receive your original 0.5 KAS ticket deposit back.
                 </p>
                 <label className="field">
                   <span className="field-label">Asking price (KAS)</span>

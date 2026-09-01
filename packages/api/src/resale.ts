@@ -25,7 +25,9 @@ import {
   listedStateAddress,
   organizerPkh,
   orgSpkFromPublicKey,
+  p2pkScriptFromPubkey,
   pubkeyFromP2pkScript,
+  TICKET_DUST,
   type KaspaNetwork,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
@@ -533,6 +535,10 @@ export interface PurchasePrepareResult {
   /** Only the buyer's fee inputs need signatures — input 0 is signatureless. */
   sign_inputs: { index: number }[];
   price: number;
+  /** Fresh deposit funded by the buyer and carried by the replacement ticket. */
+  ticket_deposit: number;
+  /** Asking price plus the old ticket deposit, paid to the seller. */
+  seller_proceeds: number;
   seller_pkh: string;
   event: { name: string; date: string };
 }
@@ -591,6 +597,8 @@ export async function purchasePrepare(
     template: result.template,
     sign_inputs: result.template.inputs.slice(1).map((_, i) => ({ index: i + 1 })),
     price: stored.price,
+    ticket_deposit: TICKET_DUST,
+    seller_proceeds: stored.price + TICKET_DUST,
     seller_pkh: stored.sellerPkh,
     event: { name: verified.name, date: verified.date },
   };
@@ -606,11 +614,24 @@ export async function purchaseFinalize(
   assertInputZeroIsTicket(req.template, txid, index);
 
   const verified = await verifiedTicketEvent(txid, index, ctx);
+  const stored = ctx.listings.get(verified.covenant_id, `${txid}:${index}`);
+  if (!stored) throw notFoundError(`ticket ${txid}:${index} is not listed for resale`);
 
-  // Validate the escrow shape before relaying: the spend must produce a bound
-  // covenant output (the re-keyed ticket). The covenant itself enforces the
-  // exact seller payout — the blockDAG is the judge of everything else.
-  if (!req.template.outputs.some((o) => o.covenant !== null)) {
+  // Validate the fixed escrow outputs before relaying. The covenant enforces
+  // these rules too, but rejecting malformed templates here gives the buyer a
+  // useful error instead of submitting a transaction that must fail on-chain.
+  const ticketOutput = req.template.outputs[0];
+  const sellerScript = p2pkScriptFromPubkey(hexToBytes(stored.sellerPkh)).script;
+  const sellerProceeds = stored.price + TICKET_DUST;
+  const sellerOutput = req.template.outputs.find(
+    (output) => output.script_public_key.script === sellerScript,
+  );
+  if (
+    !ticketOutput?.covenant ||
+    ticketOutput.value !== TICKET_DUST ||
+    !sellerOutput ||
+    sellerOutput.value !== sellerProceeds
+  ) {
     throw policyError("template is not a purchase (no covenant output)");
   }
 

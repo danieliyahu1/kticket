@@ -18,6 +18,7 @@ import {
   buildPurchase,
   injectState,
   pushData,
+  TICKET_DUST,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
@@ -338,6 +339,9 @@ async function purchaseBuild(
 ): Promise<PreparedBuild> {
   const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
   const { meta, value } = await ticketInputMeta(req, kaspa);
+  if (value !== TICKET_DUST) {
+    throw new Error(`ticket value ${value} is not the required ${TICKET_DUST} deposit`);
+  }
   const buyerMetas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
 
   // Input 0 needs NO signature — the covenant escrow enforces payment and
@@ -350,7 +354,9 @@ async function purchaseBuild(
 
   return {
     inputTotal: value + req.buyer_utxos.reduce((a, u) => a + u.value, 0),
-    payouts: [req.price],
+    // The buyer funds a fresh ticket deposit. The old ticket deposit is
+    // returned to the seller as part of the proceeds.
+    payouts: [req.price + TICKET_DUST, TICKET_DUST],
     inputUtxoMetas: [meta, ...buyerMetas],
     build: (fee) => ({
       tx: buildPurchase({

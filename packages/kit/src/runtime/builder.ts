@@ -737,7 +737,7 @@ export interface PurchaseInput {
   used: boolean;
   /** The asking price in sompi (paid to the seller's P2PK script). */
   price: number;
-  /** Buyer KAS UTXOs covering price + fee (fee payer = buyer). */
+  /** Buyer KAS UTXOs covering price + fresh ticket deposit + fee. */
   buyerUtxos: Outpoint[];
   /** Buyer input values (sompi). */
   buyerUtxoValues: readonly number[];
@@ -751,7 +751,9 @@ export interface PurchaseInput {
 
 /**
  * The trustless purchase template: inputs `[ticket, buyer fee…]`, outputs
- * `[ticket@buyer (covenant-bound), seller payout @asking price, buyer change]`.
+ * `[ticket@buyer (covenant-bound), seller payout @asking price + deposit,
+ * buyer change]`. The buyer funds a fresh deposit; the old ticket deposit is
+ * returned to the seller as part of the proceeds.
  * The seller signature does not exist — the covenant IS the escrow.
  */
 export function buildPurchase(input: PurchaseInput): UnsignedTransaction {
@@ -763,10 +765,17 @@ export function buildPurchase(input: PurchaseInput): UnsignedTransaction {
   if (input.buyer.length !== HASH_LENGTH) {
     throw new Error(`buyer must be ${HASH_LENGTH} bytes, got ${input.buyer.length}`);
   }
+  const ticketDust = ticketDustOf(input.ticketDust);
+  const sellerProceeds = input.price + ticketDust;
+  if (!Number.isSafeInteger(sellerProceeds)) {
+    throw new Error(`price ${input.price} plus ticket deposit is too large`);
+  }
   const buyerTotal = totalOf(input.buyerUtxoValues);
-  const change = buyerTotal - input.price - input.fee;
+  const change = buyerTotal - input.price - ticketDust - input.fee;
   if (change < 0) {
-    throw new Error(`buyer inputs ${buyerTotal} cannot cover price ${input.price} + fee ${input.fee}`);
+    throw new Error(
+      `buyer inputs ${buyerTotal} cannot cover price ${input.price} + ticket deposit ${ticketDust} + fee ${input.fee}`,
+    );
   }
 
   const binding = covenantBinding(input.eventCovenantId);
@@ -783,8 +792,8 @@ export function buildPurchase(input: PurchaseInput): UnsignedTransaction {
     version: TX_VERSION_V1,
     inputs: inputsWithTicket(input.ticketOutpoint, input.buyerUtxos),
     outputs: [
-      { value: ticketDustOf(input.ticketDust), scriptPublicKey: purchasedTicket, covenant: binding },
-      { value: input.price, scriptPublicKey: p2pkScriptFromPubkey(input.seller), covenant: null },
+      { value: ticketDust, scriptPublicKey: purchasedTicket, covenant: binding },
+      { value: sellerProceeds, scriptPublicKey: p2pkScriptFromPubkey(input.seller), covenant: null },
       changeOutput(input.changeScript, change),
     ],
     lockTime: 0,

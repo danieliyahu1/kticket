@@ -37,6 +37,7 @@ import {
   DUST,
   encodeMetadataPayload,
   MAX_EVENT_CAPACITY,
+  TICKET_DUST,
   p2pkScriptFromPubkey,
   p2shScript,
 } from "./runtime/builder.js";
@@ -171,6 +172,7 @@ export {
   decodeUsePayload,
   decodeVarint,
   DUST,
+  TICKET_DUST,
   decodeAddress,
   encodeAddress,
   encodeConstants,

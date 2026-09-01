@@ -149,6 +149,7 @@ export interface BuyPrepareResult {
   template: WireTransaction;
   sign_inputs: { index: number }[];
   price: number;
+  ticket_deposit: number;
 }
 
 /** prepare: backend verifies the event + fetches the buyer's UTXOs + builds the template. */
@@ -354,6 +355,8 @@ export interface PurchasePrepareResult {
   /** Only the buyer's fee inputs need signatures — input 0 is signatureless. */
   sign_inputs: { index: number }[];
   price: number;
+  ticket_deposit: number;
+  seller_proceeds: number;
   seller_pkh: string;
   event: { name: string; date: string };
 }
