@@ -18,8 +18,8 @@ use kaspa_txscript::script_builder::ScriptBuilder;
 use kaspa_txscript::{EngineCtx, EngineFlags, TxScriptEngine, pay_to_script_hash_script};
 use kaspa_txscript_errors::TxScriptError;
 use secp256k1::{Keypair, Secp256k1, SecretKey};
-use silverscript_lang::ast::Expr;
-use silverscript_lang::compiler::{CompileOptions, CompiledContract, compile_contract};
+use silverscript_lang::ast::{Expr, ExprKind};
+use silverscript_lang::compiler::{CompileOptions, CompiledContract, compile_contract, generated_covenant_auth_entrypoint_name};
 use std::fs;
 
 const COV_A: Hash = Hash::from_bytes(*b"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
@@ -112,11 +112,35 @@ fn push_redeem_script(bytecode: &[u8]) -> Vec<u8> {
         .drain()
 }
 
+fn build_covenant_sigscript(compiled: &CompiledContract, declaration: &str, args: Vec<Expr<'static>>) -> Vec<u8> {
+    let mut builder = ScriptBuilder::with_flags(EngineFlags { covenants_enabled: true, ..Default::default() });
+    for arg in args {
+        match arg.kind {
+            ExprKind::Int(value) => {
+                builder.add_i64(value).expect("push int argument");
+            }
+            ExprKind::Array { values, .. } => {
+                let bytes = values
+                    .into_iter()
+                    .map(|value| match value.kind {
+                        ExprKind::Byte(byte) => byte,
+                        _ => panic!("expected byte array argument"),
+                    })
+                    .collect::<Vec<_>>();
+                builder.add_data(&bytes).expect("push byte argument");
+            }
+            _ => panic!("unsupported test sigscript argument"),
+        }
+    }
+    let entrypoint = generated_covenant_auth_entrypoint_name(declaration);
+    let dispatch_tag = compiled.dispatch_tags.get(&entrypoint).expect("covenant dispatch tag");
+    builder.add_data(dispatch_tag).expect("push dispatch tag");
+    builder.drain()
+}
+
 /// The covenant spend sig script: mint call args + state-injected redeem reveal.
 fn mint_sigscript(compiled: &CompiledContract, buyer_pkh: &[u8], event_redeem: &[u8]) -> Vec<u8> {
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl("mint", vec![Expr::bytes(buyer_pkh.to_vec())], Default::default())
-        .expect("mint sigscript");
+    let mut sigscript = build_covenant_sigscript(compiled, "mint", vec![Expr::bytes(buyer_pkh.to_vec())]);
     sigscript.extend_from_slice(&push_redeem_script(event_redeem));
     sigscript
 }
@@ -335,15 +359,10 @@ fn mark_used_covenant_passes_on_chain_vm() {
     let sig_owner = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &owner_kp);
     let sig_gate = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &org_kp);
 
-    // The mark_used sigscript: push(owner_sig) || push(gate_sig) || <selector> ||
+    // The mark_used sigscript: push(owner_sig) || push(gate_sig) || push(dispatch_tag) ||
     // push(redeem) — assembled server-side at finalize (KTK-129).
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl(
-            "mark_used",
-            vec![Expr::bytes(sig_owner), Expr::bytes(sig_gate)],
-            Default::default(),
-        )
-        .expect("mark_used sigscript");
+    let mut sigscript =
+        build_covenant_sigscript(&compiled, "mark_used", vec![Expr::bytes(sig_owner), Expr::bytes(sig_gate)]);
     sigscript.extend_from_slice(&push_redeem_script(&ticket_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(
@@ -482,9 +501,7 @@ fn list_covenant_passes_on_chain_vm() {
     let holder_entry = UtxoEntry::new(holder_value, holder_spk.clone(), 0, false, None);
     let sig_holder = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 0, &holder_kp);
 
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl("list", vec![Expr::bytes(sig_holder), Expr::int(PRICE)], Default::default())
-        .expect("list sigscript");
+    let mut sigscript = build_covenant_sigscript(&compiled, "list", vec![Expr::bytes(sig_holder), Expr::int(PRICE)]);
     sigscript.extend_from_slice(&push_redeem_script(&ticket_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(
@@ -579,9 +596,7 @@ fn purchase_covenant_passes_on_chain_vm() {
     let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&listed_ticket_redeem), 0, false, Some(COV_A));
     let buyer_entry = UtxoEntry::new(buyer_value, buyer_spk.clone(), 0, false, None);
 
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl("purchase", vec![Expr::bytes(buyer_x.clone())], Default::default())
-        .expect("purchase sigscript");
+    let mut sigscript = build_covenant_sigscript(&compiled, "purchase", vec![Expr::bytes(buyer_x.clone())]);
     sigscript.extend_from_slice(&push_redeem_script(&listed_ticket_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(
@@ -669,9 +684,7 @@ fn purchase_without_seller_payout_is_rejected_by_vm() {
     let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&listed_ticket_redeem), 0, false, Some(COV_A));
     let buyer_entry = UtxoEntry::new(buyer_value, buyer_spk.clone(), 0, false, None);
 
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl("purchase", vec![Expr::bytes(buyer_x.clone())], Default::default())
-        .expect("purchase sigscript");
+    let mut sigscript = build_covenant_sigscript(&compiled, "purchase", vec![Expr::bytes(buyer_x.clone())]);
     sigscript.extend_from_slice(&push_redeem_script(&listed_ticket_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(
@@ -754,9 +767,7 @@ fn delist_covenant_passes_on_chain_vm() {
     let holder_entry = UtxoEntry::new(holder_value, holder_spk.clone(), 0, false, None);
     let sig_holder = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 0, &holder_kp);
 
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl("delist", vec![Expr::bytes(sig_holder)], Default::default())
-        .expect("delist sigscript");
+    let mut sigscript = build_covenant_sigscript(&compiled, "delist", vec![Expr::bytes(sig_holder)]);
     sigscript.extend_from_slice(&push_redeem_script(&listed_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(
@@ -846,13 +857,8 @@ fn mark_used_on_listed_ticket_clears_the_sale_price() {
     let sig_owner = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &owner_kp);
     let sig_gate = sign_input1(&unsigned, &[ticket_entry.clone(), owner_entry.clone()], 0, &org_kp);
 
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl(
-            "mark_used",
-            vec![Expr::bytes(sig_owner), Expr::bytes(sig_gate)],
-            Default::default(),
-        )
-        .expect("mark_used sigscript");
+    let mut sigscript =
+        build_covenant_sigscript(&compiled, "mark_used", vec![Expr::bytes(sig_owner), Expr::bytes(sig_gate)]);
     sigscript.extend_from_slice(&push_redeem_script(&listed_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(
@@ -939,9 +945,7 @@ fn list_on_used_ticket_is_rejected_by_vm() {
     let holder_entry = UtxoEntry::new(holder_value, holder_spk.clone(), 0, false, None);
     let sig_holder = sign_input1(&unsigned, &[ticket_entry.clone(), holder_entry.clone()], 0, &holder_kp);
 
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl("list", vec![Expr::bytes(sig_holder), Expr::int(PRICE)], Default::default())
-        .expect("list sigscript");
+    let mut sigscript = build_covenant_sigscript(&compiled, "list", vec![Expr::bytes(sig_holder), Expr::int(PRICE)]);
     sigscript.extend_from_slice(&push_redeem_script(&used_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(
@@ -1034,9 +1038,7 @@ fn purchase_of_used_ticket_is_rejected_by_vm() {
     let ticket_entry = UtxoEntry::new(ticket_value, pay_to_script_hash_script(&hybrid_redeem), 0, false, Some(COV_A));
     let buyer_entry = UtxoEntry::new(buyer_value, buyer_spk.clone(), 0, false, None);
 
-    let mut sigscript = compiled
-        .build_sig_script_for_covenant_decl("purchase", vec![Expr::bytes(buyer_x.clone())], Default::default())
-        .expect("purchase sigscript");
+    let mut sigscript = build_covenant_sigscript(&compiled, "purchase", vec![Expr::bytes(buyer_x.clone())]);
     sigscript.extend_from_slice(&push_redeem_script(&hybrid_redeem));
 
     let input0 = TransactionInput::new_with_compute_budget(

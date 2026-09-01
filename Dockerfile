@@ -1,5 +1,5 @@
 # --- silverc: build the per-event covenant compiler (Rust) ---
-FROM rust:1-slim AS silverc
+FROM rust:1.94-slim AS silverc
 
 WORKDIR /app
 

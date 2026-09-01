@@ -97,7 +97,7 @@ contract Event(
         require(prev_state.amount == 1);
         require(prev_state.sale_price > 0);
         require(prev_state.used == 0x00);
-        byte[34] seller_lock = new ScriptPubKeyP2PK(pubkey(prev_state.owner));
+        byte[36] seller_lock = new ScriptPubKeyP2PK(pubkey(prev_state.owner));
         bool paid = false;
         for(i, 0, tx.outputs.length, 100) {
             if (tx.outputs[i].value == prev_state.sale_price) {

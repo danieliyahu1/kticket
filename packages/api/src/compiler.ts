@@ -27,20 +27,12 @@ const CONTRACTS_DIR = join(API_ROOT, "..", "kit", "contracts");
 const BIN_NAME = process.platform === "win32" ? "kticket-silverc.exe" : "kticket-silverc";
 const BIN_PATH = join(API_ROOT, "..", "kit", "silverc", "target", "release", BIN_NAME);
 
-const FIXED32 = { base: "byte", array_dims: [{ kind: "fixed", value: 32 }] };
-const DYNAMIC = { base: "byte", array_dims: [{ kind: "dynamic" }] };
-
-function hexToByteExprs(hex: string): { kind: "byte"; data: number }[] {
-  const bytes = hexToBytes(hex);
-  return Array.from(bytes, (d) => ({ kind: "byte", data: d }));
-}
-
-function byteArrayArg(type: unknown, hex: string) {
-  return { kind: "array", data: { type_ref: type, values: hexToByteExprs(hex) } };
+function bytesArg(hex: string) {
+  return { kind: "bytes", value: Array.from(hexToBytes(hex)) };
 }
 
 function intArg(value: number) {
-  return { kind: "int", data: value };
+  return { kind: "int", value };
 }
 
 function runRust(args: string[]): string {
@@ -67,7 +59,7 @@ function compileContract(name: string, ctorArgs: unknown[]): CompiledContractArt
 
 /** Compile the burn contract for one event (authorizing_txid baked). */
 export function compileBurnArtifact(authorizingTxId: string): CompiledContractArtifact {
-  return compileContract("burn", [byteArrayArg(FIXED32, authorizingTxId)]);
+  return compileContract("burn", [bytesArg(authorizingTxId)]);
 }
 
 /**
@@ -99,13 +91,13 @@ function eventConstructorArgs(constants: {
     throw new Error("org_spk is not a valid P2PK script (cannot derive org_pkh)");
   }
   return [
-    byteArrayArg(FIXED32, constants.authorizingTxId),
+    bytesArg(constants.authorizingTxId),
     intArg(constants.price),
-    byteArrayArg(DYNAMIC, orgSpkFull),
-    byteArrayArg(FIXED32, bytesToHex(Uint8Array.from(hash))),
-    byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(prefix))),
-    byteArrayArg(DYNAMIC, bytesToHex(Uint8Array.from(suffix))),
-    byteArrayArg(FIXED32, bytesToHex(orgPkh)),
+    bytesArg(orgSpkFull),
+    bytesArg(bytesToHex(Uint8Array.from(hash))),
+    bytesArg(bytesToHex(Uint8Array.from(prefix))),
+    bytesArg(bytesToHex(Uint8Array.from(suffix))),
+    bytesArg(bytesToHex(orgPkh)),
   ];
 }
 
@@ -121,8 +113,8 @@ export function compileEventArtifact(constants: {
 
 /**
  * The covenant spend script for the `mint` entrypoint (buy): `push(buyer_pkh)
- * || pushData(redeem)`. Built by silverc's `build_sig_script_for_covenant_decl`
- * so the arg encoding matches what the node's covenant VM expects — the
+ * || push(dispatch_tag) || pushData(redeem)`. Built by SilverScript's portable
+ * ABI encoder so the arg encoding matches what the node's covenant VM expects — the
  * on-chain event covenant only knows the P2SH hash, so the spend must reveal
  * both the `buyer_pkh` call argument and the redeem script with the live state.
  */
@@ -136,7 +128,7 @@ export function eventMintSigScript(
   buyerPkhHex: string,
 ): string {
   const ctor = eventConstructorArgs(constants);
-  const args = [byteArrayArg(FIXED32, buyerPkhHex)];
+  const args = [bytesArg(buyerPkhHex)];
   const dir = mkdtempSync(join(tmpdir(), "kticket-sig-"));
   const ctorFile = join(dir, "ctor.json");
   const argsFile = join(dir, "args.json");

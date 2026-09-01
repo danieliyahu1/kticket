@@ -11,7 +11,7 @@
 //
 //   POST /v1/tickets/{ticket_id}/use/finalize — merge the owner's and the
 //     gate's raw signatures, assemble input 0's mark_used sig-script
-//     (push(owner_sig) || push(gate_sig) || <selector> || push(redeem)), relay,
+//     (push(owner_sig) || push(gate_sig) || push(dispatch_tag) || push(redeem)), relay,
 //     and return {txid} or the node's rejection verbatim.
 
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
@@ -290,7 +290,7 @@ export async function useFinalize(
   const gateSig = signatureFor(gateSigs, ticketTxid, ticketIndex, "gate");
 
   // Assemble input 0's sig-script: push(65B owner_sig) || push(65B gate_sig) ||
-  // <selector> || push(redeem) — pure kit assembly, byte-exact with silverc.
+  // push(dispatch_tag) || push(redeem) — pure kit assembly, byte-exact with silverc.
   const sigScript = bytesToHex(assembleMarkUsedSigScript(artifact, ownerSig, gateSig, redeem));
 
   // Merge the owner's fee-input signatures (inputs 1..); input 0 keeps the

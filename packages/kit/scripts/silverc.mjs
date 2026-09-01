@@ -30,23 +30,20 @@ const REFERENCE_ORG_PKH_HEX = "1112131415161718191a1b1c1d1e1f2021222324252627282
 
 const CONTRACT_NAMES = ["event", "burn"];
 
-const FIXED32 = { base: "byte", array_dims: [{ kind: "fixed", value: 32 }] };
-const DYNAMIC = { base: "byte", array_dims: [{ kind: "dynamic" }] };
-
-function hexToByteExprs(hex) {
+function hexToBytes(hex) {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
-  return Array.from(bytes, (d) => ({ kind: "byte", data: d }));
+  return Array.from(bytes);
 }
 
-function byteArrayArg(type, hex) {
-  return { kind: "array", data: { type_ref: type, values: hexToByteExprs(hex) } };
+function bytesArg(hex) {
+  return { kind: "bytes", value: hexToBytes(hex) };
 }
 
 function intArg(value) {
-  return { kind: "int", data: value };
+  return { kind: "int", value };
 }
 
 function writeCtorFile(ctorArgs) {
@@ -78,7 +75,7 @@ function compileContract(name, ctorArgs) {
 // `org_pkh` is the organizer pubkey (x-coordinate) baked into the P2PK
 // `org_spk` — the gate co-signature key (mark_used, KTK-118).
 function eventCtorArgs(txidHex) {
-  const burn = compileContract("burn", [byteArrayArg(FIXED32, txidHex)]);
+  const burn = compileContract("burn", [bytesArg(txidHex)]);
   const start = burn.state_layout.start;
   const len = burn.state_layout.len;
   const prefix = burn.bytecode.slice(0, start);
@@ -88,21 +85,21 @@ function eventCtorArgs(txidHex) {
   const orgSpkFull = `0000${orgSpk}`;
 
   return [
-    byteArrayArg(FIXED32, txidHex),
+    bytesArg(txidHex),
     intArg(REFERENCE_PRICE),
     // `org_spk` is baked as the full script public key bytes (u16 LE version
     // prefix + script) to match the covenant VM's `tx.outputs[i].scriptPubKey`
     // introspection (KTK-102 follow-up).
-    byteArrayArg(DYNAMIC, orgSpkFull),
-    byteArrayArg(FIXED32, Buffer.from(hash).toString("hex")),
-    byteArrayArg(DYNAMIC, Buffer.from(prefix).toString("hex")),
-    byteArrayArg(DYNAMIC, Buffer.from(suffix).toString("hex")),
-    byteArrayArg(FIXED32, REFERENCE_ORG_PKH_HEX),
+    bytesArg(orgSpkFull),
+    bytesArg(Buffer.from(hash).toString("hex")),
+    bytesArg(Buffer.from(prefix).toString("hex")),
+    bytesArg(Buffer.from(suffix).toString("hex")),
+    bytesArg(REFERENCE_ORG_PKH_HEX),
   ];
 }
 
 function ctorArgsFor(name, txidHex) {
-  return name === "burn" ? [byteArrayArg(FIXED32, txidHex)] : eventCtorArgs(txidHex);
+  return name === "burn" ? [bytesArg(txidHex)] : eventCtorArgs(txidHex);
 }
 
 function artifactJson(artifact) {

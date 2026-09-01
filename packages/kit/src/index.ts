@@ -71,7 +71,7 @@ import {
 } from "./runtime/payload.js";
 import {
   assembleMarkUsedSigScript,
-  markUsedSelector,
+  markUsedDispatchTag,
   usedStateAddress,
 } from "./runtime/mark-used.js";
 import {
@@ -80,7 +80,7 @@ import {
   assemblePurchaseSigScript,
   listedStateAddress,
   pushI64,
-  resaleSelector,
+  resaleDispatchTag,
 } from "./runtime/resale.js";
 
 export type {
@@ -134,7 +134,7 @@ export type { TicketId, UsePayload } from "./runtime/payload.js";
 export type { KaspaNetwork, NetworkConfig };
 export {
   assembleMarkUsedSigScript,
-  markUsedSelector,
+  markUsedDispatchTag,
   usedStateAddress,
 } from "./runtime/mark-used.js";
 export {
@@ -143,7 +143,7 @@ export {
   assemblePurchaseSigScript,
   listedStateAddress,
   pushI64,
-  resaleSelector,
+  resaleDispatchTag,
 } from "./runtime/resale.js";
 export {
   addressFor,

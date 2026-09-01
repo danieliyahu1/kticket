@@ -17,7 +17,7 @@ import {
   assemblePurchaseSigScript,
   listedStateAddress,
   pushI64,
-  resaleSelector,
+  resaleDispatchTag,
 } from "./resale";
 
 const HASH_LENGTH = 32;
@@ -44,16 +44,16 @@ const HOLDER_UTXO = outpoint(0x22);
 const BUYER_UTXO = outpoint(0x23);
 const EVENT_COVENANT_ID = "cd".repeat(HASH_LENGTH);
 
-describe("resaleSelector", () => {
-  it("reads the resale entrypoints' ABI positions (list=2, purchase=3, delist=4)", () => {
-    expect(resaleSelector(EVENT_ARTIFACT, "list")).toBe(2);
-    expect(resaleSelector(EVENT_ARTIFACT, "purchase")).toBe(3);
-    expect(resaleSelector(EVENT_ARTIFACT, "delist")).toBe(4);
+describe("resaleDispatchTag", () => {
+  it("reads each resale entrypoint's canonical dispatch tag", () => {
+    expect([...resaleDispatchTag(EVENT_ARTIFACT, "list")]).toEqual([0x57, 0x03, 0xf9, 0x9d]);
+    expect([...resaleDispatchTag(EVENT_ARTIFACT, "purchase")]).toEqual([0xa3, 0x48, 0x81, 0x2a]);
+    expect([...resaleDispatchTag(EVENT_ARTIFACT, "delist")]).toEqual([0x5c, 0x78, 0xd4, 0x38]);
   });
 
   it("rejects an artifact compiled without the resale entrypoints", () => {
     const stripped = { ...EVENT_ARTIFACT, abi: EVENT_ARTIFACT.abi.slice(0, 3) };
-    expect(() => resaleSelector(stripped, "purchase")).toThrow(/no purchase entrypoint/);
+    expect(() => resaleDispatchTag(stripped, "purchase")).toThrow(/no purchase entrypoint/);
   });
 });
 
@@ -219,25 +219,25 @@ describe("resale sig-script assembly", () => {
   // the ~14kB redeem needs a PUSHDATA2 header (opcode + u16 LE length)
   const redeemPushLength = 3 + redeem.length;
 
-  it("list: sig || price(i64) || selector || redeem", () => {
+  it("list: sig || price(i64) || dispatch tag || redeem", () => {
     const script = assembleListSigScript(EVENT_ARTIFACT, sig, ASKING_PRICE, redeem);
     const pricePush = pushI64(ASKING_PRICE);
-    expect(script.length).toBe(1 + 65 + pricePush.length + 1 + redeemPushLength);
+    expect(script.length).toBe(1 + 65 + pricePush.length + 5 + redeemPushLength);
     // the minimal-LE price push sits right after the sig
     expect([...script.subarray(66, 66 + pricePush.length)]).toEqual([...pricePush]);
-    expect(script[66 + pricePush.length]).toBe(0x52); // OP_2 list selector
+    expect([...script.subarray(66 + pricePush.length, 71 + pricePush.length)]).toEqual([0x04, 0x57, 0x03, 0xf9, 0x9d]);
   });
 
-  it("delist: sig || selector || redeem", () => {
+  it("delist: sig || dispatch tag || redeem", () => {
     const script = assembleDelistSigScript(EVENT_ARTIFACT, sig, redeem);
-    expect(script.length).toBe(1 + 65 + 1 + redeemPushLength);
-    expect(script[66]).toBe(0x54); // OP_4 delist selector right after the sig push
+    expect(script.length).toBe(1 + 65 + 5 + redeemPushLength);
+    expect([...script.subarray(66, 71)]).toEqual([0x04, 0x5c, 0x78, 0xd4, 0x38]);
   });
 
-  it("purchase: buyer_pkh || selector || redeem — no signatures at all", () => {
+  it("purchase: buyer_pkh || dispatch tag || redeem — no signatures at all", () => {
     const script = assemblePurchaseSigScript(EVENT_ARTIFACT, filled(BUYER_FILL), redeem);
-    expect(script.length).toBe(1 + 32 + 1 + redeemPushLength);
-    expect(script[33]).toBe(0x53); // OP_3 purchase selector after the 32-byte pkh push
+    expect(script.length).toBe(1 + 32 + 5 + redeemPushLength);
+    expect([...script.subarray(33, 38)]).toEqual([0x04, 0xa3, 0x48, 0x81, 0x2a]);
   });
 
   it("rejects malformed signatures and keys", () => {

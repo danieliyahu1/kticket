@@ -5,17 +5,17 @@
 // input at the door. The node's covenant VM runs the Event contract's
 // `mark_used` transition on that input and requires BOTH Schnorr signatures:
 //
-//   push(65B sig_owner) || push(65B sig_gate) || <selector> || push(redeem)
+//   push(65B sig_owner) || push(65B sig_gate) || push(dispatch_tag) || push(redeem)
 //
-// where `<selector>` is the auth entrypoint's branch index (as with
+// where `dispatch_tag` identifies the auth entrypoint (as with
 // mint/list/purchase/delist) and `push(redeem)` reveals the full redeem script (the
 // artifact bytecode with the ticket's live state injected) so the P2SH spend
 // can be validated.
 //
 // This module is pure assembly shared by the API (finalize) and the web gate:
 // it does not sign (keys stay in the wallets) and does not compile (the API
-// runs the kticket-silverc toolchain). The selector is derived from the
-// compiled artifact's ABI, so the emitted script is byte-exact without a
+// runs the kticket-silverc toolchain). The dispatch tag comes from the compiled
+// artifact's ABI, so the emitted script is byte-exact without a
 // compiler.
 
 import type { CompiledContractArtifact } from "../contracts/artifact.js";
@@ -29,39 +29,24 @@ export const SIG_PUSH_LENGTH = 65;
 /** The compiler's auth entrypoint name for the mark_used covenant declaration. */
 const MARK_USED_AUTH_ENTRYPOINT = "__covenant_entrypoint_auth_mark_used";
 
-/** OP_0 — the selector push for branch index 0. */
-const OP_0 = 0x00;
-/** OP_1 — the base opcode for the small-integer selectors 1..16. */
-const OP_1 = 0x51;
-
-/**
- * The mark_used auth entrypoint's branch index (selector) within a compiled
- * artifact — the position of `__covenant_entrypoint_auth_mark_used` in the
- * ABI. The compiler computes the same index (`function_branch_index` filters
- * entrypoints), so matching the ABI position reproduces the emitted `<selector>`
- * push byte-for-byte.
- */
-export function markUsedSelector(artifact: CompiledContractArtifact): number {
-  const index = artifact.abi.findIndex((entry) => entry.name === MARK_USED_AUTH_ENTRYPOINT);
-  if (index < 0) {
+/** The mark_used auth entrypoint's canonical four-byte dispatch tag. */
+export function markUsedDispatchTag(artifact: CompiledContractArtifact): Uint8Array {
+  const entry = artifact.abi.find((candidate) => candidate.name === MARK_USED_AUTH_ENTRYPOINT);
+  if (!entry) {
     throw new Error(`artifact ${artifact.contract_name} has no mark_used entrypoint`);
   }
-  return index;
+  return dispatchTagBytes(entry.dispatch_tag);
 }
 
-/**
- * Encode a small integer as a script push the way `ScriptBuilder::add_i64` does
- * (OP_0 for 0, OP_1..OP_16 for 1..16). The covenant selectors stay tiny, so the
- * OP_N fast path is the only encoding needed.
- */
-export function pushSelector(selector: number): Uint8Array {
-  if (selector < 0 || selector > 16) {
-    throw new Error(`selector ${selector} is out of the OP_N range`);
+export function dispatchTagBytes(hex: string): Uint8Array {
+  if (!/^[0-9a-f]{8}$/.test(hex)) {
+    throw new Error(`invalid dispatch tag ${hex}`);
   }
-  if (selector === 0) {
-    return Uint8Array.of(OP_0);
+  const bytes = new Uint8Array(4);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
-  return Uint8Array.of(OP_1 - 1 + selector);
+  return bytes;
 }
 
 function assertSig(sig: Uint8Array, label: string): void {
@@ -72,7 +57,7 @@ function assertSig(sig: Uint8Array, label: string): void {
 
 /**
  * Assemble the ticket input's sig-script for the mark_used spend:
- * `push(65B sig_owner) || push(65B sig_gate) || <selector> || push(redeem)`.
+ * `push(65B sig_owner) || push(65B sig_gate) || push(dispatch_tag) || push(redeem)`.
  *
  * `sigOwner` / `sigGate` are the raw 65-byte wallet signature pushes (signature
  * + SIGHASH_ALL byte) for input 0; `redeem` is the ticket's full redeem script
@@ -92,7 +77,7 @@ export function assembleMarkUsedSigScript(
   return concat([
     pushData(sigOwner),
     pushData(sigGate),
-    pushSelector(markUsedSelector(artifact)),
+    pushData(markUsedDispatchTag(artifact)),
     pushData(redeem),
   ]);
 }

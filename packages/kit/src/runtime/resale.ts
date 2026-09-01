@@ -4,12 +4,12 @@
 // P2SH address commits to the asking price — anyone can verify a listing
 // against the chain without trusting the API.
 //
-// Sig-script layouts (same shape as mark_used: args, then `<selector>`, then
+// Sig-script layouts (same shape as mark_used: args, then `push(dispatch_tag)`, then
 // the redeem reveal):
 //
-//   list      push(65B sig_holder) || push(price i64) || <selector> || push(redeem)
-//   delist    push(65B sig_holder)                || <selector> || push(redeem)
-//   purchase  push(32B buyer_pkh)                 || <selector> || push(redeem)
+//   list      push(65B sig_holder) || push(price i64) || push(tag) || push(redeem)
+//   delist    push(65B sig_holder)                || push(tag) || push(redeem)
+//   purchase  push(32B buyer_pkh)                 || push(tag) || push(redeem)
 //
 // `purchase` carries NO signature at all — the covenant is the escrow; the
 // authorizing input is simply the buyer's fee UTXO.
@@ -23,7 +23,7 @@ import type { CompiledContractArtifact } from "../contracts/artifact.js";
 import type { AddressNetwork } from "./address.js";
 import { addressFor, pushData } from "./address.js";
 import { concat } from "./bytes.js";
-import { pushSelector } from "./mark-used.js";
+import { dispatchTagBytes } from "./mark-used.js";
 
 /** Length of a Schnorr signature push (64-byte sig + 1-byte sighash type). */
 const SIG_PUSH_LENGTH = 65;
@@ -40,16 +40,17 @@ const AUTH_ENTRYPOINTS = {
 } as const;
 
 /**
- * A resale auth entrypoint's branch index (selector) within a compiled
- * artifact — its ABI position, exactly what the compiler emits as
- * `function_branch_index` for covenant entrypoints.
+ * A resale auth entrypoint's canonical four-byte dispatch tag.
  */
-export function resaleSelector(artifact: CompiledContractArtifact, entrypoint: keyof typeof AUTH_ENTRYPOINTS): number {
-  const index = artifact.abi.findIndex((entry) => entry.name === AUTH_ENTRYPOINTS[entrypoint]);
-  if (index < 0) {
+export function resaleDispatchTag(
+  artifact: CompiledContractArtifact,
+  entrypoint: keyof typeof AUTH_ENTRYPOINTS,
+): Uint8Array {
+  const entry = artifact.abi.find((candidate) => candidate.name === AUTH_ENTRYPOINTS[entrypoint]);
+  if (!entry) {
     throw new Error(`artifact ${artifact.contract_name} has no ${entrypoint} entrypoint`);
   }
-  return index;
+  return dispatchTagBytes(entry.dispatch_tag);
 }
 
 function assertSig(sig: Uint8Array): void {
@@ -93,7 +94,7 @@ export function pushI64(value: number): Uint8Array {
 
 /**
  * Assemble the ticket input's sig-script for a `list` spend:
- * `push(65B sig_holder) || push(price) || <selector> || push(redeem)`.
+ * `push(65B sig_holder) || push(price) || push(dispatch_tag) || push(redeem)`.
  */
 export function assembleListSigScript(
   artifact: CompiledContractArtifact,
@@ -102,12 +103,12 @@ export function assembleListSigScript(
   redeem: Uint8Array,
 ): Uint8Array {
   assertSig(sigHolder);
-  return concat([pushData(sigHolder), pushI64(price), pushSelector(resaleSelector(artifact, "list")), pushData(redeem)]);
+  return concat([pushData(sigHolder), pushI64(price), pushData(resaleDispatchTag(artifact, "list")), pushData(redeem)]);
 }
 
 /**
  * Assemble the ticket input's sig-script for a `delist` spend:
- * `push(65B sig_holder) || <selector> || push(redeem)`.
+ * `push(65B sig_holder) || push(dispatch_tag) || push(redeem)`.
  */
 export function assembleDelistSigScript(
   artifact: CompiledContractArtifact,
@@ -115,12 +116,12 @@ export function assembleDelistSigScript(
   redeem: Uint8Array,
 ): Uint8Array {
   assertSig(sigHolder);
-  return concat([pushData(sigHolder), pushSelector(resaleSelector(artifact, "delist")), pushData(redeem)]);
+  return concat([pushData(sigHolder), pushData(resaleDispatchTag(artifact, "delist")), pushData(redeem)]);
 }
 
 /**
  * Assemble the ticket input's sig-script for a trustless `purchase` spend:
- * `push(32B buyer_pkh) || <selector> || push(redeem)` — no seller signature,
+ * `push(32B buyer_pkh) || push(dispatch_tag) || push(redeem)` — no seller signature,
  * no buyer signature; the covenant enforces payment + delivery.
  */
 export function assemblePurchaseSigScript(
@@ -131,7 +132,7 @@ export function assemblePurchaseSigScript(
   if (buyerPkh.length !== 32) {
     throw new Error(`buyer_pkh must be 32 bytes, got ${buyerPkh.length}`);
   }
-  return concat([pushData(buyerPkh), pushSelector(resaleSelector(artifact, "purchase")), pushData(redeem)]);
+  return concat([pushData(buyerPkh), pushData(resaleDispatchTag(artifact, "purchase")), pushData(redeem)]);
 }
 
 /**

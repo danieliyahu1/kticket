@@ -43,7 +43,7 @@ type IdsJSON = Record<string, unknown>[];
  * wiped on load rather than carried as dead weight. Discovery pointers only —
  * wiping never loses authoritative state.
  */
-export const REGISTRY_VERSION = 3;
+export const REGISTRY_VERSION = 4;
 
 interface VersionedIdsJSON {
   version: number;

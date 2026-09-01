@@ -374,7 +374,7 @@ export async function listFinalize(
   const sigs = walletSignatures(req.signed);
   const holderSig = signatureFor(sigs, txid, index, "holder");
 
-  // Input 0's sig-script: push(sig_holder) || push(price) || <selector> ||
+  // Input 0's sig-script: push(sig_holder) || push(price) || push(dispatch_tag) ||
   // push(redeem) — pure kit assembly, byte-exact with the Rust golden tests.
   const redeem = injectState(verified.artifact, {
     owner,

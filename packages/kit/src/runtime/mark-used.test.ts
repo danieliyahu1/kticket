@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { EVENT_ARTIFACT } from "../contracts/artifacts.js";
 import {
   assembleMarkUsedSigScript,
-  markUsedSelector,
-  pushSelector,
+  dispatchTagBytes,
+  markUsedDispatchTag,
   SIG_PUSH_LENGTH,
   usedStateAddress,
 } from "./mark-used.js";
@@ -25,37 +25,36 @@ const ticketRedeem = (used: boolean) =>
     salePrice: 0,
   });
 
-describe("markUsedSelector", () => {
-  it("derives the mark_used branch index from the artifact ABI", () => {
-    // The event contract's auth entrypoints in order: mint (0), mark_used (1),
-    // list (2), purchase (3), delist (4). The selector is the branch index the
-    // compiler emits — matching silverc's `function_branch_index`.
-    expect(markUsedSelector(EVENT_ARTIFACT)).toBe(1);
+describe("markUsedDispatchTag", () => {
+  it("reads the mark_used dispatch tag from the artifact ABI", () => {
+    expect(bytesToHex(markUsedDispatchTag(EVENT_ARTIFACT))).toBe("969d6dc2");
   });
 });
 
-describe("pushSelector", () => {
-  it("encodes 0 as OP_0 and 1..16 as OP_1..OP_16 (ScriptBuilder::add_i64)", () => {
-    expect(bytesToHex(pushSelector(0))).toBe("00");
-    expect(bytesToHex(pushSelector(1))).toBe("51");
-    expect(bytesToHex(pushSelector(2))).toBe("52");
-    expect(bytesToHex(pushSelector(16))).toBe("60");
+describe("dispatchTagBytes", () => {
+  it("decodes a four-byte lowercase hex tag", () => {
+    expect(bytesToHex(dispatchTagBytes("969d6dc2"))).toBe("969d6dc2");
   });
 
-  it("rejects selectors outside the OP_N range", () => {
-    expect(() => pushSelector(-1)).toThrow("out of the OP_N range");
-    expect(() => pushSelector(17)).toThrow("out of the OP_N range");
+  it("rejects malformed dispatch tags", () => {
+    expect(() => dispatchTagBytes("969d6d")).toThrow("invalid dispatch tag");
+    expect(() => dispatchTagBytes("969D6DC2")).toThrow("invalid dispatch tag");
   });
 });
 
 describe("assembleMarkUsedSigScript", () => {
-  it("assembles push(sig) push(sig) <selector> push(redeem) byte-exactly", () => {
+  it("assembles push(sig) push(sig) push(dispatch_tag) push(redeem) byte-exactly", () => {
     const redeem = ticketRedeem(false);
     const script = assembleMarkUsedSigScript(EVENT_ARTIFACT, SIG_OWNER, SIG_GATE, redeem);
     // silverc emits the same bytes for mark_used: two 65-byte pushes (0x41),
-    // then OP_1 (selector 1), then the redeem reveal push.
+    // then the four-byte dispatch tag, then the redeem reveal push.
     expect(script).toEqual(
-      concat([pushData(SIG_OWNER), pushData(SIG_GATE), pushSelector(1), pushData(redeem)]),
+      concat([
+        pushData(SIG_OWNER),
+        pushData(SIG_GATE),
+        pushData(dispatchTagBytes("969d6dc2")),
+        pushData(redeem),
+      ]),
     );
   });
 

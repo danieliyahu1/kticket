@@ -31,11 +31,12 @@ Verified against the KIP-20 spec and the reference implementation
 The real silverscript-lang toolchain shipped, so the hand-rolled `silverc.mjs`
 stub is gone (KTK-88 A3). Contracts (`contracts/event.sil`, `contracts/burn.sil`)
 compile via the `kticket-silverc` Rust wrapper (A1/A2) into a
-`kticket/compiled-contract/v1` artifact:
+`kticket/compiled-contract/v2` artifact:
 
 ```
-artifact = { bytecode, state_layout: {start,len}, template_hash, abi,
-             without_selector, compiler_version, silverscript_rev }
+artifact = { bytecode, state_layout: {start,len}, template_hash,
+             abi: [{name, dispatch_tag, inputs}],
+             compiler_version, silverscript_rev }
 redeem_script(state) = bytecode with the push-encoded state injected into
                        bytecode[state_layout.start .. start+len]
 ```
@@ -43,7 +44,7 @@ redeem_script(state) = bytecode with the push-encoded state injected into
 - The per-event constants (authorizing_txid, price, org_spk, burn_template_hash)
   are constructor args baked into the bytecode at compile time, so **each event
   requires its own compile** (KTK-88 A5 — the API compiles per event).
-- `template_hash = hash(prefix || suffix)` (blake2b, 8-byte length-prefixed
+- `template_hash = hash(prefix || suffix)` (BLAKE3, 8-byte length-prefixed
   parts) — the `burn_template_hash` stored in the event constants and checked
   by the `use` entrypoint via `validateOutputStateWithTemplate`.
 - The on-chain output remains standard Kaspa P2SH `aa20 <blake3(redeem)> 87`
@@ -51,7 +52,7 @@ redeem_script(state) = bytecode with the push-encoded state injected into
   slot out of the redeem script via `state_layout` — it no longer uses
   `decodePreimage`. The placeholder `00 51` / `00 00` code no longer appears
   anywhere.
-- `kticket-silverc` pins the silverscript-lang rev in its `Cargo.toml`; a CI
+- `kticket-silverc` pins SilverScript v1-rc1 (`c7d17a1`) in its `Cargo.toml`; a CI
   check (KTK-88 A7) diffs committed artifacts against upstream to surface
   breaking changes deliberately.
 
@@ -99,7 +100,7 @@ bytecode:
 - `mark_used(State prev_state, sig s, sig g)` is declared exactly like
   `transfer` — `#[covenant(binding = auth, from = 1, to = 1, mode = transition)]`
   — so it routes through the standard auth-entrypoint path and produces a
-  sig-script `push(65B sig_owner) || push(65B sig_gate) || <selector> ||
+  sig-script `push(65B sig_owner) || push(65B sig_gate) || push(dispatch_tag) ||
   push(redeem)`. `sig` is a first-class 65-byte type; both `checkSig` calls
   verify against the same covenant-input sighash.
 - **Constraint — new events only.** Because `org_pkh` and `used` change the

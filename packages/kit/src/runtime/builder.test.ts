@@ -1,5 +1,5 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { blake2b } from "@noble/hashes/blake2.js";
+import { blake3 } from "@noble/hashes/blake3.js";
 import { describe, expect, it } from "vitest";
 import { BURN_ARTIFACT, EVENT_ARTIFACT } from "../contracts/artifacts";
 import type { AddressNetwork } from "./address";
@@ -208,19 +208,19 @@ describe("burnTemplateHash (reader's GONE check)", () => {
 });
 
 describe("golden template_hash (KTK-88 A6)", () => {
-  it("the event artifact's template_hash is the pinned golden value (silverscript rev 80d715f7, resale v3)", () => {
+  it("the event artifact's template_hash is the pinned golden value (silverscript v1-rc1)", () => {
     expect(bytesToHex(Uint8Array.from(EVENT_ARTIFACT.template_hash))).toBe(
-      "b093d1738a0b3ef4e6a7e6b6a43472896eccd26d5dbd33954b7d29ff0e791c4b",
+      "df17a1a4c69bb713e3c2d09a3649e7469b6d1a6aeeacf3a36b7bd8780ac6dffc",
     );
   });
 
-  it("the burn artifact's template_hash is the pinned golden value (silverscript rev 80d715f7)", () => {
+  it("the burn artifact's template_hash is the pinned golden value (silverscript v1-rc1)", () => {
     expect(bytesToHex(Uint8Array.from(BURN_ARTIFACT.template_hash))).toBe(
-      "d1c7d27d615b2d41183eee7bc02b259896e5b14638b6f0fd682bcdc171e7827c",
+      "1b4d74a0a477ae14c463565aede03b635ac27e46752a45d77a2d0b52eff5d569",
     );
   });
 
-  it("template_hash commits to the prefix/suffix boundary (blake2b length-prefixed)", () => {
+  it("template_hash commits to the prefix/suffix boundary (blake3 length-prefixed)", () => {
     const { start, len } = EVENT_ARTIFACT.state_layout;
     const prefix = Uint8Array.from(EVENT_ARTIFACT.bytecode.slice(0, start));
     const suffix = Uint8Array.from(EVENT_ARTIFACT.bytecode.slice(start + len));
@@ -244,7 +244,7 @@ describe("golden template_hash (KTK-88 A6)", () => {
       suffix,
       TEMPLATE_PART_LENGTH_BYTES + prefix.length + TEMPLATE_PART_LENGTH_BYTES,
     );
-    expect(bytesToHex(blake2b(preimage, { dkLen: 32 }))).toBe(
+    expect(bytesToHex(blake3(preimage))).toBe(
       bytesToHex(Uint8Array.from(EVENT_ARTIFACT.template_hash)),
     );
   });

@@ -16,11 +16,13 @@ export interface FunctionInputAbi {
 
 export interface FunctionAbiEntry {
   name: string;
+  /** Four-byte BLAKE3 signature dispatch tag, encoded as lowercase hex. */
+  dispatch_tag: string;
   inputs: FunctionInputAbi[];
 }
 
 export interface CompiledContractArtifact {
-  schema: "kticket/compiled-contract/v1";
+  schema: "kticket/compiled-contract/v2";
   contract_name: string;
   compiler_version: string;
   silverscript_rev: string;
@@ -30,8 +32,6 @@ export interface CompiledContractArtifact {
   state_layout: CompiledStateLayout;
   /** hash(prefix || suffix) — the burn-template hash concept. */
   template_hash: number[];
-  /** Whether the bytecode omits the entrypoint selector (single entrypoint). */
-  without_selector: boolean;
-  /** Entrypoint selectors + typed args, consumed for sigscript construction. */
+  /** Entrypoint dispatch tags + typed args, consumed for sigscript construction. */
   abi: FunctionAbiEntry[];
 }
