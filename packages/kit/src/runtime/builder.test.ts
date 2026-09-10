@@ -208,13 +208,13 @@ describe("burnTemplateHash (reader's GONE check)", () => {
 });
 
 describe("golden template_hash (KTK-88 A6)", () => {
-  it("the event artifact's template_hash is the pinned golden value (silverscript v1-rc1)", () => {
+  it("the event artifact's template_hash is the pinned golden value (silverscript v1.0.0)", () => {
     expect(bytesToHex(Uint8Array.from(EVENT_ARTIFACT.template_hash))).toBe(
       "cc8301ee9611eb5e16f625780d6e8fb1167de2863a513d6134f56e1a00360e38",
     );
   });
 
-  it("the burn artifact's template_hash is the pinned golden value (silverscript v1-rc1)", () => {
+  it("the burn artifact's template_hash is the pinned golden value (silverscript v1.0.0)", () => {
     expect(bytesToHex(Uint8Array.from(BURN_ARTIFACT.template_hash))).toBe(
       "1b4d74a0a477ae14c463565aede03b635ac27e46752a45d77a2d0b52eff5d569",
     );

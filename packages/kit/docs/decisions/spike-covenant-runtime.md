@@ -52,7 +52,7 @@ redeem_script(state) = bytecode with the push-encoded state injected into
   slot out of the redeem script via `state_layout` — it no longer uses
   `decodePreimage`. The placeholder `00 51` / `00 00` code no longer appears
   anywhere.
-- `kticket-silverc` pins SilverScript v1-rc1 (`c7d17a1`) in its `Cargo.toml`; a CI
+- `kticket-silverc` pins SilverScript v1.0.0 (`3ed9733`) in its `Cargo.toml`; a CI
   check (KTK-88 A7) diffs committed artifacts against upstream to surface
   breaking changes deliberately.
 

@@ -2,7 +2,7 @@
   "schema": "kticket/compiled-contract/v2",
   "contract_name": "Burn",
   "compiler_version": "0.1.0",
-  "silverscript_rev": "c7d17a15ac88610d013ec9ffffa9520aeb69929b",
+  "silverscript_rev": "3ed973335b59269293564805cc2c58a14595ec03",
   "bytecode": [
     107,
     8,

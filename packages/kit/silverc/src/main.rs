@@ -28,7 +28,7 @@ use silverscript_abi::{
 };
 use silverscript_lang::compiler::compile_to_sil_abi_artifact;
 
-const SILVERSCRIPT_REV: &str = "c7d17a15ac88610d013ec9ffffa9520aeb69929b";
+const SILVERSCRIPT_REV: &str = "3ed973335b59269293564805cc2c58a14595ec03";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -228,4 +228,6 @@ fn type_name(ty: &TypeArtifact) -> String {
 }
 
 // Keep the compiler-version constant aligned with what silverscript emits.
+// Note: silverscript-lang is crate version 1.0.0, but its emitted
+// `compiler_version` constant is still "0.1.0".
 const _COMPILER_VERSION_ALIGN: &str = "0.1.0";
