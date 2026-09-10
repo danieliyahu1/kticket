@@ -66,21 +66,21 @@ export function parseSignInMessage(message: string): ParsedMessage | null {
   if (lines.length !== 10) return null;
   if (lines[0] !== STATEMENT) return null;
   if (lines[1] !== "") return null;
-  if (!lines[2].startsWith("kticket wants you to sign in with your Kaspa account:")) {
+  if (!lines[2]!.startsWith("kticket wants you to sign in with your Kaspa account:")) {
     return null;
   }
-  const address = lines[3].trim();
+  const address = lines[3]!.trim();
   if (lines[4] !== "") return null;
-  const uri = lines[5];
+  const uri = lines[5]!;
   if (!uri.startsWith("URI: ")) return null;
   const origin = uri.slice("URI: ".length).trim();
   if (lines[6] !== `Version: ${MESSAGE_VERSION}`) return null;
-  if (!lines[7].startsWith("Chain ID: ")) return null;
-  const networkId = lines[7].slice("Chain ID: ".length).trim();
-  const nonceLine = lines[8];
+  if (!lines[7]!.startsWith("Chain ID: ")) return null;
+  const networkId = lines[7]!.slice("Chain ID: ".length).trim();
+  const nonceLine = lines[8]!;
   if (!nonceLine.startsWith("Nonce: ")) return null;
   const nonce = nonceLine.slice("Nonce: ".length).trim();
-  if (!lines[9].startsWith("Issued At: ")) return null;
+  if (!lines[9]!.startsWith("Issued At: ")) return null;
   return { address, origin, networkId, nonce };
 }
 
@@ -162,7 +162,7 @@ export async function verifyToken(
   const match = /^Bearer\s+(.+)$/i.exec(bearer.trim());
   if (match === null) return null;
   try {
-    const { payload } = await jwtVerify(match[1], secret, { algorithms: ["HS256"] });
+    const { payload } = await jwtVerify(match[1]!, secret, { algorithms: ["HS256"] });
     const address = payload.sub;
     if (typeof address !== "string" || address === "") return null;
     return { address };
