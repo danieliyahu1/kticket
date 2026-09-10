@@ -1,0 +1,23 @@
+# Tells the VictoriaMetrics operator to scrape the kticket metrics Service.
+# `jobLabel` makes the series carry `job="kticket"`. The selector matches only
+# the metrics Service (label `app.kubernetes.io/component: metrics`), never the
+# public Service.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: kticket
+  namespace: kticket
+  labels:
+    app.kubernetes.io/name: kticket
+    app.kubernetes.io/component: metrics
+spec:
+  jobLabel: app.kubernetes.io/name
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kticket
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 20s
+      scrapeTimeout: 10s

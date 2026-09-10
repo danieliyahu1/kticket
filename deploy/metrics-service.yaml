@@ -1,0 +1,19 @@
+# Internal metrics Service. It selects the same application pods but exposes
+# only the metrics port, and its `app.kubernetes.io/component: metrics` label is
+# what the VMServiceScrape below matches — so the public Service is never picked
+# up as a scrape target.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kticket-metrics
+  namespace: kticket
+  labels:
+    app.kubernetes.io/name: kticket
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  selector: { app: kticket }
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics

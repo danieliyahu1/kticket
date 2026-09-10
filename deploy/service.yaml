@@ -1,10 +1,19 @@
+# Public application Service. The environment's routing layer reaches this
+# ClusterIP directly. The metrics port is deliberately not exposed here — it is
+# served by the separate kticket-metrics Service and never receives public
+# traffic.
 apiVersion: v1
 kind: Service
 metadata:
   name: kticket
   namespace: kticket
+  labels:
+    app: kticket
+    app.kubernetes.io/name: kticket
 spec:
+  type: ClusterIP
   selector: { app: kticket }
   ports:
-    - port: 3000
-      targetPort: 3000
+    - name: http
+      port: 3000
+      targetPort: http

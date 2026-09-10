@@ -9,6 +9,9 @@ data:
   KASPANET: testnet10
   PORT: "3000"
   HOST: 0.0.0.0
+  # Dedicated internal metrics port. It is never part of the public Service; the
+  # metrics Service and the VictoriaMetrics VMServiceScrape reach it.
+  METRICS_PORT: "9090"
   # The origin the SPA is served from — the wallet sign-in claim's URI must match
   # it exactly, or the API rejects the session as "not for this app".
   AUTH_ORIGIN: https://kticket.danieliyahu.com

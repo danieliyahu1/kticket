@@ -1,26 +1,49 @@
-# kticket — Deployment. The API serves the built web SPA on port 3000.
+# kticket — Deployment. The API serves the built web SPA on port 3000 and
+# exposes Prometheus metrics on the internal port 9090.
 #
-# The image tag is the commit SHA (immutable) rather than `latest`: Kubernetes
-# cannot tell that a moving tag changed, so `latest` would not redeploy on push.
-# The build-and-push workflow tags every push to main with its SHA.
+# The image is pinned to the commit SHA AND the registry digest: the SHA keeps
+# source identity readable, the digest makes the deployed bytes immutable even if
+# the tag is ever moved. The build-and-push workflow sets both after publishing.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kticket
   namespace: kticket
+  labels:
+    app: kticket
+    app.kubernetes.io/name: kticket
 spec:
   replicas: 1
   selector:
     matchLabels: { app: kticket }
   template:
     metadata:
-      labels: { app: kticket }
+      labels:
+        app: kticket
+        app.kubernetes.io/name: kticket
     spec:
+      # The pod never talks to the Kubernetes API, so no token is mounted.
+      automountServiceAccountToken: false
+      # Long enough to drain a finalize whose broadcast already left the node:
+      # the confirmation poll can run for ~95s. Keep this above the app's
+      # SHUTDOWN_TIMEOUT_MS (120s) so a drain is never SIGKILLed early.
+      terminationGracePeriodSeconds: 150
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: app
-          image: ghcr.io/danieliyahu1/kticket:sha-f467f6bccca2b386e202ed39c08ec09881c76f11
+          image: ghcr.io/danieliyahu1/kticket:sha-f467f6bccca2b386e202ed39c08ec09881c76f11@sha256:515b703798e4f30251f671b55e0093416d6baf9643a245006adb50de71e921dd
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
+            - name: metrics
+              containerPort: 9090
 
           envFrom:
             - configMapRef:
@@ -55,9 +78,45 @@ spec:
               cpu: 500m
               memory: 512Mi
 
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # Let endpoint removal propagate before SIGTERM stops the listener.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
           readinessProbe:
-            httpGet: { path: /health, port: 3000 }
-            initialDelaySeconds: 5
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Shallow on purpose: transient Kaspa/Turso trouble must not restart
+          # the process. The high failureThreshold covers the shutdown drain.
           livenessProbe:
-            httpGet: { path: /health, port: 3000 }
+            httpGet: { path: /health, port: http }
             initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 15
+
+          volumeMounts:
+            # The native covenant compiler writes per-request temp files under
+            # the OS temp dir, which is the only path that needs to be writable
+            # on the read-only root filesystem.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
