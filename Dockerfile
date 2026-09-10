@@ -63,6 +63,11 @@ COPY --from=build /app/packages/api/vendor packages/api/vendor
 ENV WEB_DIST=packages/web/dist
 ENV NODE_ENV=production
 
-EXPOSE 3000
+# 3000 serves the API + SPA; 9090 is the internal Prometheus metrics port.
+EXPOSE 3000 9090
+
+# Run as the unprivileged `node` user (uid/gid 1000), matching the pod's
+# runAsUser/runAsGroup so the read-only root filesystem and /tmp emptyDir work.
+USER node
 
 CMD ["node", "packages/api/dist/index.js"]
