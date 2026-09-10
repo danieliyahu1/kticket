@@ -29,6 +29,9 @@ export const cannedEventArtifact = loadArtifact("event");
 export const cannedBurnArtifact = loadArtifact("burn");
 export const cannedBurnTemplateHash = Buffer.from(cannedBurnArtifact.template_hash).toString("hex");
 
+const cannedMintDispatchTag =
+  cannedEventArtifact.abi.find((entry) => entry.name === "mint")?.dispatch_tag ?? "";
+
 /**
  * A contract-faithful double for the covenant compiler. Each function records
  * its arguments (so tests can assert the exact inputs) and returns the canned
@@ -39,7 +42,11 @@ export function createCompilerMock() {
     compileEventArtifact: vi.fn(() => cannedEventArtifact),
     compileBurnArtifact: vi.fn(() => cannedBurnArtifact),
     burnTemplateHashOf: vi.fn(() => cannedBurnTemplateHash),
-    // push(32-byte buyer pubkey) || selector — mirrors the mint sig-script shape.
-    eventMintSigScript: vi.fn((_constants: unknown, buyerPkh: string) => `20${buyerPkh}01`),
+    // push(32-byte buyer pubkey) || push(4-byte dispatch tag) — mirrors the mint
+    // sig-script shape the portable ABI encoder emits (the redeem push is
+    // appended by the caller).
+    eventMintSigScript: vi.fn(
+      (_constants: unknown, buyerPkh: string) => `20${buyerPkh}04${cannedMintDispatchTag}`,
+    ),
   };
 }
