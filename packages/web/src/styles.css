@@ -5,14 +5,15 @@
 }
 
 :root {
-  --color-bg: #0f1117;
-  --color-surface: #1a1d28;
-  --color-surface-hover: #242738;
-  --color-border: #2a2d3a;
-  --color-text: #e4e6eb;
-  --color-text-secondary: #9ca0ab;
-  --color-primary: #6366f1;
-  --color-primary-hover: #5558e6;
+  --color-bg: #0b1210;
+  --color-surface: #131b19;
+  --color-surface-hover: #1c2623;
+  --color-border: #24312d;
+  --color-text: #e6ece9;
+  --color-text-secondary: #8da19b;
+  --color-primary: #70c7ba;
+  --color-primary-hover: #49eacb;
+  --color-on-primary: #0a1211;
   --color-success: #22c55e;
   --color-success-soft: rgba(34, 197, 94, 0.12);
   --color-error: #ef4444;
@@ -102,12 +103,12 @@ button {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: var(--color-text-secondary);
+  color: var(--color-primary);
   transition: color var(--ease);
 }
 
 .app-title:hover {
-  color: var(--color-text);
+  color: var(--color-primary-hover);
 }
 
 .app-main {
@@ -151,7 +152,7 @@ button {
 
 .button-primary {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border-color: var(--color-primary);
 }
 
@@ -816,7 +817,7 @@ a.card:hover {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgba(5, 7, 12, 0.8);
+  background: rgba(4, 8, 7, 0.82);
   display: flex;
   align-items: flex-start;
   justify-content: center;
