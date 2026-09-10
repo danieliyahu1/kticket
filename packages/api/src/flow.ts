@@ -5,6 +5,7 @@
 
 import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import { elapsedSeconds, metrics } from "./metrics.js";
 import { pollUntil } from "./poll-until.js";
 import { throwRejectionError } from "./broadcast.js";
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
@@ -144,9 +145,12 @@ export async function broadcastAndConfirm(
   const merged = mergeSignatures(template, signed);
   validate(merged);
   let txid: string;
+  const broadcastStarted = process.hrtime();
   try {
     txid = await submitTransactionOverWrpc(ctx.networkId, merged);
+    metrics.observeUpstream("wrpc_broadcast", "success", elapsedSeconds(broadcastStarted));
   } catch (err) {
+    metrics.observeUpstream("wrpc_broadcast", "error", elapsedSeconds(broadcastStarted));
     // Surface the node's raw rejection instead of leaking a generic 500 — the
     // route handler logs it via the ApiError detail (KTK buy).
     throwRejectionError(err instanceof Error ? err.message : String(err));

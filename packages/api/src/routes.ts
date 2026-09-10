@@ -59,6 +59,7 @@ import {
   purchasePrepare,
   type ResaleContext,
 } from "./resale.js";
+import { metrics } from "./metrics.js";
 import { usePrepare } from "./use.js";
 import { useFinalize, useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
@@ -134,12 +135,12 @@ function resaleCtx(ctx: AppContext): ResaleContext {
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.post("/v1/auth/challenge", async (req, reply) => {
+  app.post("/v1/auth/challenge", { config: { kticketFlow: "auth.challenge" } }, async (req, reply) => {
     const result = await handleCreateChallenge(ctx.auth.store, req.body, ctx.auth.config);
     return reply.code(200).send(result);
   });
 
-  app.post("/v1/auth/session", async (req, reply) => {
+  app.post("/v1/auth/session", { config: { kticketFlow: "auth.session" } }, async (req, reply) => {
     const result = await handleCreateSession(ctx.auth.store, req.body, ctx.auth.config);
     return reply.code(200).send(result);
   });
@@ -173,7 +174,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       ctx.events.register(e),
   };
 
-  app.post("/v1/events/deploy/prepare", async (req) => {
+  app.post("/v1/events/deploy/prepare", { config: { kticketFlow: "deploy.prepare" } }, async (req) => {
     try {
       const result = await deployPrepare(req.body, deployCtx);
       req.log.info(
@@ -187,7 +188,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     }
   });
 
-  app.post("/v1/events/deploy/finalize", async (req) => {
+  app.post("/v1/events/deploy/finalize", { config: { kticketFlow: "deploy.finalize" } }, async (req) => {
     logSignatureOutcome(req, "deploy finalize", req.body as FinalizeBody);
     try {
       const result = await deployFinalize(req.body, deployCtx);
@@ -202,7 +203,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     }
   });
 
-  app.post("/v1/events", async (req) => {
+  app.post("/v1/events", { config: { kticketFlow: "event.register" } }, async (req) => {
     try {
       const deployTxId = parseRegisterEventBody(req.body);
 
@@ -213,6 +214,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         covenantId: verified.covenant_id,
         organizerAddress: verified.organizer_address,
       });
+      metrics.recordEventRegistered();
       return { covenant_id: verified.covenant_id };
     } catch (err) {
       if (isApiError(err)) {
@@ -337,6 +339,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/use/prepare",
+    { config: { kticketFlow: "use.prepare" } },
     async (req) => {
       const result = await usePrepare(req.params.ticketId, req.body, useCtx);
       req.log.info(
@@ -354,6 +357,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/use/sign-template",
+    { config: { kticketFlow: "use.sign" } },
     async (req) => {
       const result = await useSignTemplate(req.params.ticketId, req.body, useCtx);
       req.log.info(
@@ -366,6 +370,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/use/finalize",
+    { config: { kticketFlow: "use.finalize" } },
     async (req) => {
       const body = req.body as FinalizeBody;
       logSignatureOutcome(req, "use finalize", body, body.owner_signed, body.gate_signed);
@@ -391,6 +396,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { covenantId: string } }>(
     "/v1/events/:covenantId/buy/prepare",
+    { config: { kticketFlow: "buy.prepare" } },
     async (req) => {
       const result = await buyPrepare(req.params.covenantId, req.body, buyCtx);
       req.log.info(
@@ -408,6 +414,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { covenantId: string } }>(
     "/v1/events/:covenantId/buy/finalize",
+    { config: { kticketFlow: "buy.finalize" } },
     async (req) => {
       logSignatureOutcome(req, "buy finalize", req.body as FinalizeBody);
       try {
@@ -448,6 +455,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/list/prepare",
+    { config: { kticketFlow: "list.prepare" } },
     async (req) => {
       const result = await listPrepare(req.params.ticketId, req.body, resaleCtx(ctx));
       req.log.info(
@@ -464,6 +472,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/list/finalize",
+    { config: { kticketFlow: "list.finalize" } },
     async (req) => {
       logSignatureOutcome(req, "list finalize", req.body as FinalizeBody);
       const result = await listFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
@@ -474,6 +483,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/delist/prepare",
+    { config: { kticketFlow: "delist.prepare" } },
     async (req) => {
       const result = await delistPrepare(req.params.ticketId, req.body, resaleCtx(ctx));
       req.log.info(
@@ -486,6 +496,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/delist/finalize",
+    { config: { kticketFlow: "delist.finalize" } },
     async (req) => {
       logSignatureOutcome(req, "delist finalize", req.body as FinalizeBody);
       const result = await delistFinalize(req.params.ticketId, req.body, resaleCtx(ctx));
@@ -496,6 +507,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/purchase/prepare",
+    { config: { kticketFlow: "purchase.prepare" } },
     async (req) => {
       const result = await purchasePrepare(req.params.ticketId, req.body, resaleCtx(ctx));
       req.log.info(
@@ -512,6 +524,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post<{ Params: { ticketId: string } }>(
     "/v1/tickets/:ticketId/purchase/finalize",
+    { config: { kticketFlow: "purchase.finalize" } },
     async (req) => {
       logSignatureOutcome(req, "purchase finalize", req.body as FinalizeBody);
       const result = await purchaseFinalize(req.params.ticketId, req.body, resaleCtx(ctx));

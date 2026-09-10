@@ -1,14 +1,15 @@
-ï»¿// Typed HTTP client for the Kaspa public REST API (HLD v0.23 Â§2.2 â€” "reads via
+// Typed HTTP client for the Kaspa public REST API (HLD v0.23 §2.2 — "reads via
 // api-tn10.kaspa.org"). Upstream handling per KTK-5:
-//   - 503 / 429  â†’ retry with exponential backoff (honouring `Retry-After`),
+//   - 503 / 429  ? retry with exponential backoff (honouring `Retry-After`),
 //     then 503 `upstream` error (retryable).
-//   - timeout / connection errors â†’ 502 `network` error (no retry).
+//   - timeout / connection errors ? 502 `network` error (no retry).
 //   - a short-TTL in-process cache is used only as a rate-limit valve.
 //
 // All 200 responses are cached; the availability path reuses the same client,
 // so one event directory scan does not hammer api-tn10.kaspa.org.
 
 import { networkError, upstreamError } from "./errors.js";
+import { elapsedSeconds, metrics } from "./metrics.js";
 import {
   HTTP_BAD_REQUEST,
   HTTP_INTERNAL_SERVER_ERROR,
@@ -29,7 +30,7 @@ import { isRecord } from "./validate.js";
 
 const UPSTREAM_HOST = "api-tn10.kaspa.org";
 
-/** Public surface used by the routes â€” makes clients injectable in tests. */
+/** Public surface used by the routes — makes clients injectable in tests. */
 export interface KaspaClientLike {
   getUtxos(address: string): Promise<UtxoResponse[]>;
   getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]>;
@@ -40,7 +41,7 @@ export interface KaspaClientLike {
   broadcastTransaction(tx: SubmitTxModel): Promise<SubmitTransactionResponse>;
   /**
    * Drop every cached upstream response. A confirmed broadcast changes chain
-   * state, so cached reads (UTXOs, tx lists) may be stale â€” callers invoke this
+   * state, so cached reads (UTXOs, tx lists) may be stale — callers invoke this
    * after a tx confirms so the next read refetches from the chain (KTK-115).
    */
   clearCache(): void;
@@ -201,19 +202,21 @@ export class KaspaClient implements KaspaClientLike {
 
   async getUtxos(address: string): Promise<UtxoResponse[]> {
     return (await this.#request(
+      "utxos",
       `/addresses/${address}/utxos`,
       this.#utxoCacheMs,
     )) as UtxoResponse[];
   }
 
   async getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]> {
-    return (await this.#request("/addresses/utxos", this.#utxoCacheMs, "POST", {
+    return (await this.#request("utxos_batch", "/addresses/utxos", this.#utxoCacheMs, "POST", {
       addresses,
     })) as UtxoResponse[];
   }
 
   async getFullTransactions(address: string, limit = 500): Promise<TxModel[]> {
     return (await this.#request(
+      "address_transactions",
       `/addresses/${address}/full-transactions?limit=${limit}`,
       this.#addressTxCacheMs,
     )) as TxModel[];
@@ -222,6 +225,7 @@ export class KaspaClient implements KaspaClientLike {
   async getTransaction(txId: string): Promise<TxModel | null> {
     try {
       return (await this.#request(
+        "transaction",
         `/transactions/${txId.toLowerCase()}`,
         this.#transactionCacheMs,
       )) as TxModel;
@@ -233,18 +237,25 @@ export class KaspaClient implements KaspaClientLike {
 
   async getFeeEstimate(): Promise<FeeEstimateResponse> {
     return (await this.#request(
+      "fee_estimate",
       "/info/fee-estimate",
       this.#feeEstimateCacheMs,
     )) as FeeEstimateResponse;
   }
 
   async computeMass(tx: SubmitTxModel): Promise<TxMass> {
-    return (await this.#request("/transactions/mass", this.#massCacheMs, "POST", tx)) as TxMass;
+    return (await this.#request(
+      "mass",
+      "/transactions/mass",
+      this.#massCacheMs,
+      "POST",
+      tx,
+    )) as TxMass;
   }
 
   async broadcastTransaction(tx: SubmitTxModel): Promise<SubmitTransactionResponse> {
     try {
-      return (await this.#request("/transactions", 0, "POST", {
+      return (await this.#request("broadcast", "/transactions", 0, "POST", {
         transaction: tx,
         allowOrphan: false,
       })) as SubmitTransactionResponse;
@@ -256,6 +267,7 @@ export class KaspaClient implements KaspaClientLike {
   }
 
   async #request(
+    operation: string,
     path: string,
     cacheTtlMs: number,
     method: "GET" | "POST" = "GET",
@@ -265,12 +277,21 @@ export class KaspaClient implements KaspaClientLike {
     const cached = this.#cache.get(key);
     if (cached && cached.expiresAt > this.#now()) return cached.value;
 
-    const payload = body === undefined ? undefined : JSON.stringify(body);
-    const response = await this.#requestWithRetry(path, payload, method);
-    return this.#parseResponse(response, key, cacheTtlMs);
+    const started = process.hrtime();
+    try {
+      const payload = body === undefined ? undefined : JSON.stringify(body);
+      const response = await this.#requestWithRetry(operation, path, payload, method);
+      const value = await this.#parseResponse(response, key, cacheTtlMs);
+      metrics.observeUpstream(operation, "success", elapsedSeconds(started));
+      return value;
+    } catch (err) {
+      metrics.observeUpstream(operation, "error", elapsedSeconds(started));
+      throw err;
+    }
   }
 
   async #requestWithRetry(
+    operation: string,
     path: string,
     payload: string | undefined,
     method: "GET" | "POST",
@@ -286,6 +307,7 @@ export class KaspaClient implements KaspaClientLike {
       ) {
         lastRetryAfter = retryAfter;
         if (attempt < this.#maxAttempts) {
+          metrics.observeUpstream(operation, "retry");
           await this.#sleep(this.#backoffMs(attempt, retryAfter));
           continue;
         }

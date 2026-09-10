@@ -12,6 +12,7 @@ import { InMemoryAuthStore } from "./auth/auth-store.js";
 import { ListingStoreFile, type ListingStore } from "./listings";
 import { TursoListingStore } from "./listings-turso";
 import { KaspaClient } from "./kaspa-client";
+import { registerHttpMetrics } from "./metrics";
 import { type AppContext, registerRoutes } from "./routes";
 import { VerifiedEventCache } from "./verified-cache";
 import { warmVerifiedEvents } from "./warmup";
@@ -68,6 +69,7 @@ export async function buildApp(
   }) as FastifyInstance;
 
   registerErrorHandler(app, { skipNotFound: !!options.serveStatic });
+  registerHttpMetrics(app);
 
   app.get("/health", async () => ({ status: "ok", network: config.kaspaNet }));
 

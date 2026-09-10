@@ -19,6 +19,8 @@ export interface TursoConfig {
 export interface ApiConfig {
   port: number;
   host: string;
+  /** Dedicated internal metrics port; 0 disables the metrics listener. */
+  metricsPort: number;
   kaspaNet: KaspaNetwork;
   networkId: string;
   apiBaseUrl: string;
@@ -38,6 +40,7 @@ export class ConfigError extends Error {
 }
 
 const DEFAULT_PORT = 3000;
+const DEFAULT_METRICS_PORT = 9090;
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -50,6 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const parsedPort = Number(env.PORT ?? DEFAULT_PORT);
   const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : DEFAULT_PORT;
   const host = env.HOST?.trim() || DEFAULT_HOST;
+  const metricsPort = portOrZero(env.METRICS_PORT, DEFAULT_METRICS_PORT);
 
   const tls = resolveTls(env);
   const turso = resolveTurso(env);
@@ -58,6 +62,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     port,
     host,
+    metricsPort,
     kaspaNet: network.net,
     networkId: network.networkId,
     apiBaseUrl: network.apiBaseUrl,
@@ -77,6 +82,13 @@ function positiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+/** A TCP port, allowing 0 (the ephemeral-port / disabled sentinel). */
+function portOrZero(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 65_535 ? n : fallback;
 }
 
 function resolveTls(env: NodeJS.ProcessEnv): TlsConfig | undefined {
