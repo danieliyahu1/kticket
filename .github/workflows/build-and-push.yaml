@@ -1,5 +1,5 @@
 # Builds the kticket Docker image and pushes it to ghcr.io on every push to main.
-# Argo CD then deploys the pinned image SHA to the OCI k3s box (oci-k3s-starter).
+# Argo CD then deploys the pinned image digest to the OCI k3s box (oci-k3s-starter).
 #
 # Oracle's Always Free tier is Ampere — ARM, aarch64. An amd64 image would pull,
 # start, and fail with `exec format error`. This repo is PUBLIC, so GitHub's
@@ -38,7 +38,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Pin to the Rust version declared by Cargo.toml (`rust-version`), not the
+      # moving `stable` toolchain, so the build is reproducible.
+      - uses: dtolnay/rust-toolchain@1.94.0
 
       - run: npm ci
       - run: cargo build --release --manifest-path packages/kit/silverc/Cargo.toml
@@ -47,16 +49,27 @@ jobs:
       - name: Verify committed SilverC artifacts
         working-directory: packages/kit
         run: node scripts/silverc.mjs --check
+      - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: Validate Kubernetes manifest schema
+        run: |
+          docker run --rm -v "$PWD/deploy:/deploy" ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -ignore-missing-schemas -summary /deploy
+      - name: Validate delivery contract (image pin, probes, scrape, dashboard)
+        run: node scripts/validate-deploy.mjs
 
   build:
-    if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]'
+    # Only publish and advance the manifest for a push to main, never for a PR,
+    # a bot push, or a manual run from another branch.
+    if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]' && github.ref == 'refs/heads/main'
     needs: verify
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write # lets GITHUB_TOKEN push to ghcr.io
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +94,7 @@ jobs:
             type=sha,format=long
 
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           platforms: linux/arm64
@@ -90,21 +104,58 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Start the published image the way the pod runs it (non-root, read-only
+      # root filesystem, writable /tmp) and prove it boots and serves both the
+      # public health endpoint and the internal metrics endpoint. The file store
+      # is used so the smoke test needs no Turso credentials.
+      - name: Smoke test the published image
+        run: |
+          REF="${REGISTRY}/${IMAGE}:sha-${GITHUB_SHA}"
+          docker run -d --name kticket-smoke \
+            --read-only --tmpfs /tmp:rw,size=32m --user 1000:1000 \
+            -e AUTH_SECRET=smoke-test-not-a-real-credential \
+            -e KASPANET=testnet10 -e PORT=3000 -e METRICS_PORT=9090 \
+            -e EVENTS_FILE=/tmp/events.json -e LISTINGS_FILE=/tmp/listings.json \
+            -p 3000:3000 -p 9090:9090 "${REF}"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          echo "health: $(curl -fsS http://127.0.0.1:3000/health)"
+          curl -fsS http://127.0.0.1:9090/metrics | grep -q '^kticket_build_info'
+
+      - name: Smoke test container logs
+        if: failure()
+        run: docker logs kticket-smoke
+
+      - name: Clean up smoke test
+        if: always()
+        run: docker rm -f kticket-smoke || true
+
   update-manifest:
-    if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]'
+    if: github.event_name != 'pull_request' && github.actor != 'github-actions[bot]' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      # Check out the exact commit this image was built from so the generated
+      # pin commit has the right parent even if main moved during the build.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Pin manifest to published image
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE }}:sha-${{ github.sha }}
+          DIGEST: ${{ needs.build.outputs.digest }}
         run: |
-          sed -i "s|^          image: .*|          image: ${IMAGE}|" deploy/deployment.yaml
+          if [ -z "${DIGEST}" ]; then
+            echo "build job did not report an image digest" >&2
+            exit 1
+          fi
+          REF="${REGISTRY}/${IMAGE}:sha-${GITHUB_SHA}@${DIGEST}"
+          node scripts/update-manifest.mjs deploy/deployment.yaml "${REF}"
 
       - name: Commit manifest handoff
         run: |
