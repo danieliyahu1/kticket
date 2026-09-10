@@ -21,6 +21,9 @@ The chain is the source of truth; the app is a thin wrapper:
   for discovery — never authoritative. It persists to Turso when
   `TURSO_DATABASE_URL` is set (durable across deploys; `TURSO_AUTH_TOKEN` for
   remote databases), and falls back to a local `events.json` file otherwise.
+  Turso is **required** in the deployed environments: `compose.yaml` and the
+  Kubernetes `ExternalSecret` both make `TURSO_DATABASE_URL` mandatory, so the
+  ephemeral file store is a local-development fallback only.
 - `GET /v1/events` verifies every registered event from the chain and serves
   the verified facts (name, date, time, price, capacity, organizer) for the
   homepage cards. Events that fail verification are hidden.
@@ -39,7 +42,7 @@ The chain is the source of truth; the app is a thin wrapper:
 - Availability (sold / tickets left) is derived from the chain only inside the
   buy flow to build transactions; read endpoints and the UI do not surface it.
 - The frontend shows **"Organized by: <address>"** as the trust anchor with a
-  **verified** badge, and saves opened events as local anchor links.
+  **verified** badge.
 
 ## Resilience boundaries
 
@@ -76,7 +79,45 @@ The API (which serves the built web SPA) listens on `http://localhost:3000`.
 | Script | What it does |
 | --- | --- |
 | `npm run build` | Builds every package (`build` script in each workspace). |
+| `npm run typecheck` | Type-checks every workspace (`tsc --noEmit`). |
 | `npm test` | Runs the test suite (Vitest). |
+| `npm run validate:deploy` | Validates the delivery contract in `deploy/` (image pin, probes, scrape, dashboard metric names). |
+
+## Deployment & operations
+
+The API and the built SPA ship as one image. A push to `main` starts
+`.github/workflows/build-and-push.yaml`, which:
+
+1. verifies the repository (typecheck, tests, covenant VM tests, committed
+   artifact check, production build, manifest schema + delivery-contract
+   validation),
+2. builds `linux/arm64` and publishes `sha-<commit>` + `latest` to GHCR,
+3. smoke-tests the published image non-root with a read-only root filesystem,
+4. rewrites `deploy/deployment.yaml` to the immutable
+   `sha-<commit>@sha256:<digest>` reference and commits it.
+
+Argo CD watches `deploy/` on `main` and applies the result to the `kticket`
+namespace. All application-owned manifests live under `deploy/`.
+
+Runtime contract:
+
+- **Public Service** — `kticket` (ClusterIP, port 3000). The environment's
+  routing layer reaches it directly; it serves the API and the SPA.
+- **Metrics** — the API also listens on the internal `METRICS_PORT` (9090),
+  exposed only through the `kticket-metrics` Service and discovered by the
+  `kticket` `VMServiceScrape`. A Grafana overview dashboard (`kticket-dashboard`)
+  is delivered as a ConfigMap in the `observability` namespace.
+- **Secrets** — `deploy/externalsecret.yaml` maps three OCI Vault entries
+  (`k3s-01-kticket-turso-url`, `k3s-01-kticket-turso-token`,
+  `k3s-01-kticket-auth-secret`) through the `oci-vault` `ClusterSecretStore`
+  into the `kticket-secrets` Secret. Those key names must match what is created
+  in OCI Vault; the repository only ever stores the names, never the values.
+- **Scaling** — one replica. Wallet sign-in nonces and the in-process index
+  mirrors are process-local, so horizontal scaling would need shared state
+  first.
+- **Shutdown** — a finalize can wait ~95s for chain confirmation, so the
+  process drains for up to 120s and the pod's
+  `terminationGracePeriodSeconds` is 150s.
 
 ## Network selection (`KASPANET`)
 
@@ -86,9 +127,9 @@ host is `api-tn10.kaspa.org`.
 Configuration comes from the compose `.env` (see `example.env`); when a value is
 unset or invalid, every host falls back to `testnet10`.
 
-- **API** reads `KASPANET` (and `PORT`, `HOST`, `TLS_KEY`, `TLS_CERT`,
-  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) from the environment set by
-  `compose.yaml`.
+- **API** reads `KASPANET` (and `PORT`, `HOST`, `METRICS_PORT`, `TLS_KEY`,
+  `TLS_CERT`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) from the environment set
+  by `compose.yaml`.
 - **Web** reads `VITE_KASPANET` at build time (`import.meta.env`); the API
   serves the built SPA.
 - **Kit** exposes the shared resolver (`getNetworkConfig`) used by all hosts.

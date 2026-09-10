@@ -4,10 +4,12 @@ services:
       context: .
     ports:
       - "3000:3000"
+      - "9090:9090"
     environment:
       KASPANET: testnet10
       PORT: "3000"
       HOST: 0.0.0.0
+      METRICS_PORT: "9090"
       TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:?set TURSO_DATABASE_URL in .env}
       TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-}
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
