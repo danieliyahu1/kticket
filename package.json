@@ -14,12 +14,15 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "build:deploy": "npm run build --workspace @kticket/api && npm run build --workspace @kticket/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "validate:deploy": "node scripts/validate-deploy.mjs"
   },
   "devDependencies": {
     "playwright": "^1.62.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "yaml": "^2.9.0"
   }
 }

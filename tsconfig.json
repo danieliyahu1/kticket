@@ -4,7 +4,6 @@
   "references": [
     { "path": "./packages/kit" },
     { "path": "./packages/api" },
-    { "path": "./packages/web" },
-    { "path": "./packages/door" }
+    { "path": "./packages/web" }
   ]
 }
