@@ -157,3 +157,7 @@ nonce store is in-memory (single-instance deploy). Configuration:
 - `AUTH_ORIGIN` — the origin the SPA is served from; the signed claim's `URI`
   must match it (default `http://localhost:3000`).
 - `AUTH_SESSION_TTL_MS` — JWT lifetime in ms (default 15 minutes).
+
+## Support
+
+If you like this repo, you can tip me at [https://kas.coffee/danieliyahu](https://kas.coffee/danieliyahu).
