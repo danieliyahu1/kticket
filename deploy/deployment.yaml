@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: ghcr.io/danieliyahu1/kticket:sha-7cfb9c00fffb927daaf4e10a8aa2ba93ca6abe0f
+          image: ghcr.io/danieliyahu1/kticket:sha-f467f6bccca2b386e202ed39c08ec09881c76f11
           ports:
             - containerPort: 3000
 
