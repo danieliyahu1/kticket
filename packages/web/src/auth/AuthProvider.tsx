@@ -9,6 +9,8 @@ import {
   setReauthHandler,
 } from "../api/client";
 import { devLog, devWarn } from "../lib/log";
+import { normalizeSignature } from "./signature";
+import { codeOf, isUserRejected, reasonOf } from "./wallet-error";
 
 /** The connected wallet's address, or undefined when not connected. */
 function connectedAddress(state: WalletState): string | undefined {
@@ -23,8 +25,13 @@ interface AuthState {
   address: string | null;
 }
 
+interface SignInOptions {
+  /** Retry after a user cancel (the only thing that re-prompts). */
+  force?: boolean;
+}
+
 interface AuthActions {
-  signIn: () => Promise<void>;
+  signIn: (options?: SignInOptions) => Promise<void>;
 }
 
 export type Auth = AuthState & AuthActions & { tokenPresent: boolean };
@@ -43,17 +50,61 @@ export function useAuth(): Auth {
   return useContext(AuthContext);
 }
 
-/** Challenge -> sign with the wallet -> session token (daftari's signInFlow). */
-async function signInFlow(address: string): Promise<void> {
-  const { message } = await createChallenge(address);
-  const wallet = window.kastle;
-  if (!(wallet && typeof wallet.signMessage === "function")) {
-    throw new Error("Kastle wallet not available");
+/** Short correlation id — matches the browser log line to the API log line. */
+function newAttemptId(): string {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
+}
+
+/**
+ * Challenge -> sign with the wallet -> session token (daftari's signInFlow).
+ * Every step is logged with the attempt id so a stalled flow is diagnosable
+ * from the console alone (the wallet step is where it can hang, because
+ * `signMessage` waits for a Kasware approval).
+ */
+async function signInFlow(address: string, attempt: string): Promise<void> {
+  const startedAt = performance.now();
+  let step = "challenge";
+  try {
+    const { nonce, message } = await createChallenge(address);
+    devLog(`[auth] attempt=${attempt} challenge.ok nonce=${nonce.slice(0, 8)}`);
+
+    step = "wallet";
+    const wallet = window.kasware;
+    devLog(`[auth] attempt=${attempt} wallet kasware=${typeof wallet} signMessage=${typeof wallet?.signMessage}`);
+    if (!(wallet && typeof wallet.signMessage === "function")) {
+      throw new Error("Kasware wallet not available");
+    }
+
+    step = "sign";
+    devLog(`[auth] attempt=${attempt} sign.invoke`);
+    const signStartedAt = performance.now();
+    let raw: string;
+    try {
+      raw = await wallet.signMessage(message, { type: "schnorr" });
+    } catch (err) {
+      devWarn(`[auth] attempt=${attempt} sign.rejected ms=${elapsedMs(signStartedAt)} err=${reasonOf(err)}`);
+      throw err;
+    }
+    devLog(
+      `[auth] attempt=${attempt} sign.settled ok=true ms=${elapsedMs(signStartedAt)} type=${typeof raw} len=${typeof raw === "string" ? raw.length : -1}`,
+    );
+
+    step = "session";
+    // The API verifies Schnorr over the personal message hash, and expects a
+    // 128-hex signature; Kasware may return base64, so normalize it.
+    const signature = normalizeSignature(raw);
+    devLog(`[auth] attempt=${attempt} session.invoke`);
+    const { token } = await createSession(message, signature);
+    setAuthToken(token);
+    devLog(`[auth] attempt=${attempt} session.ok totalMs=${elapsedMs(startedAt)}`);
+  } catch (err) {
+    devWarn(`[auth] attempt=${attempt} step=${step} err=${reasonOf(err)}`);
+    throw err;
   }
-  const signature = await wallet.signMessage(message);
-  const { token } = await createSession(message, signature);
-  setAuthToken(token);
-  devLog(`[auth] session ready for ${address}`);
 }
 
 interface AuthProviderProps {
@@ -65,21 +116,41 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [state, setState] = useState<AuthState>({ status: "idle", error: null, address: null });
   const inFlightRef = useRef(false);
   const targetAddressRef = useRef<string | null>(null);
+  // The address whose sign-in the user canceled. Automatic sign-in (on load or
+  // a 401 re-auth) is suppressed for it until an explicit retry or a wallet
+  // change — otherwise every background refresh would reopen the wallet popup.
+  const canceledAddressRef = useRef<string | null>(null);
 
-  const signIn = useCallback(async () => {
+  const signIn = useCallback(async (options?: SignInOptions) => {
     const address = connectedAddress(wallet.state);
     if (!address) return;
-    if (inFlightRef.current) return;
+    if (!options?.force && canceledAddressRef.current === address) {
+      devLog("[auth] signIn suppressed (canceled by the user)");
+      return;
+    }
+    if (inFlightRef.current) {
+      devLog("[auth] signIn skipped (already in flight)");
+      return;
+    }
+    canceledAddressRef.current = null;
+    const attempt = newAttemptId();
     targetAddressRef.current = address;
     inFlightRef.current = true;
     setState({ status: "signing-in", error: null, address: null });
+    devLog(`[auth] attempt=${attempt} start address=${address}`);
     try {
-      await signInFlow(address);
+      await signInFlow(address, attempt);
       setState({ status: "ready", error: null, address });
     } catch (err) {
-      devWarn("[auth] sign-in failed", err instanceof Error ? err.message : typeof err);
       setAuthToken(null);
-      setState({ status: "error", error: "Could not sign you in.", address: null });
+      if (isUserRejected(err)) {
+        canceledAddressRef.current = address;
+        devWarn(`[auth] attempt=${attempt} canceled by user code=${codeOf(err) ?? "none"}`);
+        setState({ status: "error", error: "Sign-in was canceled in Kasware.", address: null });
+      } else {
+        devWarn(`[auth] attempt=${attempt} failed err=${reasonOf(err)}`);
+        setState({ status: "error", error: "Could not sign you in.", address: null });
+      }
     } finally {
       inFlightRef.current = false;
     }
@@ -89,6 +160,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const address = connectedAddress(wallet.state);
     if (!address) {
+      canceledAddressRef.current = null;
       setAuthToken(null);
       setState({ status: "idle", error: null, address: null });
       return;

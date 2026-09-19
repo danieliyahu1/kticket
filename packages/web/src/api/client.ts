@@ -74,7 +74,8 @@ async function fail(status: number, text: string, url: string): Promise<never> {
  */
 async function request<T>(method: string, url: string, body: unknown): Promise<T> {
   const hasBody = body !== undefined;
-  devLog(`[api] ${method} ${url}`);
+  const startedAt = performance.now();
+  devLog(`[api] -> ${method} ${url} auth=${authToken !== null}`);
 
   const run = async (): Promise<Response> => {
     try {
@@ -91,14 +92,21 @@ async function request<T>(method: string, url: string, body: unknown): Promise<T
 
   let res = await run();
   if (res.status === 401 && authToken !== null && reauthHandler) {
+    devLog(`[api] 401 ${url} — re-signing`);
     setAuthToken(null);
     try {
       await reauthHandler();
     } catch {
       // Re-auth failed; surface the original 401.
     }
-    if (authToken !== null) res = await run();
+    if (authToken !== null) {
+      devLog(`[api] reauth ok — retrying ${url}`);
+      res = await run();
+    } else {
+      devLog(`[api] reauth failed — keeping 401 for ${url}`);
+    }
   }
+  devLog(`[api] <- ${res.status} ${method} ${url} ms=${Math.round(performance.now() - startedAt)}`);
 
   if (!res.ok) {
     const text = await res.text();

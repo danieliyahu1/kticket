@@ -176,7 +176,7 @@ unset or invalid, every host falls back to `testnet10`.
 User-specific reads that carry no transaction signature (My Tickets, My Events)
 require the caller to prove they control the wallet they claim. The model
 mirrors Daftari: a one-time nonce challenge → the wallet signs a structured
-message (`kastle.signMessage`) → the API verifies the Schnorr signature and
+message (`kasware.signMessage`) → the API verifies the Schnorr signature and
 issues a short-lived JWT whose subject is the address → protected reads present
 `Authorization: Bearer <token>`.
 

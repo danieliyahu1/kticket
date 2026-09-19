@@ -48,7 +48,7 @@ const CONFIRM_BASE_DELAY_MS = 1_000;
 const CONFIRM_MAX_DELAY_MS = 16_000;
 
 /**
- * Operator-side diagnostics for wallet-signing regressions (e.g. Kastle
+ * Operator-side diagnostics for wallet-signing regressions (e.g. Kasware
  * declining to co-sign covenant inputs): for each wallet payload received at
  * finalize, which template input positions it covered and which it left
  * unsigned. Positions only — everything here is derivable from public chain

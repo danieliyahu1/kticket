@@ -1,38 +1,45 @@
 import { devError, devLog, devWarn } from "./log";
 import { network } from "../network";
-import type { KastleSignScript } from "../wallet/types";
+
+/** SIGHASH_ALL — the consensus default every signing template input is signed with. */
+const SIGHASH_ALL = 1;
 
 /**
  * Ask the wallet to sign a signing template. Signing stays in the frontend —
  * the wallet owns the keys.
  *
- * Kastle's `signTx` signs the template (kaspa-wasm safe-JSON built by the
- * backend) without broadcasting: P2PK inputs owned by the connected account
- * are signed with SIGHASH_ALL automatically. Covenant/P2SH inputs are NOT
- * auto-signed (Kastle can't map their script to the account key), so the
- * caller must name them via `scripts` — `[{ inputIndex: 0 }]` for the ticket
- * covenant input every resale/check-in flow spends. Finalize matches
- * signatures by outpoint on the backend.
+ * Kasware's `signPskt` signs the template (kaspa-wasm safe-JSON built by the
+ * backend) without broadcasting. `signInputs` tells the wallet which inputs to
+ * sign (the backend lists them in its prepare response); omitting it makes the
+ * wallet sign every input it owns. Every requested input carries an explicit
+ * `sighashType` — Kasware falls back to a zero byte when it is absent, and a
+ * zero sighash is invalid on-chain (it panics Kasware's Schnorr wasm for
+ * multi-input spends). SIGHASH_ALL is what the backend expects per funded
+ * input. Finalize matches signatures by outpoint on the backend.
  */
 export async function signTemplate(
   signingTemplate: string | null | undefined,
-  scripts?: KastleSignScript[],
+  signInputs?: { index: number }[],
 ): Promise<unknown> {
-  const kastle = window.kastle;
-  if (!(kastle && typeof kastle.signTx === "function")) {
-    throw new Error("Kastle wallet not available");
+  const kasware = window.kasware;
+  if (!(kasware && typeof kasware.signPskt === "function")) {
+    throw new Error("Kasware wallet not available");
   }
   if (!signingTemplate) {
     throw new Error("No signing template from build");
   }
   const requested = describeTemplateInputs(signingTemplate);
-  devLog(`[kastle:sign] network=${network.networkId} inputs=[${kinds(requested)}]`);
+  devLog(`[kasware:sign] network=${network.networkId} inputs=[${kinds(requested)}]`);
+  const inputs = signInputs?.map(({ index }) => ({ index, sighashType: SIGHASH_ALL }));
   let result: unknown;
   try {
-    result = await kastle.signTx(network.networkId, signingTemplate, scripts);
+    result = await kasware.signPskt({
+      txJsonString: signingTemplate,
+      ...(inputs && inputs.length > 0 ? { options: { signInputs: inputs } } : {}),
+    });
   } catch (err) {
     devError(
-      "[kastle:sign] wallet rejected the signing request:",
+      "[kasware:sign] wallet rejected the signing request:",
       err instanceof Error ? err.message : typeof err,
     );
     throw err;
@@ -92,7 +99,7 @@ function describeTemplateInputs(signingTemplate: string): InputFact[] {
 function extractSignedJson(result: unknown): string | null {
   if (typeof result === "string") return result;
   if (typeof result === "object" && result !== null) {
-    for (const key of ["txJson", "signedTx", "tx"]) {
+    for (const key of ["txJsonString", "txJson", "signedTx", "tx"]) {
       const value = (result as Record<string, unknown>)[key];
       if (typeof value === "string") return value;
     }
@@ -105,7 +112,7 @@ function reportOutcome(requested: InputFact[], result: unknown): void {
   try {
     const json = extractSignedJson(result);
     if (json === null) {
-      devWarn("[kastle:sign] could not inspect the signed result (unexpected shape)");
+      devWarn("[kasware:sign] could not inspect the signed result (unexpected shape)");
       return;
     }
     const parsed: unknown = JSON.parse(json);
@@ -126,21 +133,21 @@ function reportOutcome(requested: InputFact[], result: unknown): void {
       // either skipped it or returned a partial transaction.
       return `${fact.index}:${fact.kind}${signed.get(fact.key) ? ":signed" : ":UNSIGNED"}`;
     });
-    devLog(`[kastle:sign] result=[${parts.join(" ")}]`);
+    devLog(`[kasware:sign] result=[${parts.join(" ")}]`);
 
     for (const fact of requested) {
       if (fact.kind === "script" && signed.get(fact.key)) {
-        devLog("[kastle:sign] covenant/script input was signed — co-signing works");
+        devLog("[kasware:sign] covenant/script input was signed — co-signing works");
       }
       if (fact.kind === "script" && !signed.get(fact.key)) {
         devWarn(
-          `[kastle:sign] script/covenant input ${fact.index} came back UNSIGNED — Kastle did not co-sign it; if finalize requires this signature the flow will fail`,
+          `[kasware:sign] script/covenant input ${fact.index} came back UNSIGNED — Kasware did not co-sign it; if finalize requires this signature the flow will fail`,
         );
       }
     }
   } catch (err) {
     devWarn(
-      "[kastle:sign] outcome inspection failed (signing itself succeeded):",
+      "[kasware:sign] outcome inspection failed (signing itself succeeded):",
       err instanceof Error ? err.message : typeof err,
     );
   }

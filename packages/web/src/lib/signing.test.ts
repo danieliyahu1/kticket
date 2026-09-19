@@ -27,12 +27,12 @@ function signedResult(inputs: Record<string, unknown>[]): string {
 }
 
 function stubWallet(signResult: string | object) {
-  const signTx = vi.fn().mockResolvedValue(signResult);
-  vi.stubGlobal("window", { kastle: { signTx } });
-  return signTx;
+  const signPskt = vi.fn().mockResolvedValue(signResult);
+  vi.stubGlobal("window", { kasware: { signPskt } });
+  return signPskt;
 }
 
-describe("signTemplate — Kastle signTx adapter", () => {
+describe("signTemplate — Kasware signPskt adapter", () => {
   let logs: string[];
   let warns: string[];
   let logSpy: ReturnType<typeof vi.spyOn>;
@@ -56,16 +56,24 @@ describe("signTemplate — Kastle signTx adapter", () => {
     vi.unstubAllGlobals();
   });
 
-  it("passes the expected network id and template to signTx", async () => {
-    const signTx = stubWallet(signedResult([]));
+  it("signs the template and lets the wallet pick inputs when none are listed", async () => {
+    const signPskt = stubWallet(signedResult([]));
     await signTemplate(TEMPLATE);
-    expect(signTx).toHaveBeenCalledWith("testnet-10", TEMPLATE, undefined);
+    expect(signPskt).toHaveBeenCalledWith({ txJsonString: TEMPLATE });
   });
 
-  it("forwards per-input script overrides to signTx", async () => {
-    const signTx = stubWallet(signedResult([]));
-    await signTemplate(TEMPLATE, [{ inputIndex: 0 }]);
-    expect(signTx).toHaveBeenCalledWith("testnet-10", TEMPLATE, [{ inputIndex: 0 }]);
+  it("passes explicit SIGHASH_ALL for each listed input", async () => {
+    const signPskt = stubWallet(signedResult([]));
+    await signTemplate(TEMPLATE, [{ index: 0 }, { index: 1 }]);
+    expect(signPskt).toHaveBeenCalledWith({
+      txJsonString: TEMPLATE,
+      options: {
+        signInputs: [
+          { index: 0, sighashType: 1 },
+          { index: 1, sighashType: 1 },
+        ],
+      },
+    });
   });
 
   it("returns whatever the wallet signed", async () => {
@@ -73,14 +81,14 @@ describe("signTemplate — Kastle signTx adapter", () => {
     expect(await signTemplate(TEMPLATE)).toBe(signed);
   });
 
-  it("throws when Kastle is not available", async () => {
+  it("throws when Kasware is not available", async () => {
     vi.stubGlobal("window", {});
-    await expect(signTemplate(TEMPLATE)).rejects.toThrow("Kastle wallet not available");
+    await expect(signTemplate(TEMPLATE)).rejects.toThrow("Kasware wallet not available");
   });
 
-  it("throws when the wallet has no signTx", async () => {
-    vi.stubGlobal("window", { kastle: {} });
-    await expect(signTemplate(TEMPLATE)).rejects.toThrow("Kastle wallet not available");
+  it("throws when the wallet has no signPskt", async () => {
+    vi.stubGlobal("window", { kasware: {} });
+    await expect(signTemplate(TEMPLATE)).rejects.toThrow("Kasware wallet not available");
   });
 
   it("throws when signing template is empty", async () => {

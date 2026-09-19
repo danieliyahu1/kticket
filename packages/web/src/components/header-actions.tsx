@@ -2,7 +2,7 @@ import { useWallet } from "../hooks/use-wallet";
 import { useCreateDialog } from "./create-dialog-context";
 
 const INSTALL_URL =
-  "https://chromewebstore.google.com/detail/kastle/oambclflhjfppdmkghokjmpppmaebego";
+  "https://chromewebstore.google.com/detail/kasware-wallet/hklhheigdmpoolooomdihmhlpjjdbklf";
 const ADDR_KEEP = 6;
 const ADDR_TAIL = 4;
 
@@ -18,7 +18,7 @@ export function HeaderActions() {
         target="_blank"
         rel="noopener noreferrer"
       >
-        Install Kastle
+        Install Kasware
       </a>
     );
   }

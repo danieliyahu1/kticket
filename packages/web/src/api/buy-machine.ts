@@ -67,7 +67,7 @@ export async function executeBuy(
   setState({ phase: "building" });
 
   try {
-    const signed = await signTemplate(prepared.signing_template);
+    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
     setState({ phase: "broadcasting" });
     const result = await buyFinalize(params.covenantId, {
       buy_id: prepared.buy_id,

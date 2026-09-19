@@ -1,32 +1,41 @@
-export interface KastleAccount {
-  address: string;
-  publicKey?: string;
+/** Input selection for `signPskt`: which input to sign and with what sighash. */
+export interface KaswareSignInput {
+  index: number;
+  sighashType?: number;
 }
 
-/** Per-input override for covenant / P2SH spends passed to `signTx`. */
-export interface KastleSignScript {
-  inputIndex: number;
-  scriptHex?: string;
-  signType?: string;
+export interface KaswareSignPsktRequest {
+  /** Unsigned tx in the kaspa-wasm safe-JSON shape `signPskt` signs. */
+  txJsonString: string;
+  options?: { signInputs: KaswareSignInput[] };
+}
+
+export interface KaswareSignMessageOptions {
+  /** Signature algorithm; `schnorr` is what the API verifies. */
+  type?: "auto" | "schnorr" | "ecdsa";
+  /** Disable auxiliary randomness (deterministic Schnorr). */
+  noAuxRand?: boolean;
 }
 
 /**
- * The subset of the Kastle browser-extension API (`window.kastle`) kticket
- * uses. Reference: https://docs.kastle.cc/readme/how-to-integrate/kastle-wallet-api
+ * The subset of the Kasware browser-extension API (`window.kasware`) kticket
+ * uses. Reference: https://docs.kasware.xyz/wallet/developer-documentation/kaspa
  */
-export interface KastleProvider {
-  connect: () => Promise<boolean>;
-  getAccount: () => Promise<KastleAccount>;
+export interface KaswareProvider {
+  requestAccounts: () => Promise<string[]>;
+  getAccounts: () => Promise<string[]>;
+  getPublicKey: () => Promise<string>;
+  /** Current network name, e.g. `kaspa_testnet_10`; `""` when not connected. */
   getNetwork: () => Promise<string>;
-  switchNetwork: (networkId: string) => Promise<unknown>;
+  /** Kasware network name (e.g. `kaspa_testnet_10`), not the app's `testnet-10`. */
+  switchNetwork: (network: string) => Promise<string>;
+  disconnect: (origin: string) => Promise<void>;
+  /** Signs a plain message (Schnorr by default). */
+  signMessage: (message: string, options?: KaswareSignMessageOptions) => Promise<string>;
   /** Signs without broadcasting; returns the signed tx as kaspa-wasm safe-JSON. */
-  signTx: (
-    networkId: string | undefined,
-    txJson: string,
-    scripts?: KastleSignScript[],
-  ) => Promise<string | { txJson?: string; signedTx?: string; tx?: string }>;
-  /** Signs a plain message (Schnorr) — used for the wallet-identity claim. */
-  signMessage: (message: string) => Promise<string>;
+  signPskt: (
+    request: KaswareSignPsktRequest,
+  ) => Promise<string | { txJsonString?: string; signedTx?: string; tx?: string }>;
   on: (event: string, callback: (...args: unknown[]) => void) => void;
   removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
 }
@@ -41,6 +50,6 @@ export type WalletState =
 
 declare global {
   interface Window {
-    kastle?: KastleProvider;
+    kasware?: KaswareProvider;
   }
 }

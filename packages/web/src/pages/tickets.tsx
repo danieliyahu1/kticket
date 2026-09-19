@@ -11,6 +11,7 @@ import { prepareCheckIn, signCheckIn, type CheckInState } from "../api/use-machi
 import { executeDelist, executeList, type ResaleState } from "../api/resale-machine";
 import { priceLabel, whenLabel } from "../lib/format";
 import { Empty, OfflineEmpty } from "../components/empty";
+import { AuthGate } from "../components/auth-gate";
 import { QrCode } from "../components/qr-code";
 
 /** The sell dialog collects KAS; the backend wants sompi. */
@@ -341,10 +342,8 @@ function TicketsSection({ tickets, onChanged }: { tickets: TicketEntry[]; onChan
 }
 
 export default function TicketsPage() {
-  const { state, connect } = useWallet();
+  const { state } = useWallet();
   const auth = useAuth();
-  const connected = state.status === "connected";
-  const authed = auth.status === "ready";
   const publicKey = state.status === "connected" ? state.publicKey : "";
   const [tickets, setTickets] = useState<TicketEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -377,20 +376,11 @@ export default function TicketsPage() {
   }, [publicKey, auth.status, load]);
 
   return (
-    <div>
-      {!connected ? (
-        <Empty
-          title="Your tickets live here."
-          sub="Connect your wallet to see what's yours."
-          actionLabel="Connect wallet"
-          onAction={connect}
-        />
-      ) : !authed ? (
-        <div className="checkin-status" role="status">
-          <div className="spinner spinner-sm" />
-          <span>Signing you in…</span>
-        </div>
-      ) : offline ? (
+    <AuthGate
+      connectTitle="Your tickets live here."
+      connectSub="Connect your wallet to see what's yours."
+    >
+      {offline ? (
         <OfflineEmpty onRetry={() => setRetryKey((k) => k + 1)} />
       ) : loading ? (
         <div className="event-list">
@@ -403,7 +393,7 @@ export default function TicketsPage() {
       ) : (
         <TicketsSection tickets={tickets} onChanged={load} />
       )}
-    </div>
+    </AuthGate>
   );
 }
 

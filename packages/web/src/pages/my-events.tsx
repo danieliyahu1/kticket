@@ -3,6 +3,7 @@ import { useWallet } from "../hooks/use-wallet";
 import { useAuth } from "../auth/AuthProvider";
 import { fetchEventsList, ServerError, type EventListItem } from "../api/client";
 import { Empty, OfflineEmpty } from "../components/empty";
+import { AuthGate } from "../components/auth-gate";
 import { EventCard } from "../components/event-card";
 import { useCreateDialog } from "../components/create-dialog-context";
 
@@ -19,10 +20,8 @@ function MyEventsEmpty() {
 }
 
 export default function MyEventsPage() {
-  const { state, connect } = useWallet();
+  const { state } = useWallet();
   const auth = useAuth();
-  const connected = state.status === "connected";
-  const authed = auth.status === "ready";
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
@@ -60,20 +59,11 @@ export default function MyEventsPage() {
   }, [state.status, auth.status, state.status === "connected" ? state.accounts[0] : undefined, retryKey]);
 
   return (
-    <div>
-      {!connected ? (
-        <Empty
-          title="Events you created live here."
-          sub="Connect your wallet to see them."
-          actionLabel="Connect wallet"
-          onAction={connect}
-        />
-      ) : !authed ? (
-        <div className="checkin-status" role="status">
-          <div className="spinner spinner-sm" />
-          <span>Signing you in…</span>
-        </div>
-      ) : offline ? (
+    <AuthGate
+      connectTitle="Events you created live here."
+      connectSub="Connect your wallet to see them."
+    >
+      {offline ? (
         <OfflineEmpty onRetry={() => setRetryKey((k) => k + 1)} />
       ) : loading ? (
         <div className="event-list">
@@ -90,6 +80,6 @@ export default function MyEventsPage() {
       ) : (
         <MyEventsEmpty />
       )}
-    </div>
+    </AuthGate>
   );
 }
