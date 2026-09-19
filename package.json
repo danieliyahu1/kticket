@@ -12,8 +12,12 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "node scripts/dev.mjs --api",
+    "dev:web": "node scripts/dev.mjs --web",
     "build": "npm run build --workspaces --if-present",
     "build:deploy": "npm run build --workspace @kticket/api && npm run build --workspace @kticket/web",
+    "build:silverc": "cargo build --release --manifest-path packages/kit/silverc/Cargo.toml",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,6 +25,7 @@
   },
   "devDependencies": {
     "playwright": "^1.62.1",
+    "tsx": "^4.23.9",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
     "yaml": "^2.9.0"

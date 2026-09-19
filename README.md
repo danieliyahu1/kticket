@@ -61,11 +61,44 @@ the layers that already have the context to handle them:
 
 ## Prerequisites
 
-- Docker (with the Compose plugin)
+- Node.js >= 20.19 (see `engines`) for local development.
+- Rust, to build the covenant compiler — only needed to deploy events locally.
+- Docker (with the Compose plugin) for the containerized run.
 
 ## Getting started
 
-The app runs only through Docker Compose.
+### Local development (no Docker)
+
+```sh
+npm install
+npm run dev
+```
+
+`npm run dev` starts the API in watch mode and the Vite dev server, which
+proxies `/v1` to the API:
+
+- Web SPA (Vite, hot reload): `http://localhost:5173`
+- API: `http://localhost:3000`
+
+Config is read from `.env` (shared with Compose) and `.env.local` (dev-only,
+git-ignored); the real environment wins over both, and an empty value in
+`.env.local` unsets a key — `TURSO_DATABASE_URL=` therefore forces the local
+`events.json` / `listings.json` file store. Auth is fail-closed, so when
+`AUTH_SECRET` is unset the runner generates an ephemeral one for the session and
+sets `AUTH_ORIGIN` to the Vite origin automatically. Override the ports with
+`PORT` / `WEB_PORT`.
+
+Deploying events also needs the covenant compiler; build it once with:
+
+```sh
+npm run build:silverc
+```
+
+Run one side only with `npm run dev:api` or `npm run dev:web`.
+
+### Docker (production-shaped)
+
+The app ships as one image; the API serves the built SPA.
 
 ```sh
 cp example.env .env   # then fill in TURSO_DATABASE_URL / TURSO_AUTH_TOKEN
@@ -78,7 +111,11 @@ The API (which serves the built web SPA) listens on `http://localhost:3000`.
 
 | Script | What it does |
 | --- | --- |
+| `npm run dev` | Runs the app locally: API (watch) + Vite dev server (no Docker). |
+| `npm run dev:api` | Runs only the API in watch mode. |
+| `npm run dev:web` | Runs only the Vite dev server. |
 | `npm run build` | Builds every package (`build` script in each workspace). |
+| `npm run build:silverc` | Builds the `kticket-silverc` covenant compiler (Rust, release). |
 | `npm run typecheck` | Type-checks every workspace (`tsc --noEmit`). |
 | `npm test` | Runs the test suite (Vitest). |
 | `npm run validate:deploy` | Validates the delivery contract in `deploy/` (image pin, probes, scrape, dashboard metric names). |
