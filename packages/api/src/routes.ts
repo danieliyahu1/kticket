@@ -35,6 +35,7 @@ import { buyFinalize, buyPrepare } from "./buy.js";
 import {
   handleCreateChallenge,
   handleCreateSession,
+  parseSignInMessage,
   verifyToken,
 } from "./auth/auth.js";
 import { addressXPubkey } from "./auth/kaspa-signature.js";
@@ -103,11 +104,39 @@ export interface AppContext {
   auth: { store: AuthStore; config: AuthConfig };
 }
 
+/**
+ * Diagnostic fields for an auth/session request. Never logs the signature or
+ * any secret — only the parsed challenge fields, lengths and formats, so an
+ * operator can reconstruct why a sign-in was rejected.
+ */
+const SIGNATURE_HEX = /^[0-9a-fA-F]{128}$/;
+
+function describeSessionBody(body: unknown): Record<string, unknown> {
+  const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
+  const message = typeof record?.message === "string" ? record.message : null;
+  const signature = typeof record?.signature === "string" ? record.signature : null;
+  const parsed = message !== null ? parseSignInMessage(message) : null;
+  return {
+    address: parsed?.address,
+    nonce: parsed?.nonce.slice(0, 8),
+    origin: parsed?.origin,
+    networkId: parsed?.networkId,
+    hasMessage: message !== null,
+    hadSignature: signature !== null,
+    signatureFormat: signature === null ? "none" : SIGNATURE_HEX.test(signature) ? "hex" : "other",
+    signatureLength: signature?.length,
+  };
+}
+
 /** Fastify preHandler: verifies the Bearer token and attaches `req.user`. */
 function requireAuth(ctx: AppContext) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     const user = await verifyToken(req.headers.authorization, ctx.auth.config.secret);
     if (user === null) {
+      req.log.warn(
+        { reason: req.headers.authorization === undefined ? "missing" : "invalid" },
+        "auth.token rejected",
+      );
       return reply
         .code(HTTP_UNAUTHORIZED)
         .send(toErrorEnvelope(unauthorizedError("You need to sign in.")));
@@ -137,12 +166,32 @@ function resaleCtx(ctx: AppContext): ResaleContext {
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post("/v1/auth/challenge", { config: { kticketFlow: "auth.challenge" } }, async (req, reply) => {
     const result = await handleCreateChallenge(ctx.auth.store, req.body, ctx.auth.config);
+    const parsed = parseSignInMessage(result.message);
+    req.log.info(
+      {
+        nonce: result.nonce.slice(0, 8),
+        address: parsed?.address,
+        origin: parsed?.origin,
+        networkId: parsed?.networkId,
+      },
+      "auth.challenge issued",
+    );
     return reply.code(200).send(result);
   });
 
   app.post("/v1/auth/session", { config: { kticketFlow: "auth.session" } }, async (req, reply) => {
-    const result = await handleCreateSession(ctx.auth.store, req.body, ctx.auth.config);
-    return reply.code(200).send(result);
+    const fields = describeSessionBody(req.body);
+    try {
+      const result = await handleCreateSession(ctx.auth.store, req.body, ctx.auth.config);
+      req.log.info({ ...fields, expiresIn: result.expires_in_seconds }, "auth.session ok");
+      return reply.code(200).send(result);
+    } catch (err) {
+      req.log.warn(
+        { ...fields, reason: err instanceof Error ? err.message : typeof err },
+        "auth.session rejected",
+      );
+      throw err;
+    }
   });
 
   app.get<{ Querystring: { organizer_address?: string } }>(
