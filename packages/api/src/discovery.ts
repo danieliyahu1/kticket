@@ -13,21 +13,23 @@ const SITEMAP_HEADER =
   '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">';
 const SITEMAP_FOOTER = "</urlset>";
 
-/** Per-person and machine surfaces that must not be indexed. */
+/** Per-person surfaces and the API operations, none of which belong in search. */
 const PRIVATE_PATHS = ["/gate/", "/tickets", "/my-events", "/v1/", "/health"];
+
+/** One sitemap entry with an escaped absolute location. */
+function sitemapEntry(location: string): string {
+  return `  <url>\n    <loc>${escapeXml(location)}</loc>\n  </url>`;
+}
 
 /** Render the sitemap for the verified events plus the public API reference. */
 export function sitemapXml(
   events: readonly Pick<VerifiedEvent, "covenant_id">[],
   origin: string,
 ): string {
-  const base = origin.replace(/\/+$/, "");
+  const base = originWithoutTrailingSlashes(origin);
   const entries = [
-    `  <url>\n    <loc>${escapeXml(`${base}${API_DOCS_PATH}`)}</loc>\n  </url>`,
-    ...events.map((event) => {
-      const loc = escapeXml(`${base}${eventPath(event.covenant_id)}`);
-      return `  <url>\n    <loc>${loc}</loc>\n  </url>`;
-    }),
+    sitemapEntry(`${base}${API_DOCS_PATH}`),
+    ...events.map((event) => sitemapEntry(`${base}${eventPath(event.covenant_id)}`)),
   ];
   return [SITEMAP_HEADER, ...entries, SITEMAP_FOOTER, ""].join("\n");
 }
@@ -39,7 +41,7 @@ export function sitemapXml(
  * discoverable because they are the public product surface.
  */
 export function robotsTxt(origin: string, sitemapPath: string): string {
-  const base = origin.replace(/\/+$/, "");
+  const base = originWithoutTrailingSlashes(origin);
   return [
     "User-agent: *",
     "Allow: /",
@@ -52,6 +54,11 @@ export function robotsTxt(origin: string, sitemapPath: string): string {
     `Sitemap: ${base}${sitemapPath}`,
     "",
   ].join("\n");
+}
+
+/** Absolute URLs are built by concatenation, so the base never ends in `/`. */
+function originWithoutTrailingSlashes(origin: string): string {
+  return origin.replace(/\/+$/, "");
 }
 
 function escapeXml(value: string): string {

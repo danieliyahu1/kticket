@@ -42,7 +42,7 @@ describe("sitemap generation", () => {
     expect(xml.trimEnd().endsWith("</urlset>")).toBe(true);
   });
 
-  it("encodes ids so the XML cannot be injected and keeps the docs page on an empty directory", () => {
+  it("escapes ids and keeps the docs entry when the event directory is empty", () => {
     const xml = sitemapXml([{ covenant_id: "a&b" }], PREVIEW_ORIGIN);
 
     expect(xml).toContain(`<loc>${PREVIEW_ORIGIN}/events/a%26b</loc>`);
