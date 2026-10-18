@@ -18,6 +18,14 @@ describe("network selection (KASPANET)", () => {
     }
   });
 
+  it("carries the wallet's network name and address prefix", () => {
+    const config = NETWORKS.testnet10;
+    expect(config.walletNetworkName).toBe("kaspa_testnet_10");
+    expect(config.addressPrefix).toBe("kaspatest:");
+    // The wallet name is derived from the wRPC id, never duplicated by hand.
+    expect(config.walletNetworkName).toBe(`kaspa_${config.networkId.replace(/-/g, "_")}`);
+  });
+
   it("recognises valid KASPANET values", () => {
     expect(isKaspaNetwork("testnet10")).toBe(true);
   });

@@ -17,6 +17,7 @@ import { ServerError, useFinalize, useSignTemplate } from "./client";
 import type { WireTransaction } from "./types";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
+import { WalletCanceledError } from "../wallet/cancel";
 
 export type GateState =
   | { phase: "scanning" }
@@ -119,10 +120,14 @@ export async function prepareGateCheck(
  */
 export async function coSignAndFinalize(
   payload: UsePayload,
+  options: { isCurrent?: () => boolean } = {},
 ): Promise<{ txid: string }> {
   const ticket = ticketIdOf(payload.template as WireTransaction);
   const { signing_template } = await useSignTemplate(ticket, payload.template as WireTransaction);
+  if (options.isCurrent && !options.isCurrent()) throw new WalletCanceledError();
   const gate_signed = await signTemplate(signing_template, [{ index: 0 }]);
+  // Never relay a signature for a wallet that changed while signing.
+  if (options.isCurrent && !options.isCurrent()) throw new WalletCanceledError();
   return useFinalize(ticket, {
     use_id: payload.use_id,
     template: payload.template as WireTransaction,

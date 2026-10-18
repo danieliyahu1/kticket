@@ -1,12 +1,21 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { network } from "../network";
+import { networkLabel } from "../config/runtime";
+import { useRuntimeConfig } from "../config/RuntimeConfigProvider";
+import { useNetworkQuiet, useNetworkSwitching } from "../hooks/use-network-switching";
 import { useWallet } from "../hooks/use-wallet";
+import { GitHubLink } from "./github-link";
 import { HeaderActions } from "./header-actions";
 import { ToastViewport } from "./toast";
 
 export function Layout() {
   const { state } = useWallet();
-  const networkMismatch = state.status === "connected" && state.networkMismatch;
+  const config = useRuntimeConfig();
+  const switching = useNetworkSwitching();
+  const quiet = useNetworkQuiet();
+  // The banner explains steady-state drift; while an action owns the switch the
+  // toast already says what is happening (KTK-172).
+  const networkMismatch =
+    state.status === "connected" && state.networkMismatch && !switching && !quiet;
 
   return (
     <div className="app">
@@ -35,14 +44,15 @@ export function Layout() {
       {networkMismatch && (
         <div className="network-warning" role="status">
           Your wallet&apos;s address is for a different network. kticket runs on{" "}
-          {network.label} — selling and checking in may fail.
+          {networkLabel(config)} — selling and checking in may fail.
         </div>
       )}
       <main className="app-main">
         <Outlet />
       </main>
       <footer className="app-footer">
-        <p>On {network.label}</p>
+        <p>On {networkLabel(config)}</p>
+        <GitHubLink />
       </footer>
       <ToastViewport />
     </div>

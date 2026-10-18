@@ -30,14 +30,21 @@ export class ServerError extends Error {
 // --- auth token (wallet-identity session, mirrors daftari) -------------------
 
 let authToken: string | null = null;
+let authAddress: string | null = null;
 let reauthHandler: (() => Promise<void>) | null = null;
 
 export function getAuthToken(): string | null {
   return authToken;
 }
 
-export function setAuthToken(token: string | null): void {
+/** The address the current token was issued for, when known. */
+export function getAuthAddress(): string | null {
+  return authAddress;
+}
+
+export function setAuthToken(token: string | null, address?: string): void {
   authToken = token;
+  authAddress = token === null ? null : (address ?? authAddress);
 }
 
 /** The AuthProvider registers this so a 401 can silently re-sign + retry. */

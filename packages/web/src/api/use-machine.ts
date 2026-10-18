@@ -3,6 +3,7 @@ import type { WireTransaction } from "./types";
 import { ServerError, usePrepare, type UsePrepareResult } from "./client";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
+import { isWalletCanceled } from "../wallet/cancel";
 
 export type CheckInState =
   | { phase: "idle" }
@@ -75,10 +76,13 @@ export async function prepareCheckIn(
 export async function signCheckIn(
   setState: (s: CheckInState) => void,
   prepared: UsePrepareResult,
+  options: { isCurrent?: () => boolean } = {},
 ): Promise<PendingUse | undefined> {
   setState({ phase: "signing" });
   try {
     const owner_signed = await signTemplate(prepared.signing_template, prepared.sign_inputs_owner);
+    // A wallet change mid-flow discards the pre-signature; nothing is spent.
+    if (options.isCurrent && !options.isCurrent()) return undefined;
     const pending: PendingUse = {
       use_id: prepared.use_id,
       template: prepared.template,
@@ -89,6 +93,10 @@ export async function signCheckIn(
     setState({ phase: "ready", qr });
     return pending;
   } catch (err) {
+    if (isWalletCanceled(err)) {
+      setState({ phase: "idle" });
+      return undefined;
+    }
     logError("sign", err);
     setState({ phase: "error", message: errorMsg(err) });
     return undefined;

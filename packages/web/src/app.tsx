@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthProvider";
+import { RuntimeConfigProvider } from "./config/RuntimeConfigProvider";
 import { CreateDialogProvider } from "./components/create-dialog-context";
 import { Layout } from "./components/layout";
 import EventDetailPage from "./pages/event-detail";
@@ -12,23 +13,25 @@ import { WalletProvider } from "./wallet/provider";
 
 export default function App() {
   return (
-    <WalletProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <CreateDialogProvider>
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<EventsPage />} />
-                <Route path="marketplace" element={<MarketplacePage />} />
-                <Route path="tickets" element={<TicketsPage />} />
-                <Route path="my-events" element={<MyEventsPage />} />
-                <Route path="events/:covenantId" element={<EventDetailPage />} />
-                <Route path="gate/:covenantId" element={<GatePage />} />
-              </Route>
-            </Routes>
-          </CreateDialogProvider>
-        </BrowserRouter>
-      </AuthProvider>
-    </WalletProvider>
+    <RuntimeConfigProvider>
+      <WalletProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <CreateDialogProvider>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route index element={<EventsPage />} />
+                  <Route path="marketplace" element={<MarketplacePage />} />
+                  <Route path="tickets" element={<TicketsPage />} />
+                  <Route path="my-events" element={<MyEventsPage />} />
+                  <Route path="events/:covenantId" element={<EventDetailPage />} />
+                  <Route path="gate/:covenantId" element={<GatePage />} />
+                </Route>
+              </Routes>
+            </CreateDialogProvider>
+          </BrowserRouter>
+        </AuthProvider>
+      </WalletProvider>
+    </RuntimeConfigProvider>
   );
 }

@@ -185,8 +185,9 @@ unset or invalid, every host falls back to `testnet10`.
 - **API** reads `KASPANET` (and `PORT`, `HOST`, `METRICS_PORT`, `TLS_KEY`,
   `TLS_CERT`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `PUBLIC_ORIGIN`) from the
   environment set by `compose.yaml`.
-- **Web** reads `VITE_KASPANET` at build time (`import.meta.env`); the API
-  serves the built SPA.
+- **Web** loads the runtime identity from `GET /v1/config` at boot, so one
+  build works against whichever network the API serves. `VITE_KASPANET` is only
+  a local-development fallback when that request fails.
 - **Kit** exposes the shared resolver (`getNetworkConfig`) used by all hosts.
 
 ## Wallet authentication (SIWS, daftari-style)

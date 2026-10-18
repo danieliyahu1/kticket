@@ -76,6 +76,25 @@ function eventListResponse(): JsonObject {
 function authOperations(options: OpenApiOptions): DocumentedOperation[] {
   return [
     {
+      method: "get",
+      route: "/v1/config",
+      operation: operation({
+        operationId: "getServerConfig",
+        tag: "config",
+        summary: "Read the server's runtime network identity",
+        description:
+          "The chain this deployment broadcasts on: canonical network, wRPC network id, the wallet's network name, and the address prefix. Public, no chain calls, short cache. The browser loads it at boot so one bundle works against whichever network the server serves.",
+        responses: {
+          200: jsonResponse("The runtime network identity.", jsonRef("ServerConfig"), {
+            network: options.network,
+            network_id: options.networkId,
+            wallet_network: "kaspa_testnet_10",
+            address_prefix: "kaspatest:",
+          }),
+        },
+      }),
+    },
+    {
       method: "post",
       route: "/v1/auth/challenge",
       operation: operation({

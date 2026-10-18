@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { fetchAllListings, ServerError, type ListingSummary } from "../api/client";
 import { executePurchase, type ResaleState } from "../api/resale-machine";
 import { Empty, OfflineEmpty } from "../components/empty";
+import { usePendingAction } from "../hooks/use-pending-action";
 import { useWallet } from "../hooks/use-wallet";
 import { priceLabel, shortAddress, whenLabel } from "../lib/format";
 
@@ -13,21 +14,24 @@ function MarketplaceCard({
   listing: ListingSummary;
   onSold: () => void;
 }) {
-  const { state, connect } = useWallet();
+  const { state } = useWallet();
   const [buy, setBuy] = useState<ResaleState>({ phase: "idle" });
+  const pending = usePendingAction({ onReset: () => setBuy({ phase: "idle" }) });
   const connected = state.status === "connected";
   const busy = buy.phase === "loading" || buy.phase === "building" || buy.phase === "broadcasting";
   const mine = connected && state.publicKey.slice(-64) === listing.seller_pkh;
 
-  const handleBuy = useCallback(async () => {
-    if (state.status !== "connected" || !state.accounts[0]) return;
-    await executePurchase(setBuy, {
-      ticketId: listing.ticket_id,
-      publicKey: state.publicKey,
-      address: state.accounts[0],
+  const handleBuy = useCallback(() => {
+    void pending.start(async ({ publicKey, address }) => {
+      await executePurchase(setBuy, {
+        ticketId: listing.ticket_id,
+        publicKey,
+        address,
+        isCurrent: pending.isCurrent,
+      });
+      onSold();
     });
-    onSold();
-  }, [state, listing.ticket_id, onSold]);
+  }, [listing.ticket_id, onSold, pending.start, pending.isCurrent]);
 
   return (
     <div className="ticket">
@@ -70,16 +74,12 @@ function MarketplaceCard({
       <div className="ticket-stub">
         {mine ? (
           <span className="stub-value">Your listing</span>
-        ) : buy.phase === "success" || busy ? null : !connected ? (
-          <button type="button" className="button button-primary button-sm" onClick={connect}>
-            Connect to buy
-          </button>
-        ) : (
+        ) : buy.phase === "success" || busy || pending.running ? null : (
           <button
             type="button"
             className="button button-primary button-sm"
             onClick={handleBuy}
-            disabled={busy}
+            disabled={busy || pending.running}
           >
             Buy · {priceLabel(listing.price)}
           </button>

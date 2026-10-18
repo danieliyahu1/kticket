@@ -9,7 +9,9 @@ import {
 } from "../api/client";
 import { prepareCheckIn, signCheckIn, type CheckInState } from "../api/use-machine";
 import { executeDelist, executeList, type ResaleState } from "../api/resale-machine";
+import { usePendingAction } from "../hooks/use-pending-action";
 import { priceLabel, whenLabel } from "../lib/format";
+import type { ConnectedWallet } from "../wallet/provider";
 import { Empty, OfflineEmpty } from "../components/empty";
 import { AuthGate } from "../components/auth-gate";
 import { QrCode } from "../components/qr-code";
@@ -28,35 +30,60 @@ const RESALE_PHASE_COPY: Record<Exclude<ResaleState["phase"], "idle" | "error">,
   success: "",
 };
 
+interface PreparedCheckIn {
+  result: UsePrepareResult;
+  /** The account that prepared it; a different account must not sign it. */
+  address: string;
+}
+
 function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () => void }) {
   const { state } = useWallet();
   const [checkIn, setCheckIn] = useState<CheckInState>({ phase: "idle" });
-  const [prepared, setPrepared] = useState<UsePrepareResult | null>(null);
+  const [prepared, setPrepared] = useState<PreparedCheckIn | null>(null);
   const [resale, setResale] = useState<ResaleState>({ phase: "idle" });
   const [sellOpen, setSellOpen] = useState(false);
   const [priceInput, setPriceInput] = useState("");
+  const checkInFlow = usePendingAction({ onReset: () => setCheckIn({ phase: "idle" }) });
+  const approveFlow = usePendingAction({ onReset: () => setCheckIn({ phase: "idle" }) });
+  const resaleFlow = usePendingAction({ onReset: () => setResale({ phase: "idle" }) });
+  const address =
+    state.status === "connected" || state.status === "wrong-network"
+      ? state.accounts[0]
+      : undefined;
   const connected = state.status === "connected";
   const busy = checkIn.phase === "preparing" || checkIn.phase === "signing";
   const resaleBusy =
     resale.phase === "loading" || resale.phase === "building" || resale.phase === "broadcasting";
 
-  const handleCheckIn = useCallback(async () => {
-    if (state.status !== "connected" || !state.accounts[0]) return;
-    const result = await prepareCheckIn(setCheckIn, {
-      ticketId: ticket.ticket_id,
-      publicKey: state.publicKey,
-      address: state.accounts[0],
-    });
-    if (result) setPrepared(result);
-  }, [state, ticket.ticket_id]);
+  // A prepared check-in belongs to the account that prepared it: if the
+  // wallet changes, drop it and start clean (KTK-173).
+  useEffect(() => {
+    if (!prepared || prepared.address === address) return;
+    setPrepared(null);
+    setCheckIn({ phase: "idle" });
+  }, [address, prepared]);
 
-  const handleApprove = useCallback(async () => {
-    if (!prepared) return;
+  const handleCheckIn = useCallback(() => {
+    void checkInFlow.start(async ({ publicKey, address: owner }) => {
+      const result = await prepareCheckIn(setCheckIn, {
+        ticketId: ticket.ticket_id,
+        publicKey,
+        address: owner,
+      });
+      if (result) setPrepared({ result, address: owner });
+    });
+  }, [ticket.ticket_id, checkInFlow.start]);
+
+  const handleApprove = useCallback(() => {
+    const pending = prepared;
+    if (!pending) return;
     // Close the dialog on approval — the outcome (QR or error) renders in the
     // card itself, so the wallet prompt is the only blocking layer.
     setPrepared(null);
-    await signCheckIn(setCheckIn, prepared);
-  }, [prepared]);
+    void approveFlow.start(async () => {
+      await signCheckIn(setCheckIn, pending.result, { isCurrent: approveFlow.isCurrent });
+    });
+  }, [prepared, approveFlow.start, approveFlow.isCurrent]);
 
   const handleCancel = useCallback(() => {
     setPrepared(null);
@@ -65,41 +92,42 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
   }, [checkIn.phase]);
 
   const runResale = useCallback(
-    async (run: (setState: (s: ResaleState) => void) => Promise<void>) => {
-      if (state.status !== "connected" || !state.accounts[0]) return;
-      await run(setResale);
+    async (
+      run: (
+        wallet: ConnectedWallet,
+        setState: (s: ResaleState) => void,
+      ) => Promise<void>,
+    ) => {
+      await resaleFlow.start((wallet) => run(wallet, setResale));
       onChanged();
     },
-    [state, onChanged],
+    [resaleFlow.start, onChanged],
   );
 
   const handleSell = useCallback(() => {
     const sompi = kasToSompi(priceInput);
-    if (!sompi || state.status !== "connected" || !state.accounts[0]) return;
-    const publicKey = state.publicKey;
-    const address = state.accounts[0];
-    void runResale((set) =>
+    if (!sompi) return;
+    void runResale((wallet, set) =>
       executeList(set, {
         ticketId: ticket.ticket_id,
-        publicKey,
-        address,
+        publicKey: wallet.publicKey,
+        address: wallet.address,
         priceSompi: sompi,
+        isCurrent: resaleFlow.isCurrent,
       }),
     );
-  }, [priceInput, state, ticket.ticket_id, runResale]);
+  }, [priceInput, ticket.ticket_id, runResale, resaleFlow.isCurrent]);
 
   const handleCancelSale = useCallback(() => {
-    if (state.status !== "connected" || !state.accounts[0]) return;
-    const publicKey = state.publicKey;
-    const address = state.accounts[0];
-    void runResale((set) =>
+    void runResale((wallet, set) =>
       executeDelist(set, {
         ticketId: ticket.ticket_id,
-        publicKey,
-        address,
+        publicKey: wallet.publicKey,
+        address: wallet.address,
+        isCurrent: resaleFlow.isCurrent,
       }),
     );
-  }, [state, ticket.ticket_id, runResale]);
+  }, [ticket.ticket_id, runResale, resaleFlow.isCurrent]);
 
   const closeSell = useCallback(() => {
     setSellOpen(false);
@@ -125,6 +153,7 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
               type="button"
               className="button button-secondary button-sm ticket-checkin"
               onClick={handleCheckIn}
+              disabled={checkInFlow.running}
             >
               Check in
             </button>
@@ -136,7 +165,7 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
                 type="button"
                 className="button button-link button-sm"
                 onClick={() => setSellOpen(true)}
-                disabled={busy}
+                disabled={busy || checkInFlow.running}
               >
                 Sell…
               </button>
@@ -149,6 +178,7 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
             type="button"
             className="button button-secondary button-sm ticket-checkin"
             onClick={handleCancelSale}
+            disabled={resaleFlow.running}
           >
             Cancel resale
           </button>
@@ -273,7 +303,7 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
                     type="button"
                     className="button button-primary"
                     onClick={handleSell}
-                    disabled={resaleBusy || !kasToSompi(priceInput)}
+                    disabled={resaleBusy || resaleFlow.running || !kasToSompi(priceInput)}
                   >
                     List for sale
                   </button>
@@ -299,7 +329,7 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
                     type="button"
                     className="button button-primary"
                     onClick={handleApprove}
-                    disabled={busy}
+                    disabled={busy || approveFlow.running}
                   >
                     Approve
                   </button>

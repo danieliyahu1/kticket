@@ -28,7 +28,15 @@ function signedResult(inputs: Record<string, unknown>[]): string {
 
 function stubWallet(signResult: string | object) {
   const signPskt = vi.fn().mockResolvedValue(signResult);
-  vi.stubGlobal("window", { kasware: { signPskt } });
+  const provider = {
+    signPskt,
+    // Already on the server's network: the signing guard is a no-op.
+    getNetwork: vi.fn().mockResolvedValue("kaspa_testnet_10"),
+    switchNetwork: vi.fn(),
+    on: vi.fn(),
+    removeListener: vi.fn(),
+  };
+  vi.stubGlobal("window", { kasware: provider });
   return signPskt;
 }
 

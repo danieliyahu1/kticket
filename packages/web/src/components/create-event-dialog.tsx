@@ -1,26 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
-import { Empty } from "./empty";
 import { EventForm, type EventFormData } from "./event-form";
 import { DeployStatus } from "./deploy-dialog";
 import { validate } from "./event-validate";
-import { useWallet } from "../hooks/use-wallet";
-
-type ConnectedWallet = { publicKey: string; accounts: string[] };
+import { usePendingAction } from "../hooks/use-pending-action";
 
 const EMPTY_FORM: EventFormData = { name: "", date: "", time: "", capacity: 0, price: 0 };
 
 export function CreateEventDialog({ onClose }: { onClose: () => void }) {
-  const { state } = useWallet();
   const [busy, setBusy] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const connected = state.status === "connected";
-  const body = connected ? (
-    <CreateForm wallet={state} onClose={onClose} onBusyChange={setBusy} />
-  ) : (
-    <ConnectGate onClose={onClose} />
-  );
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -68,30 +58,16 @@ export function CreateEventDialog({ onClose }: { onClose: () => void }) {
         >
           &times;
         </button>
-        {body}
+        <CreateForm onClose={onClose} onBusyChange={setBusy} />
       </div>
     </div>
   );
 }
 
-function ConnectGate({ onClose }: { onClose: () => void }) {
-  const { connect } = useWallet();
-  return (
-    <Empty
-      title="Connect your wallet first."
-      sub="You create events from your own wallet."
-      actionLabel="Connect wallet"
-      onAction={connect}
-    />
-  );
-}
-
 function CreateForm({
-  wallet,
   onClose,
   onBusyChange,
 }: {
-  wallet: ConnectedWallet;
   onClose: () => void;
   onBusyChange: (busy: boolean) => void;
 }) {
@@ -99,23 +75,29 @@ function CreateForm({
   const [form, setForm] = useState<EventFormData>(EMPTY_FORM);
   const [deploy, setDeploy] = useState<DeployState>({ phase: "idle" });
   const [errors, setErrors] = useState<Partial<Record<keyof EventFormData, string>>>({});
-  const busy = deploy.phase === "building" || deploy.phase === "signing" || deploy.phase === "broadcasting";
+  const pending = usePendingAction({ onReset: () => setDeploy({ phase: "idle" }) });
+  const working =
+    deploy.phase === "building" || deploy.phase === "signing" || deploy.phase === "broadcasting";
+  const busy = working || pending.running;
 
   useEffect(() => {
     onBusyChange(busy);
   }, [busy, onBusyChange]);
 
   const startDeploy = () => {
-    const params: DeployParams = {
-      capacity: form.capacity,
-      priceKas: form.price,
-      publicKey: wallet.publicKey,
-      address: wallet.accounts[0] ?? "",
-      name: form.name,
-      date: form.date,
-      time: form.time || undefined,
-    };
-    executeDeploy(setDeploy, params);
+    void pending.start(({ publicKey, address }) => {
+      const params: DeployParams = {
+        capacity: form.capacity,
+        priceKas: form.price,
+        publicKey,
+        address,
+        name: form.name,
+        date: form.date,
+        time: form.time || undefined,
+        isCurrent: pending.isCurrent,
+      };
+      return executeDeploy(setDeploy, params);
+    });
   };
 
   if (deploy.phase !== "idle") {

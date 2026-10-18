@@ -2,6 +2,7 @@ import { deployFinalize, deployPrepare, ServerError } from "./client";
 import type { DeployPrepareRequest } from "./types";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
+import { isWalletCanceled } from "../wallet/cancel";
 
 export type DeployState =
   | { phase: "idle" }
@@ -19,6 +20,8 @@ export interface DeployParams {
   name?: string;
   date?: string;
   time?: string;
+  /** False when the wallet changed after prepare — never finalize a stale flow. */
+  isCurrent?: () => boolean;
 }
 
 function errorMsg(err: unknown): string {
@@ -36,6 +39,10 @@ function logStep(step: string, detail?: unknown): void {
   devLog(`[deploy:${step}]`, detail ?? "");
 }
 
+function stillCurrent(params: DeployParams): boolean {
+  return params.isCurrent === undefined || params.isCurrent();
+}
+
 /**
  * The whole deploy flow is owned by the backend (`POST /v1/events/deploy/prepare`
  * and `/deploy/finalize`):
@@ -47,7 +54,8 @@ function logStep(step: string, detail?: unknown): void {
  * The frontend only relays: it sends the deploy inputs, hands the template to
  * the wallet, and sends back the template + the wallet's output. It never
  * merges, retries, or persists pipeline state. "Success" is set only after the
- * backend confirms the event is registered.
+ * backend confirms the event is registered. A canceled wallet prompt returns
+ * the flow to idle (KTK-175).
  */
 export async function executeDeploy(
   setState: (s: DeployState) => void,
@@ -79,6 +87,10 @@ export async function executeDeploy(
     setState({ phase: "error", message: errorMsg(err) });
     return;
   }
+  if (!stillCurrent(params)) {
+    setState({ phase: "idle" });
+    return;
+  }
 
   setState({ phase: "signing" });
   let signed;
@@ -86,8 +98,17 @@ export async function executeDeploy(
     signed = await signTemplate(prepared.signing_template);
     logStep("signed", { type: typeof signed });
   } catch (err) {
+    if (isWalletCanceled(err)) {
+      logStep("canceled");
+      setState({ phase: "idle" });
+      return;
+    }
     logError("sign", err);
     setState({ phase: "error", message: errorMsg(err) });
+    return;
+  }
+  if (!stillCurrent(params)) {
+    setState({ phase: "idle" });
     return;
   }
 

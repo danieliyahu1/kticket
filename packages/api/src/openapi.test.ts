@@ -93,7 +93,7 @@ describe("OpenAPI contract (KTK-154)", () => {
 
   it("gives every operation an id, summary, tag, and responses", () => {
     const operations = documentedOperations(document);
-    expect(operations).toHaveLength(21);
+    expect(operations).toHaveLength(22);
 
     const ids = new Set<string>();
     for (const { path, method, operation } of operations) {

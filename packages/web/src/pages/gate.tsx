@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchEvent, ServerError, type EventDetail } from "../api/client";
 import {
@@ -15,16 +15,37 @@ import {
 } from "../api/gate-machine";
 import { Empty, OfflineEmpty } from "../components/empty";
 import { useCamera } from "../hooks/use-camera";
+import { usePendingAction } from "../hooks/use-pending-action";
+import { useWallet } from "../hooks/use-wallet";
+import { isWalletCanceled } from "../wallet/cancel";
 
 const VERDICT_RESET_MS = 5_000;
 const CO_SIGN_TIMEOUT_MS = 30_000;
 
 export default function GatePage() {
   const { covenantId } = useParams<{ covenantId: string }>();
+  const { state } = useWallet();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
   const [gate, setGate] = useState<GateState>({ phase: "scanning" });
+  const gateAction = usePendingAction({ onReset: () => setGate({ phase: "scanning" }) });
+  // The account that owned the door when the ticket was scanned; a change
+  // abandons the prepared check-in instead of co-signing for the old one.
+  const waitingAddress = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (gate.phase !== "waiting") {
+      waitingAddress.current = null;
+      return;
+    }
+    if (waitingAddress.current === null && state.status === "connected") {
+      waitingAddress.current = state.accounts[0] ?? null;
+    }
+    if (waitingAddress.current === null) return;
+    const current = state.status === "connected" ? state.accounts[0] : undefined;
+    if (current !== waitingAddress.current) setGate({ phase: "scanning" });
+  }, [gate.phase, state]);
 
   const load = useCallback(async () => {
     if (!covenantId) return;
@@ -93,18 +114,27 @@ export default function GatePage() {
 
   const camera = useCamera({ enabled: gate.phase === "scanning", onDecode: handleDecode });
 
-  const handleApprove = useCallback(async () => {
+  const handleApprove = useCallback(() => {
     if (gate.phase !== "waiting") return;
-    setGate({ phase: "co-signing", ...pick(gate) });
-    try {
-      const result = await coSignAndFinalize(gate.payload);
-      logStep("finalized", { txid: result.txid });
-      setGate({ phase: "green", txid: result.txid });
-    } catch (err) {
-      logError("finalize", err);
-      setGate({ phase: "red", message: errorMsg(err) });
-    }
-  }, [gate]);
+    const payload = gate.payload;
+    const waiting = pick(gate);
+    void gateAction.start(async () => {
+      setGate({ phase: "co-signing", ...waiting });
+      try {
+        const result = await coSignAndFinalize(payload, { isCurrent: gateAction.isCurrent });
+        logStep("finalized", { txid: result.txid });
+        setGate({ phase: "green", txid: result.txid });
+      } catch (err) {
+        // A canceled wallet prompt returns the door to scanning, quietly.
+        if (isWalletCanceled(err)) {
+          setGate({ phase: "scanning" });
+          return;
+        }
+        logError("finalize", err);
+        setGate({ phase: "red", message: errorMsg(err) });
+      }
+    });
+  }, [gate, gateAction.start, gateAction.isCurrent]);
 
   const handleCancel = useCallback(() => {
     setGate({ phase: "scanning" });
@@ -199,7 +229,7 @@ export default function GatePage() {
                 type="button"
                 className="button button-primary"
                 onClick={handleApprove}
-                disabled={false}
+                disabled={gateAction.running}
               >
                 Approve
               </button>

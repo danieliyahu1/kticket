@@ -4,11 +4,14 @@ import type { WalletState } from "../wallet/types";
 import {
   createChallenge,
   createSession,
+  getAuthAddress,
   getAuthToken,
   setAuthToken,
   setReauthHandler,
 } from "../api/client";
 import { devLog, devWarn } from "../lib/log";
+import { ensureWalletNetwork } from "../wallet/network";
+import { WalletCanceledError, isWalletCanceled } from "../wallet/cancel";
 import { normalizeSignature } from "./signature";
 import { codeOf, isUserRejected, reasonOf } from "./wallet-error";
 
@@ -31,17 +34,21 @@ interface SignInOptions {
 }
 
 interface AuthActions {
-  signIn: (options?: SignInOptions) => Promise<void>;
+  signIn: (options?: SignInOptions) => Promise<boolean>;
+  /** Sign in as a specific address — the pending-action path, never stale. */
+  signInFor: (address: string, options?: SignInOptions) => Promise<boolean>;
 }
 
-export type Auth = AuthState & AuthActions & { tokenPresent: boolean };
+export type Auth = AuthState & AuthActions & { tokenPresent: boolean; tokenAddress: string | null };
 
 const DEFAULT_AUTH: Auth = {
   status: "idle",
   error: null,
   address: null,
-  signIn: async () => {},
+  signIn: async () => false,
+  signInFor: async () => false,
   tokenPresent: false,
+  tokenAddress: null,
 };
 
 const AuthContext = createContext<Auth>(DEFAULT_AUTH);
@@ -79,6 +86,10 @@ async function signInFlow(address: string, attempt: string): Promise<void> {
       throw new Error("Kasware wallet not available");
     }
 
+    step = "network";
+    // Never ask for a signature on the wrong chain (KTK-175).
+    if (!(await ensureWalletNetwork())) throw new WalletCanceledError("Network switch canceled.");
+
     step = "sign";
     devLog(`[auth] attempt=${attempt} sign.invoke`);
     const signStartedAt = performance.now();
@@ -99,7 +110,7 @@ async function signInFlow(address: string, attempt: string): Promise<void> {
     const signature = normalizeSignature(raw);
     devLog(`[auth] attempt=${attempt} session.invoke`);
     const { token } = await createSession(message, signature);
-    setAuthToken(token);
+    setAuthToken(token, address);
     devLog(`[auth] attempt=${attempt} session.ok totalMs=${elapsedMs(startedAt)}`);
   } catch (err) {
     devWarn(`[auth] attempt=${attempt} step=${step} err=${reasonOf(err)}`);
@@ -114,47 +125,72 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const wallet = useWallet();
   const [state, setState] = useState<AuthState>({ status: "idle", error: null, address: null });
-  const inFlightRef = useRef(false);
-  const targetAddressRef = useRef<string | null>(null);
+  const inFlightRef = useRef<Promise<boolean> | null>(null);
   // The address whose sign-in the user canceled. Automatic sign-in (on load or
   // a 401 re-auth) is suppressed for it until an explicit retry or a wallet
   // change — otherwise every background refresh would reopen the wallet popup.
   const canceledAddressRef = useRef<string | null>(null);
 
-  const signIn = useCallback(async (options?: SignInOptions) => {
-    const address = connectedAddress(wallet.state);
-    if (!address) return;
+  /**
+   * Sign in as `address`. The caller supplies the address it just connected,
+   * so this never reads a stale wallet state. Returns true only when a token
+   * for that address is in hand; a cancel resolves false and stops the caller.
+   */
+  const signInFor = useCallback(async (address: string, options?: SignInOptions): Promise<boolean> => {
+    if (!address) return false;
+
+    // A still-valid token for this address needs no wallet prompt.
+    if (!options?.force && getAuthToken() !== null && getAuthAddress() === address) {
+      setState({ status: "ready", error: null, address });
+      return true;
+    }
+
     if (!options?.force && canceledAddressRef.current === address) {
       devLog("[auth] signIn suppressed (canceled by the user)");
-      return;
+      return false;
     }
-    if (inFlightRef.current) {
-      devLog("[auth] signIn skipped (already in flight)");
-      return;
-    }
-    canceledAddressRef.current = null;
-    const attempt = newAttemptId();
-    targetAddressRef.current = address;
-    inFlightRef.current = true;
-    setState({ status: "signing-in", error: null, address: null });
-    devLog(`[auth] attempt=${attempt} start address=${address}`);
-    try {
-      await signInFlow(address, attempt);
-      setState({ status: "ready", error: null, address });
-    } catch (err) {
-      setAuthToken(null);
-      if (isUserRejected(err)) {
-        canceledAddressRef.current = address;
-        devWarn(`[auth] attempt=${attempt} canceled by user code=${codeOf(err) ?? "none"}`);
-        setState({ status: "error", error: "Sign-in was canceled in Kasware.", address: null });
-      } else {
-        devWarn(`[auth] attempt=${attempt} failed err=${reasonOf(err)}`);
-        setState({ status: "error", error: "Could not sign you in.", address: null });
+    // Join the sign-in already in flight instead of opening a second popup.
+    if (inFlightRef.current) return inFlightRef.current;
+
+    const run = (async (): Promise<boolean> => {
+      canceledAddressRef.current = null;
+      const attempt = newAttemptId();
+      setState({ status: "signing-in", error: null, address: null });
+      devLog(`[auth] attempt=${attempt} start address=${address}`);
+      try {
+        await signInFlow(address, attempt);
+        setState({ status: "ready", error: null, address });
+        return true;
+      } catch (err) {
+        setAuthToken(null);
+        if (isUserRejected(err) || isWalletCanceled(err)) {
+          canceledAddressRef.current = address;
+          devWarn(`[auth] attempt=${attempt} canceled by user code=${codeOf(err) ?? "none"}`);
+          setState({ status: "error", error: "Sign-in was canceled in Kasware.", address: null });
+        } else {
+          devWarn(`[auth] attempt=${attempt} failed err=${reasonOf(err)}`);
+          setState({ status: "error", error: "Could not sign you in.", address: null });
+        }
+        return false;
       }
+    })();
+
+    inFlightRef.current = run;
+    try {
+      return await run;
     } finally {
-      inFlightRef.current = false;
+      inFlightRef.current = null;
     }
-  }, [wallet.state]);
+  }, []);
+
+  const signIn = useCallback(
+    async (options?: SignInOptions): Promise<boolean> => {
+      const address = connectedAddress(wallet.state);
+      if (!address) return false;
+      return signInFor(address, options);
+    },
+    [wallet.state, signInFor],
+  );
 
   // Sign in whenever the connected wallet changes (mimics daftari's AuthProvider).
   useEffect(() => {
@@ -172,17 +208,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // The API client calls this on a 401 to silently re-sign and retry.
   useEffect(() => {
-    setReauthHandler(() => signIn());
+    setReauthHandler(async () => {
+      await signIn();
+    });
     return () => setReauthHandler(null);
   }, [signIn]);
-
-  // A fresh sign-in only replaces an existing valid token for the same address;
-  // clear a stale token from a previous address once the new one lands.
-  useEffect(() => {
-    if (state.status === "ready" && state.address) {
-      targetAddressRef.current = null;
-    }
-  }, [state.status, state.address]);
 
   const value = useMemo<Auth>(
     () => ({
@@ -190,9 +220,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       error: state.error,
       address: state.address,
       signIn,
+      signInFor,
       tokenPresent: getAuthToken() !== null,
+      tokenAddress: getAuthAddress(),
     }),
-    [state.status, state.error, state.address, signIn],
+    [state.status, state.error, state.address, signIn, signInFor],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

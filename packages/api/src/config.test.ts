@@ -39,6 +39,12 @@ describe("loadConfig (KASPANET wiring)", () => {
   it("exposes the upstream API base URL for the network", () => {
     expect(loadConfig({ KASPANET: "testnet10" }).apiBaseUrl).toBe("https://api-tn10.kaspa.org");
   });
+
+  it("exposes the wallet network name and address prefix from the network config", () => {
+    const config = loadConfig({ KASPANET: "testnet10" });
+    expect(config.walletNetworkName).toBe("kaspa_testnet_10");
+    expect(config.addressPrefix).toBe("kaspatest:");
+  });
 });
 
 describe("loadConfig (PUBLIC_ORIGIN)", () => {

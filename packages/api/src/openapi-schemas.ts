@@ -631,6 +631,30 @@ function sharedSchemas(): JsonObject {
     InputIndex: INPUT_INDEX_SCHEMA,
     EventRef: EVENT_REF_SCHEMA,
     FinalizeResult: finalizeResultSchema(),
+    ServerConfig: {
+      type: "object",
+      description:
+        "The deployment's runtime network identity. Read it at boot; never derive the chain from a build-time value.",
+      required: ["network", "network_id", "wallet_network", "address_prefix"],
+      properties: {
+        network: {
+          type: "string",
+          description: "Canonical network id, e.g. `testnet10`.",
+        },
+        network_id: {
+          type: "string",
+          description: "The wRPC network id, e.g. `testnet-10`.",
+        },
+        wallet_network: {
+          type: "string",
+          description: "The wallet's network name, e.g. `kaspa_testnet_10`.",
+        },
+        address_prefix: {
+          type: "string",
+          description: "The bech32 address prefix, including the trailing colon.",
+        },
+      },
+    },
   };
 }
 

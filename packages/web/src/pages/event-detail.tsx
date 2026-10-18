@@ -1,10 +1,11 @@
 import { buildEventMeta } from "@kticket/kit";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchEvent, fetchEventListings, ServerError, type EventDetail, type ListingSummary } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
 import { executePurchase, type ResaleState } from "../api/resale-machine";
 import { useDocumentMeta } from "../hooks/use-document-meta";
+import { usePendingAction } from "../hooks/use-pending-action";
 import { useWallet } from "../hooks/use-wallet";
 import { OfflineEmpty, Empty } from "../components/empty";
 import { ShareEventButton } from "../components/share-event";
@@ -12,13 +13,12 @@ import { priceLabel, shortAddress, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
   const { covenantId } = useParams<{ covenantId: string }>();
-  const { state, connect } = useWallet();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [buy, setBuy] = useState<BuyState>({ phase: "idle" });
-  const pendingBuy = useRef(false);
+  const buyFlow = usePendingAction({ onReset: () => setBuy({ phase: "idle" }) });
   const buying = buy.phase === "loading" || buy.phase === "building" || buy.phase === "broadcasting";
 
   const load = useCallback(async () => {
@@ -54,26 +54,17 @@ export default function EventDetailPage() {
   );
   useDocumentMeta(documentMeta);
 
-  const handleBuy = useCallback(async () => {
-    if (!covenantId || !event || state.status !== "connected" || !state.accounts[0]) return;
-    await executeBuy(setBuy, {
-      covenantId,
-      publicKey: state.publicKey,
-      address: state.accounts[0],
-    });
-  }, [covenantId, event, state]);
-
-  useEffect(() => {
-    if (!pendingBuy.current) return;
-    if (state.status !== "connected") return;
-    pendingBuy.current = false;
-    handleBuy();
-  }, [state.status, handleBuy]);
-
-  const handleConnectThenBuy = useCallback(() => {
-    pendingBuy.current = true;
-    connect();
-  }, [connect]);
+  const handleBuy = useCallback(() => {
+    if (!covenantId || !event) return;
+    void buyFlow.start(({ publicKey, address }) =>
+      executeBuy(setBuy, {
+        covenantId,
+        publicKey,
+        address,
+        isCurrent: buyFlow.isCurrent,
+      }),
+    );
+  }, [covenantId, event, buyFlow.start, buyFlow.isCurrent]);
 
   if (loading) {
     return (
@@ -99,7 +90,6 @@ export default function EventDetailPage() {
     );
   }
 
-  const connected = state.status === "connected";
   const verified = event.event.verified;
 
   return (
@@ -164,10 +154,10 @@ export default function EventDetailPage() {
           <button
             type="button"
             className="button button-primary button-full"
-            onClick={connected ? handleBuy : handleConnectThenBuy}
-            disabled={buying}
+            onClick={handleBuy}
+            disabled={buying || buyFlow.running}
           >
-             {buying ? "Buying…" : `Buy ticket · ${priceLabel(event.event.price)} + 0.5 KAS deposit`}
+            {buying || buyFlow.running ? "Buying…" : `Buy ticket · ${priceLabel(event.event.price)} + 0.5 KAS deposit`}
           </button>
         )}
       </div>
@@ -199,7 +189,6 @@ export default function EventDetailPage() {
 }
 
 function Listings({ covenantId }: { covenantId: string }) {
-  const { state } = useWallet();
   const [listings, setListings] = useState<ListingSummary[] | null>(null);
   const [offline, setOffline] = useState(false);
 
@@ -232,7 +221,7 @@ function Listings({ covenantId }: { covenantId: string }) {
     <section>
       <h2 className="section-heading">Tickets for sale</h2>
       {listings.map((listing) => (
-        <ListingRow key={listing.ticket_id} listing={listing} onSold={load} connected={state.status === "connected"} />
+        <ListingRow key={listing.ticket_id} listing={listing} onSold={load} />
       ))}
     </section>
   );
@@ -241,27 +230,28 @@ function Listings({ covenantId }: { covenantId: string }) {
 function ListingRow({
   listing,
   onSold,
-  connected,
 }: {
   listing: ListingSummary;
   onSold: () => void;
-  connected: boolean;
 }) {
   const { state } = useWallet();
   const [buy, setBuy] = useState<ResaleState>({ phase: "idle" });
+  const purchase = usePendingAction({ onReset: () => setBuy({ phase: "idle" }) });
   const busy = buy.phase === "loading" || buy.phase === "building" || buy.phase === "broadcasting";
   const mine =
     state.status === "connected" && state.publicKey.slice(-64) === listing.seller_pkh;
 
-  const handleBuy = useCallback(async () => {
-    if (state.status !== "connected" || !state.accounts[0]) return;
-    await executePurchase(setBuy, {
-      ticketId: listing.ticket_id,
-      publicKey: state.publicKey,
-      address: state.accounts[0],
+  const handleBuy = useCallback(() => {
+    void purchase.start(async ({ publicKey, address }) => {
+      await executePurchase(setBuy, {
+        ticketId: listing.ticket_id,
+        publicKey,
+        address,
+        isCurrent: purchase.isCurrent,
+      });
+      onSold();
     });
-    onSold();
-  }, [state, listing.ticket_id, onSold]);
+  }, [listing.ticket_id, onSold, purchase.start, purchase.isCurrent]);
 
   return (
     <div className="ticket">
@@ -299,12 +289,12 @@ function ListingRow({
       <div className="ticket-stub">
         {mine ? (
           <span className="stub-value">Your listing</span>
-        ) : buy.phase === "success" || busy || !connected ? null : (
+        ) : buy.phase === "success" || busy || purchase.running ? null : (
           <button
             type="button"
             className="button button-primary button-sm"
             onClick={handleBuy}
-            disabled={busy}
+            disabled={busy || purchase.running}
           >
              Buy · {priceLabel(listing.price)} + 0.5 KAS deposit
           </button>

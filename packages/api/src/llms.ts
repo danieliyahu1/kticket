@@ -27,6 +27,7 @@ export function llmsTxt(origin: string, network: string): string {
     `- [HTTP API reference](${link(API_DOCS_PATH)}): every endpoint, schema, example, and error code.`,
     `- [Agent guide](${link(AGENT_GUIDE_PATH)}): signing, the two-step prepare/finalize flow, and the rules as markdown.`,
     `- [OpenAPI document](${link(OPENAPI_PATH)}): the same contract as OpenAPI 3.1 JSON.`,
+    `- \`GET /v1/config\`: \`{ "network": "${network}", "network_id": "testnet-10", "wallet_network": "kaspa_testnet_10", "address_prefix": "kaspatest:" }\` — the runtime chain identity.`,
     `- \`GET /health\`: \`{ "status": "ok", "network": "${network}" }\`.`,
     "",
     "## Authentication",

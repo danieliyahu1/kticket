@@ -1,3 +1,6 @@
+import { useRuntimeConfig } from "../config/RuntimeConfigProvider";
+import { networkLabel } from "../config/runtime";
+import { useNetworkSwitching } from "../hooks/use-network-switching";
 import { useWallet } from "../hooks/use-wallet";
 import { useCreateDialog } from "./create-dialog-context";
 
@@ -9,6 +12,8 @@ const ADDR_TAIL = 4;
 export function HeaderActions() {
   const { state, connect, disconnect, switchToWalletNetwork } = useWallet();
   const { openCreate } = useCreateDialog();
+  const config = useRuntimeConfig();
+  const switching = useNetworkSwitching();
 
   if (state.status === "not-installed") {
     return (
@@ -42,8 +47,9 @@ export function HeaderActions() {
           type="button"
           className="button button-primary button-sm"
           onClick={switchToWalletNetwork}
+          disabled={switching}
         >
-          Switch to Testnet
+          {switching ? "Switching…" : `Switch to ${networkLabel(config)}`}
         </button>
         <button
           type="button"

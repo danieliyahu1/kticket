@@ -1,4 +1,5 @@
 // kticket API routes (HLD v0.27 §2.2):
+//   GET  /v1/config                              — runtime network identity (KTK-171)
 //   GET  /v1/events                              — directory of verified events (from the registry)
 //   POST /v1/events                              — register an event after deploy (discovery only)
 //   GET  /v1/events/{covenant_id}                — verified event facts + raw chain facts
@@ -100,6 +101,10 @@ export interface AppContext {
   listings: ListingStore;
   network: KaspaNetwork;
   networkId: string;
+  /** The wallet's network name (Kasware vocabulary), e.g. "kaspa_testnet_10". */
+  walletNetworkName: string;
+  /** The bech32 address prefix, including the trailing colon. */
+  addressPrefix: string;
   verified: VerifiedEventCache;
   /** Wallet auth (fail-closed): required for user-specific reads. */
   auth: { store: AuthStore; config: AuthConfig };
@@ -165,6 +170,18 @@ function resaleCtx(ctx: AppContext): ResaleContext {
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // The runtime identity of this deployment (KTK-171). The browser reads it at
+  // boot so a bundle built once follows whichever chain the server serves.
+  app.get("/v1/config", async (_req, reply) => {
+    reply.header("cache-control", "public, max-age=300");
+    return {
+      network: ctx.network,
+      network_id: ctx.networkId,
+      wallet_network: ctx.walletNetworkName,
+      address_prefix: ctx.addressPrefix,
+    };
+  });
+
   app.post("/v1/auth/challenge", { config: { kticketFlow: "auth.challenge" } }, async (req, reply) => {
     const result = await handleCreateChallenge(ctx.auth.store, req.body, ctx.auth.config);
     const parsed = parseSignInMessage(result.message);

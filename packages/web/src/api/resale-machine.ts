@@ -9,6 +9,7 @@ import {
 } from "./client";
 import { signTemplate } from "../lib/signing";
 import { devError } from "../lib/log";
+import { isWalletCanceled } from "../wallet/cancel";
 
 /** One shared lifecycle for every resale flow: sell / cancel sale / buy resale. */
 export type ResaleState =
@@ -23,6 +24,8 @@ export interface HolderParams {
   ticketId: string;
   publicKey: string;
   address: string;
+  /** False when the wallet changed after prepare — never finalize a stale flow. */
+  isCurrent?: () => boolean;
 }
 
 function errorMsg(err: unknown): string {
@@ -34,6 +37,49 @@ function errorMsg(err: unknown): string {
 
 function logError(context: string, err: unknown): void {
   devError(`[resale:${context}]`, err);
+}
+
+function stillCurrent(params: HolderParams): boolean {
+  return params.isCurrent === undefined || params.isCurrent();
+}
+
+/**
+ * Sign the prepared template. Returns `undefined` when the flow stopped — a
+ * canceled wallet prompt returns to idle, and a wallet that changed underneath
+ * discards the result instead of finalizing it (KTK-173 / KTK-175).
+ */
+async function signPrepared(
+  setState: (s: ResaleState) => void,
+  params: HolderParams,
+  prepared: { signing_template: string; sign_inputs: { index: number }[] },
+  logContext: string,
+): Promise<unknown | undefined> {
+  setState({ phase: "building" });
+  try {
+    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
+    if (!stillCurrent(params)) {
+      setState({ phase: "idle" });
+      return undefined;
+    }
+    return signed;
+  } catch (err) {
+    if (isWalletCanceled(err)) {
+      setState({ phase: "idle" });
+      return undefined;
+    }
+    logError(logContext, err);
+    setState({ phase: "error", message: errorMsg(err) });
+    return undefined;
+  }
+}
+
+function reportFinalizeError(
+  setState: (s: ResaleState) => void,
+  context: string,
+  err: unknown,
+): void {
+  logError(context, err);
+  setState({ phase: "error", message: errorMsg(err) });
 }
 
 /**
@@ -59,11 +105,16 @@ export async function executeList(
     setState({ phase: "error", message: errorMsg(err) });
     return;
   }
+  if (!stillCurrent(params)) {
+    setState({ phase: "idle" });
+    return;
+  }
 
+  const signed = await signPrepared(setState, params, prepared, "list/sign");
+  if (signed === undefined) return;
+
+  setState({ phase: "broadcasting" });
   try {
-    setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
-    setState({ phase: "broadcasting" });
     const result = await listFinalize(params.ticketId, {
       template: prepared.template,
       signed,
@@ -71,8 +122,7 @@ export async function executeList(
     });
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    logError("list/finalize", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportFinalizeError(setState, "list/finalize", err);
   }
 }
 
@@ -94,19 +144,23 @@ export async function executeDelist(
     setState({ phase: "error", message: errorMsg(err) });
     return;
   }
+  if (!stillCurrent(params)) {
+    setState({ phase: "idle" });
+    return;
+  }
 
+  const signed = await signPrepared(setState, params, prepared, "delist/sign");
+  if (signed === undefined) return;
+
+  setState({ phase: "broadcasting" });
   try {
-    setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
-    setState({ phase: "broadcasting" });
     const result = await delistFinalize(params.ticketId, {
       template: prepared.template,
       signed,
     });
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    logError("delist/finalize", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportFinalizeError(setState, "delist/finalize", err);
   }
 }
 
@@ -132,18 +186,22 @@ export async function executePurchase(
     setState({ phase: "error", message: errorMsg(err) });
     return;
   }
+  if (!stillCurrent(params)) {
+    setState({ phase: "idle" });
+    return;
+  }
 
+  const signed = await signPrepared(setState, params, prepared, "purchase/sign");
+  if (signed === undefined) return;
+
+  setState({ phase: "broadcasting" });
   try {
-    setState({ phase: "building" });
-    const signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
-    setState({ phase: "broadcasting" });
     const result = await purchaseFinalize(params.ticketId, {
       template: prepared.template,
       signed,
     });
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    logError("purchase/finalize", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportFinalizeError(setState, "purchase/finalize", err);
   }
 }

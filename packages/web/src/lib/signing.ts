@@ -1,5 +1,8 @@
 import { devError, devLog, devWarn } from "./log";
-import { network } from "../network";
+import { getRuntimeConfig } from "../config/runtime";
+import { ensureWalletNetwork } from "../wallet/network";
+import { WalletCanceledError } from "../wallet/cancel";
+import { isUserRejected } from "../auth/wallet-error";
 
 /** SIGHASH_ALL — the consensus default every signing template input is signed with. */
 const SIGHASH_ALL = 1;
@@ -28,8 +31,10 @@ export async function signTemplate(
   if (!signingTemplate) {
     throw new Error("No signing template from build");
   }
+  // A signature is never requested on the wrong network (KTK-175).
+  if (!(await ensureWalletNetwork())) throw new WalletCanceledError("Network switch canceled.");
   const requested = describeTemplateInputs(signingTemplate);
-  devLog(`[kasware:sign] network=${network.networkId} inputs=[${kinds(requested)}]`);
+  devLog(`[kasware:sign] network=${getRuntimeConfig().networkId} inputs=[${kinds(requested)}]`);
   const inputs = signInputs?.map(({ index }) => ({ index, sighashType: SIGHASH_ALL }));
   let result: unknown;
   try {
@@ -42,6 +47,8 @@ export async function signTemplate(
       "[kasware:sign] wallet rejected the signing request:",
       err instanceof Error ? err.message : typeof err,
     );
+    // A rejected signature is a cancel, never an automatic retry.
+    if (isUserRejected(err)) throw new WalletCanceledError();
     throw err;
   }
   reportOutcome(requested, result);

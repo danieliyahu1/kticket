@@ -11,6 +11,10 @@ export interface NetworkConfig {
   networkId: string;
   /** Human-readable label. */
   label: string;
+  /** The wallet's network name, e.g. "kaspa_testnet_10" (Kasware's vocabulary). */
+  walletNetworkName: string;
+  /** The bech32 address prefix, including the trailing colon (e.g. "kaspatest:"). */
+  addressPrefix: string;
 }
 
 /** Only testnet-10 is supported (HLD v0.23: mainnet out of scope). */
@@ -20,6 +24,8 @@ export const NETWORKS: Record<KaspaNetwork, NetworkConfig> = {
     apiBaseUrl: "https://api-tn10.kaspa.org",
     networkId: "testnet-10",
     label: "Testnet 10",
+    walletNetworkName: "kaspa_testnet_10",
+    addressPrefix: "kaspatest:",
   },
 };
 

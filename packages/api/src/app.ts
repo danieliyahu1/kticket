@@ -107,6 +107,8 @@ export async function buildApp(
     auth: authCtx,
     network: deps?.network ?? config.kaspaNet,
     networkId: deps?.networkId ?? config.networkId,
+    walletNetworkName: deps?.walletNetworkName ?? config.walletNetworkName,
+    addressPrefix: deps?.addressPrefix ?? config.addressPrefix,
   };
 
   registerRoutes(app, ctx);

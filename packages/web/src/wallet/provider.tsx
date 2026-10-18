@@ -1,11 +1,20 @@
 import { createContext, useCallback, useEffect, useRef, useState } from "react";
-import { network } from "../network";
+import { useRuntimeConfig } from "../config/RuntimeConfigProvider";
 import { devLog } from "../lib/log";
+import { addressMatchesNetwork, matchesWalletNetwork } from "./network-match";
+import { ensureWalletNetwork } from "./network";
 import type { KaswareProvider, WalletState } from "./types";
+
+/** The connected wallet's identity, resolved before an action runs. */
+export interface ConnectedWallet {
+  address: string;
+  publicKey: string;
+}
 
 export interface WalletContextValue {
   state: WalletState;
-  connect: () => Promise<void>;
+  /** Connect (or return the existing connection). Null when canceled. */
+  connect: () => Promise<ConnectedWallet | null>;
   disconnect: () => void;
   /** Ask the wallet to switch to the network this app runs on. */
   switchToWalletNetwork: () => Promise<void>;
@@ -41,26 +50,6 @@ function describeMethods(provider: KaswareProvider | undefined): string {
   return KASWARE_METHODS.filter((m) => typeof record[m] === "function").join(" ");
 }
 
-/** The bech32 HRP every testnet-10 address carries (the only supported network). */
-const TESTNET_ADDRESS_PREFIX = "kaspatest:";
-
-/** The Kasware network name for the app's network (e.g. `kaspa_testnet_10`). */
-function kaswareNetworkName(networkId: string): string {
-  return `kaspa_${networkId.replace(/-/g, "_")}`;
-}
-
-/** True when a Kasware network name (e.g. `kaspa_testnet_10`) is the app's network. */
-function networkMatches(walletNetwork: string, networkId: string): boolean {
-  const normalized = walletNetwork.trim().toLowerCase().replace(/-/g, "_");
-  const expected = networkId.toLowerCase().replace(/-/g, "_");
-  return normalized === expected || normalized === `kaspa_${expected}`;
-}
-
-/** True when a wallet account address belongs to the network this app runs on. */
-function addressMatchesNetwork(address: string): boolean {
-  return address.startsWith(TESTNET_ADDRESS_PREFIX);
-}
-
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), ms);
@@ -71,58 +60,80 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
+interface WalletFacts {
+  address: string;
+  publicKey: string;
+  /** Empty when the wallet does not report it (advisory). */
+  walletNetwork: string;
+}
+
+/**
+ * Read the wallet's current facts. Public key and network are advisory: a
+ * wallet that cannot answer either must not block connecting.
+ */
+async function readWalletFacts(provider: KaswareProvider): Promise<WalletFacts | null> {
+  const accounts = await provider.getAccounts();
+  const address = accounts[0];
+  if (!address) return null;
+
+  let publicKey = "";
+  try {
+    publicKey = await provider.getPublicKey();
+  } catch {
+    // The public key is advisory; don't block connection on it.
+  }
+
+  let walletNetwork = "";
+  try {
+    walletNetwork = await provider.getNetwork();
+  } catch {
+    // Network is advisory; don't block connection on it.
+  }
+
+  return { address, publicKey, walletNetwork };
+}
+
 export function WalletProvider({ children }: { children: React.ReactNode }) {
+  const networkConfig = useRuntimeConfig();
   const [state, setState] = useState<WalletState>({ status: "idle" });
-  const connectingRef = useRef(false);
-  const accountRef = useRef<{ accounts: string[]; publicKey: string } | null>(null);
+  const connectingRef = useRef<Promise<ConnectedWallet | null> | null>(null);
+  const accountRef = useRef<{ address: string; publicKey: string } | null>(null);
 
-  const applyAccount = useCallback(async (provider: KaswareProvider): Promise<boolean> => {
-    try {
-      const accounts = await provider.getAccounts();
-      const address = accounts[0];
-      devLog(`[wallet] getAccounts ok count=${accounts.length}`);
-      if (!address) return false;
-
-      let publicKey = "";
+  const applyAccount = useCallback(
+    async (provider: KaswareProvider): Promise<ConnectedWallet | null> => {
       try {
-        publicKey = await provider.getPublicKey();
-      } catch {
-        // The public key is advisory; don't block connection on it.
-      }
-      devLog(`[wallet] publicKey present=${publicKey.length > 0}`);
+        const facts = await readWalletFacts(provider);
+        if (!facts) return null;
+        const { address, publicKey, walletNetwork } = facts;
+        const hasNetwork = walletNetwork !== "";
+        const matches = hasNetwork && matchesWalletNetwork(walletNetwork, networkConfig);
+        devLog(`[wallet] publicKey present=${publicKey.length > 0}`);
+        devLog(
+          `[wallet] network reported=${walletNetwork} expected=${networkConfig.networkId} match=${hasNetwork ? String(matches) : "unknown"}`,
+        );
 
-      let walletNetwork: string | null = null;
-      try {
-        walletNetwork = await provider.getNetwork();
-      } catch {
-        // Network is advisory; don't block connection on it.
-      }
-      const hasNetwork = walletNetwork !== null && walletNetwork !== "";
-      const matches =
-        walletNetwork !== null && walletNetwork !== "" && networkMatches(walletNetwork, network.networkId);
-      devLog(
-        `[wallet] network reported=${String(walletNetwork)} expected=${network.networkId} match=${hasNetwork ? String(matches) : "unknown"}`,
-      );
+        const next = { address, publicKey };
+        accountRef.current = next;
+        if (hasNetwork && !matches) {
+          devLog("[wallet] state=wrong-network");
+          setState({ status: "wrong-network", accounts: [address], publicKey });
+          return next;
+        }
 
-      const next = { accounts: [address], publicKey };
-      accountRef.current = next;
-      if (hasNetwork && !matches) {
-        devLog("[wallet] state=wrong-network");
-        setState({ status: "wrong-network", ...next });
-      } else {
-        // The wallet may report the right network but hand back an address for a
-        // different one (e.g. a stale mainnet `kaspa:` address). Flag it for the
-        // UI but do not block — the user decides whether to proceed.
-        const networkMismatch = !addressMatchesNetwork(address);
+        // The wallet may report the right network but hand back an address for
+        // a different one (e.g. a stale mainnet `kaspa:` address). Flag it for
+        // the UI but do not block — the user decides whether to proceed.
+        const networkMismatch = !addressMatchesNetwork(address, networkConfig);
         devLog(`[wallet] state=connected networkMismatch=${networkMismatch}`);
-        setState({ status: "connected", ...next, networkMismatch });
+        setState({ status: "connected", accounts: [address], publicKey, networkMismatch });
+        return next;
+      } catch (err) {
+        devLog(`[wallet] applyAccount failed err=${err instanceof Error ? err.message : typeof err}`);
+        return null;
       }
-      return true;
-    } catch (err) {
-      devLog(`[wallet] applyAccount failed err=${err instanceof Error ? err.message : typeof err}`);
-      return false;
-    }
-  }, []);
+    },
+    [networkConfig],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -191,34 +202,49 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     };
   }, [applyAccount]);
 
-  const connect = useCallback(async () => {
-    if (connectingRef.current) return;
+  const connect = useCallback(async (): Promise<ConnectedWallet | null> => {
+    // Already connected: hand back the identity without prompting again.
+    if (accountRef.current) return accountRef.current;
+    // A second click joins the request already in flight instead of opening a
+    // second wallet popup (double-submit guard).
+    if (connectingRef.current) return connectingRef.current;
+
     const provider = getKasware();
     if (!provider) {
       setState({ status: "not-installed" });
-      return;
+      return null;
     }
-    connectingRef.current = true;
-    setState({ status: "connecting" });
-    devLog("[wallet] connect start");
-    try {
-      const accounts = await withTimeout(
-        provider.requestAccounts(),
-        CONNECT_TIMEOUT_MS,
-        "wallet approval",
-      );
-      devLog(`[wallet] requestAccounts ok count=${accounts.length}`);
-      if (accounts.length === 0) {
+
+    const run = (async (): Promise<ConnectedWallet | null> => {
+      setState({ status: "connecting" });
+      devLog("[wallet] connect start");
+      try {
+        const accounts = await withTimeout(
+          provider.requestAccounts(),
+          CONNECT_TIMEOUT_MS,
+          "wallet approval",
+        );
+        devLog(`[wallet] requestAccounts ok count=${accounts.length}`);
+        if (accounts.length === 0) {
+          setState({ status: "disconnected" });
+          return null;
+        }
+        const connected = await applyAccount(provider);
+        if (!connected) setState({ status: "disconnected" });
+        return connected;
+      } catch (err) {
+        // A dismissal is a cancel: return quietly and let the caller stop.
+        devLog(`[wallet] connect canceled err=${err instanceof Error ? err.message : typeof err}`);
         setState({ status: "disconnected" });
-        return;
+        return null;
       }
-      const connected = await applyAccount(provider);
-      if (!connected) setState({ status: "disconnected" });
-    } catch (err) {
-      devLog(`[wallet] connect failed err=${err instanceof Error ? err.message : typeof err}`);
-      setState({ status: "disconnected" });
+    })();
+
+    connectingRef.current = run;
+    try {
+      return await run;
     } finally {
-      connectingRef.current = false;
+      connectingRef.current = null;
       devLog("[wallet] connect end");
     }
   }, [applyAccount]);
@@ -238,22 +264,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const switchToWalletNetwork = useCallback(async () => {
     const provider = getKasware();
     if (!provider) return;
-    const target = kaswareNetworkName(network.networkId);
-    devLog(`[wallet] switchNetwork start target=${target}`);
-    try {
-      await withTimeout(
-        Promise.resolve(provider.switchNetwork(target)),
-        CONNECT_TIMEOUT_MS,
-        "network switch",
-      );
-      devLog("[wallet] switchNetwork ok");
-      // A successful switch also fires networkChanged, which re-syncs; do it
-      // here as well in case the event never arrives.
-      if (accountRef.current) await applyAccount(provider);
-    } catch (err) {
-      devLog(`[wallet] switchNetwork failed err=${err instanceof Error ? err.message : typeof err}`);
-      // Keep the current state — the user can retry the switch.
-    }
+    // The header control itself says "Switching…"; no duplicate toast.
+    await ensureWalletNetwork({ announce: false });
+    // A successful switch also fires networkChanged, which re-syncs; do it
+    // here as well in case the event never arrives.
+    if (accountRef.current) await applyAccount(provider);
   }, [applyAccount]);
 
   return (

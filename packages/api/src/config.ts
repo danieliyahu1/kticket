@@ -23,6 +23,10 @@ export interface ApiConfig {
   metricsPort: number;
   kaspaNet: KaspaNetwork;
   networkId: string;
+  /** The wallet's network name (Kasware vocabulary), e.g. "kaspa_testnet_10". */
+  walletNetworkName: string;
+  /** The bech32 address prefix, including the trailing colon. */
+  addressPrefix: string;
   apiBaseUrl: string;
   tls?: TlsConfig;
   upstream: UpstreamConfig;
@@ -73,6 +77,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     metricsPort,
     kaspaNet: network.net,
     networkId: network.networkId,
+    walletNetworkName: network.walletNetworkName,
+    addressPrefix: network.addressPrefix,
     apiBaseUrl: network.apiBaseUrl,
     publicOrigin,
     upstream: {

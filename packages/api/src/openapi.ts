@@ -49,6 +49,7 @@ export function openApiDocument(options: OpenApiOptions): JsonObject {
     },
     servers: [{ url: options.origin, description: `kticket on ${options.network}` }],
     tags: [
+      { name: "config", description: "The deployment's runtime network identity." },
       { name: "auth", description: "Challenge → signature → session token." },
       { name: "events", description: "Verified events, deploys, and primary ticket purchases." },
       { name: "tickets", description: "The caller's tickets and the door (check-in) flow." },

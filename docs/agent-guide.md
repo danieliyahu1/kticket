@@ -25,11 +25,12 @@ Create and sign with any Kaspa SDK. A headless client needs:
 - a transaction signer that understands kaspa-wasm safe JSON (the browser app
   uses Kasware's `signPskt`).
 
-The server tells you which network it runs on: `GET /health` returns
-`{ "status": "ok", "network": "testnet10" }`. Derive your address on that
-network, so the prefix matches (`kaspatest:` vs `kaspa:`). The sign-in message
-also carries the wRPC network id (`Chain ID: testnet-10`); never choose either
-value yourself.
+The server tells you which network it runs on: `GET /v1/config` returns the
+runtime identity as `{ "network": "testnet10", "network_id": "testnet-10",
+"wallet_network": "kaspa_testnet_10", "address_prefix": "kaspatest:" }`. Derive
+your address on that network, so the prefix matches (`kaspatest:` vs `kaspa:`).
+The sign-in message also carries the wRPC network id (`Chain ID: testnet-10`);
+never choose either value yourself. `GET /health` remains the liveness probe.
 
 Amounts in this guide are **sompi** unless a field is explicitly named
 `price_kas`. 1 KAS = 100,000,000 sompi.
@@ -464,4 +465,5 @@ HTTP status carries the class:
 - [`/llms.txt`](/llms.txt) — a plain-text map for machines.
 - `/sitemap.xml` — verified event pages, for search engines.
 - `/robots.txt` — the crawler policy and a pointer to the sitemap.
+- `GET /v1/config` — the runtime network identity.
 - `GET /health` — `{ "status": "ok", "network": "..." }`.

@@ -3,6 +3,7 @@ import {
   buildBuy,
   buildDeploy,
   injectState,
+  NETWORKS,
   p2pkAddress,
   p2shScript,
   type UnsignedTransaction,
@@ -249,6 +250,25 @@ function seedVerifiedEvent(kaspa: FakeKaspa): void {
 }
 
 describe("reader routes (KTK-89 stateless directory)", () => {
+  it("GET /v1/config reports the runtime network identity from one source", async () => {
+    const app = await readerApp(new FakeKaspa());
+    const res = await app.inject({ method: "GET", url: "/v1/config" });
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.headers["cache-control"]).toBe("public, max-age=300");
+
+    const loaded = config();
+    expect(res.json()).toEqual({
+      network: loaded.kaspaNet,
+      network_id: loaded.networkId,
+      wallet_network: NETWORKS[loaded.kaspaNet].walletNetworkName,
+      address_prefix: NETWORKS[loaded.kaspaNet].addressPrefix,
+    });
+    // Same source as the values the API broadcasts with — no duplicated literals.
+    expect(res.json().wallet_network).toBe(NETWORKS.testnet10.walletNetworkName);
+    expect(res.json().address_prefix).toBe(NETWORKS.testnet10.addressPrefix);
+    await app.close();
+  });
+
   it("GET /v1/events lists chain-verified event facts", async () => {
     const kaspa = new FakeKaspa();
     seedVerifiedEvent(kaspa);
