@@ -15,7 +15,7 @@
 
 import { buildEventMeta, buildGenericMeta, type EventMeta } from "@kticket/kit";
 import type { FastifyInstance } from "fastify";
-import { EVENT_SHELL_CACHE_CONTROL } from "./docs-paths.js";
+import { SHELL_CACHE_CONTROL } from "./docs-paths.js";
 import { injectEventMeta } from "./event-preview-html.js";
 import type { EventRegistry } from "./eventstore.js";
 import type { VerificationContext } from "./verified-events.js";
@@ -60,7 +60,7 @@ export function registerEventShell(
       logger: req.log,
     });
     return reply
-      .header("cache-control", EVENT_SHELL_CACHE_CONTROL)
+      .header("cache-control", SHELL_CACHE_CONTROL)
       .header("content-type", HTML_CONTENT_TYPE)
       .send(injectEventMeta(options.shellHtml, meta));
   });

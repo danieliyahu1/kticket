@@ -18,5 +18,5 @@ export const ROBOTS_TXT_PATH = "/robots.txt";
 export const DOCS_CACHE_CONTROL = "public, max-age=300";
 /** Discovery documents change only when events are registered; keep it short. */
 export const DISCOVERY_CACHE_CONTROL = "public, max-age=300";
-/** Event shells are per-event and safe to cache briefly (fallbacks recover fast). */
-export const EVENT_SHELL_CACHE_CONTROL = "public, max-age=60";
+/** HTML shells change on deploy; a short window keeps clients from going stale. */
+export const SHELL_CACHE_CONTROL = "public, max-age=60";

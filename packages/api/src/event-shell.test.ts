@@ -7,7 +7,7 @@
 
 import type { FastifyInstance } from "fastify";
 import { describe, expect, it, vi } from "vitest";
-import { EVENT_SHELL_CACHE_CONTROL } from "./docs-paths.js";
+import { SHELL_CACHE_CONTROL } from "./docs-paths.js";
 import { resolveEventMeta, type EventShellContext } from "./event-shell.js";
 import type { VerifiedEvent } from "./provenance.js";
 import {
@@ -45,7 +45,7 @@ describe("event shell (KTK-159)", () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/html");
-      expect(response.headers["cache-control"]).toBe(EVENT_SHELL_CACHE_CONTROL);
+      expect(response.headers["cache-control"]).toBe(SHELL_CACHE_CONTROL);
 
       const html = response.body;
       expect(html).toContain("<title>Testnet Rave — kticket</title>");
