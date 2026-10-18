@@ -8,8 +8,10 @@ import {
   getAuthToken,
   setAuthToken,
   setReauthHandler,
+  setSessionExpiredHandler,
 } from "../api/client";
 import { devLog, devWarn } from "../lib/log";
+import { notifyFailure, notifySessionExpired } from "../lib/notify";
 import { ensureWalletNetwork } from "../wallet/network";
 import { WalletCanceledError, isWalletCanceled } from "../wallet/cancel";
 import { normalizeSignature } from "./signature";
@@ -31,6 +33,8 @@ interface AuthState {
 interface SignInOptions {
   /** Retry after a user cancel (the only thing that re-prompts). */
   force?: boolean;
+  /** Publish a failure through the toast channel (action paths, not page gates). */
+  notify?: boolean;
 }
 
 interface AuthActions {
@@ -170,6 +174,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } else {
           devWarn(`[auth] attempt=${attempt} failed err=${reasonOf(err)}`);
           setState({ status: "error", error: "Could not sign you in.", address: null });
+          // A page-level AuthGate shows this inline; an action started from
+          // anywhere else needs the shared channel (KTK-168).
+          if (options?.notify) {
+            notifyFailure(err, "Could not sign you in.");
+          }
         }
         return false;
       }
@@ -213,6 +222,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
     return () => setReauthHandler(null);
   }, [signIn]);
+
+  // The client owns the 401 fact; the app owns the words (KTK-168).
+  useEffect(() => {
+    setSessionExpiredHandler(notifySessionExpired);
+    return () => setSessionExpiredHandler(null);
+  }, []);
 
   const value = useMemo<Auth>(
     () => ({

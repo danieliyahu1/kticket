@@ -1,7 +1,8 @@
-import { buyFinalize, buyPrepare, ServerError } from "./client";
+import { buyFinalize, buyPrepare } from "./client";
 import type { BuyPrepareResult } from "./client";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
+import { notifyCanceled, notifyFailure } from "../lib/notify";
 import { isWalletCanceled } from "../wallet/cancel";
 
 export type BuyState =
@@ -9,8 +10,7 @@ export type BuyState =
   | { phase: "loading" }
   | { phase: "building" }
   | { phase: "broadcasting" }
-  | { phase: "success"; txid: string }
-  | { phase: "error"; message: string };
+  | { phase: "success"; txid: string };
 
 export interface BuyParams {
   covenantId: string;
@@ -20,19 +20,28 @@ export interface BuyParams {
   isCurrent?: () => boolean;
 }
 
-function errorMsg(err: unknown): string {
-  if (!(err instanceof Error)) return "Purchase failed.";
-  if (err instanceof ServerError) return "The server isn't responding — purchase can't complete.";
-  // The backend owns the message; the frontend relays it.
-  return err.message;
-}
-
 function logError(context: string, err: unknown): void {
   devError(`[buy:${context}]`, err);
 }
 
 function logStep(step: string, detail?: unknown): void {
   devLog(`[buy:${step}]`, detail ?? "");
+}
+
+function reportError(
+  setState: (s: BuyState) => void,
+  context: string,
+  err: unknown,
+): void {
+  logError(context, err);
+  setState({ phase: "idle" });
+  notifyFailure(err, "Couldn't buy the ticket. Try again.");
+}
+
+function reportCanceled(setState: (s: BuyState) => void, err: unknown): void {
+  logStep("canceled");
+  setState({ phase: "idle" });
+  notifyCanceled(err);
 }
 
 function stillCurrent(params: BuyParams): boolean {
@@ -51,7 +60,8 @@ function stillCurrent(params: BuyParams): boolean {
  * The frontend only relays. It never fetches UTXOs, merges signatures, or
  * broadcasts. "Success" is set only after the backend confirms the tx. The
  * backend also rejects sold-out buys during prepare. A canceled wallet prompt
- * returns the flow to idle without an error (KTK-175).
+ * returns the flow to idle and says so once; a failure is a toast, never an
+ * inline panel too (KTK-175).
  */
 export async function executeBuy(
   setState: (s: BuyState) => void,
@@ -67,8 +77,7 @@ export async function executeBuy(
     });
     logStep("prepared", { buyId: prepared.buy_id, price: prepared.price, signInputs: prepared.sign_inputs });
   } catch (err) {
-    logError("prepare", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportError(setState, "prepare", err);
     return;
   }
   if (!stillCurrent(params)) {
@@ -83,12 +92,10 @@ export async function executeBuy(
     signed = await signTemplate(prepared.signing_template, prepared.sign_inputs);
   } catch (err) {
     if (isWalletCanceled(err)) {
-      logStep("canceled");
-      setState({ phase: "idle" });
+      reportCanceled(setState, err);
       return;
     }
-    logError("sign", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportError(setState, "sign", err);
     return;
   }
   // A result for an account that no longer owns this flow is discarded.
@@ -107,7 +114,6 @@ export async function executeBuy(
     logStep("finalized", result);
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    logError("finalize", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportError(setState, "finalize", err);
   }
 }

@@ -135,14 +135,6 @@ export default function EventDetailPage() {
               </Link>
             </div>
           </div>
-        ) : buy.phase === "error" ? (
-          <div className="status">
-            <div className="status-icon status-icon-error">
-              <span>&#10007;</span>
-            </div>
-            <p className="status-title">{buy.message}</p>
-            <p className="status-copy">No ticket was issued.</p>
-          </div>
         ) : buy.phase === "building" || buy.phase === "broadcasting" ? (
           <div className="status">
             <div className="spinner" />
@@ -259,18 +251,7 @@ function ListingRow({
         <p className="ticket-line">
           Seller <span className="mono">{shortAddress(listing.seller_pkh)}</span>
         </p>
-        {buy.phase === "error" ? (
-          <div className="checkin-error" role="alert">
-            <p>{buy.message}</p>
-            <button
-              type="button"
-              className="button button-link button-sm"
-              onClick={() => setBuy({ phase: "idle" })}
-            >
-              Try again
-            </button>
-          </div>
-        ) : busy ? (
+        {busy ? (
           <div className="checkin-status" role="status">
             <div className="spinner spinner-sm" />
             <span>

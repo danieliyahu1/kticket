@@ -23,11 +23,10 @@ function kasToSompi(input: string): number | null {
   return Math.round(value * 100_000_000);
 }
 
-const RESALE_PHASE_COPY: Record<Exclude<ResaleState["phase"], "idle" | "error">, string> = {
+const RESALE_PHASE_COPY: Record<Exclude<ResaleState["phase"], "idle" | "success">, string> = {
   loading: "Talking to the server…",
   building: "Confirming in your wallet…",
   broadcasting: "Putting it on the chain…",
-  success: "",
 };
 
 interface PreparedCheckIn {
@@ -198,22 +197,6 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
           </div>
         )}
 
-        {checkIn.phase === "error" && (
-          <div className="checkin-error" role="alert">
-            <p>{checkIn.message}</p>
-            <button
-              type="button"
-              className="button button-link button-sm"
-              onClick={() => {
-                setCheckIn({ phase: "idle" });
-                setPrepared(null);
-              }}
-            >
-              Try again
-            </button>
-          </div>
-        )}
-
         {checkIn.phase === "ready" && (
           <div className="checkin-ready" role="status">
             <QrCode value={checkIn.qr} alt={`Check-in QR for ${ticket.event_name}`} />
@@ -228,32 +211,17 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
           </div>
         )}
 
-        {resale.phase !== "idle" &&
-          resale.phase !== "error" &&
-          RESALE_PHASE_COPY[resale.phase] && (
-            <div className="checkin-status" role="status">
-              <div className="spinner spinner-sm" />
-              <span>{RESALE_PHASE_COPY[resale.phase]}</span>
-            </div>
-          )}
+        {resale.phase !== "idle" && resale.phase !== "success" && (
+          <div className="checkin-status" role="status">
+            <div className="spinner spinner-sm" />
+            <span>{RESALE_PHASE_COPY[resale.phase]}</span>
+          </div>
+        )}
 
         {resale.phase === "success" && (
           <p className="checkin-copy" role="status">
             {ticket.listed ? "Your listing is live." : "Sale cancelled."}
           </p>
-        )}
-
-        {resale.phase === "error" && (
-          <div className="checkin-error" role="alert">
-            <p>{resale.message}</p>
-            <button
-              type="button"
-              className="button button-link button-sm"
-              onClick={() => setResale({ phase: "idle" })}
-            >
-              Try again
-            </button>
-          </div>
         )}
       </div>
       <div className="ticket-perforation" />

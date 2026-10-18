@@ -1,4 +1,6 @@
 import { createContext, useCallback, useEffect, useRef, useState } from "react";
+import { showToast } from "../components/toast-store";
+import { networkLabel } from "../config/runtime";
 import { useRuntimeConfig } from "../config/RuntimeConfigProvider";
 import { devLog } from "../lib/log";
 import { addressMatchesNetwork, matchesWalletNetwork } from "./network-match";
@@ -264,12 +266,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const switchToWalletNetwork = useCallback(async () => {
     const provider = getKasware();
     if (!provider) return;
-    // The header control itself says "Switching…"; no duplicate toast.
-    await ensureWalletNetwork({ announce: false });
+    // The header control says "Switching…" while it runs; the outcome is one
+    // toast, not a second "switching" message (KTK-168/172).
+    const switched = await ensureWalletNetwork({ announce: false });
+    if (!switched) return;
+    showToast(`Your wallet is on ${networkLabel(networkConfig)}.`, { tone: "success" });
     // A successful switch also fires networkChanged, which re-syncs; do it
     // here as well in case the event never arrives.
     if (accountRef.current) await applyAccount(provider);
-  }, [applyAccount]);
+  }, [applyAccount, networkConfig]);
 
   return (
     <WalletContext.Provider value={{ state, connect, disconnect, switchToWalletNetwork }}>

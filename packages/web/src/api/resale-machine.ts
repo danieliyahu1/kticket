@@ -5,10 +5,10 @@ import {
   listPrepare,
   purchaseFinalize,
   purchasePrepare,
-  ServerError,
 } from "./client";
 import { signTemplate } from "../lib/signing";
 import { devError } from "../lib/log";
+import { notifyCanceled, notifyFailure } from "../lib/notify";
 import { isWalletCanceled } from "../wallet/cancel";
 
 /** One shared lifecycle for every resale flow: sell / cancel sale / buy resale. */
@@ -17,8 +17,7 @@ export type ResaleState =
   | { phase: "loading" }
   | { phase: "building" }
   | { phase: "broadcasting" }
-  | { phase: "success"; txid: string }
-  | { phase: "error"; message: string };
+  | { phase: "success"; txid: string };
 
 export interface HolderParams {
   ticketId: string;
@@ -28,15 +27,24 @@ export interface HolderParams {
   isCurrent?: () => boolean;
 }
 
-function errorMsg(err: unknown): string {
-  if (!(err instanceof Error)) return "The resale flow failed.";
-  if (err instanceof ServerError) return "The server isn't responding — try again later.";
-  // The backend owns the message; the frontend relays it.
-  return err.message;
-}
-
 function logError(context: string, err: unknown): void {
   devError(`[resale:${context}]`, err);
+}
+
+function reportError(
+  setState: (s: ResaleState) => void,
+  context: string,
+  err: unknown,
+  fallback: string,
+): void {
+  logError(context, err);
+  setState({ phase: "idle" });
+  notifyFailure(err, fallback);
+}
+
+function reportCanceled(setState: (s: ResaleState) => void, err: unknown): void {
+  setState({ phase: "idle" });
+  notifyCanceled(err);
 }
 
 function stillCurrent(params: HolderParams): boolean {
@@ -45,8 +53,9 @@ function stillCurrent(params: HolderParams): boolean {
 
 /**
  * Sign the prepared template. Returns `undefined` when the flow stopped — a
- * canceled wallet prompt returns to idle, and a wallet that changed underneath
- * discards the result instead of finalizing it (KTK-173 / KTK-175).
+ * canceled wallet prompt returns to idle with one notice, and a wallet that
+ * changed underneath discards the result instead of finalizing it
+ * (KTK-173 / KTK-175).
  */
 async function signPrepared(
   setState: (s: ResaleState) => void,
@@ -64,22 +73,12 @@ async function signPrepared(
     return signed;
   } catch (err) {
     if (isWalletCanceled(err)) {
-      setState({ phase: "idle" });
+      reportCanceled(setState, err);
       return undefined;
     }
-    logError(logContext, err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportError(setState, logContext, err, "That didn't go through. Try again.");
     return undefined;
   }
-}
-
-function reportFinalizeError(
-  setState: (s: ResaleState) => void,
-  context: string,
-  err: unknown,
-): void {
-  logError(context, err);
-  setState({ phase: "error", message: errorMsg(err) });
 }
 
 /**
@@ -101,8 +100,7 @@ export async function executeList(
       price: params.priceSompi,
     });
   } catch (err) {
-    logError("list/prepare", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportError(setState, "list/prepare", err, "Couldn't list the ticket. Try again.");
     return;
   }
   if (!stillCurrent(params)) {
@@ -122,7 +120,7 @@ export async function executeList(
     });
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    reportFinalizeError(setState, "list/finalize", err);
+    reportError(setState, "list/finalize", err, "Couldn't list the ticket. Try again.");
   }
 }
 
@@ -140,8 +138,7 @@ export async function executeDelist(
       address: params.address,
     });
   } catch (err) {
-    logError("delist/prepare", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportError(setState, "delist/prepare", err, "Couldn't cancel the sale. Try again.");
     return;
   }
   if (!stillCurrent(params)) {
@@ -160,7 +157,7 @@ export async function executeDelist(
     });
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    reportFinalizeError(setState, "delist/finalize", err);
+    reportError(setState, "delist/finalize", err, "Couldn't cancel the sale. Try again.");
   }
 }
 
@@ -182,8 +179,7 @@ export async function executePurchase(
       address: params.address,
     });
   } catch (err) {
-    logError("purchase/prepare", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    reportError(setState, "purchase/prepare", err, "Couldn't buy the ticket. Try again.");
     return;
   }
   if (!stillCurrent(params)) {
@@ -202,6 +198,6 @@ export async function executePurchase(
     });
     setState({ phase: "success", txid: result.txid });
   } catch (err) {
-    reportFinalizeError(setState, "purchase/finalize", err);
+    reportError(setState, "purchase/finalize", err, "Couldn't buy the ticket. Try again.");
   }
 }

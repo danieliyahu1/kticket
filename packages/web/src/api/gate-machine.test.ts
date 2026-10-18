@@ -1,11 +1,14 @@
 import { encodeUsePayload, type UsePayload } from "@kticket/kit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./client", () => ({
-  useSignTemplate: vi.fn(),
-  useFinalize: vi.fn(),
-  ServerError: class ServerError extends Error {},
-}));
+vi.mock("./client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./client")>();
+  return {
+    ...actual,
+    useSignTemplate: vi.fn(),
+    useFinalize: vi.fn(),
+  };
+});
 
 vi.mock("../lib/signing", () => ({
   signTemplate: vi.fn(),
@@ -17,7 +20,7 @@ import {
   coSignAndFinalize,
   decodeError,
   decodeGatePayload,
-  errorMsg,
+  gateErrorMessage,
   isDecodeFailure,
   isForEvent,
   prepareGateCheck,
@@ -81,10 +84,10 @@ describe("prepareGateCheck (KTK-130)", () => {
     expect(result).toEqual({ ticket: `${TICKET_TXID}:0`, event: "Testnet Rave" });
   });
 
-  it("surfaces a server outage as red 'No connection…'", async () => {
+  it("surfaces a server outage as red with no connection copy", async () => {
     vi.mocked(useSignTemplate).mockRejectedValue(new ServerError());
     await expect(prepareGateCheck(payload, PARAMS)).rejects.toThrow();
-    expect(errorMsg(new ServerError())).toBe("No connection — handover can't complete.");
+    expect(gateErrorMessage(new ServerError())).toBe("The server isn't responding. Try again in a moment.");
   });
 
   it("rejects a ticket from a different event before the dialog (KTK-131)", async () => {

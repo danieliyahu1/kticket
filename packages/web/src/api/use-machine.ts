@@ -1,16 +1,16 @@
 import { encodeUsePayload } from "@kticket/kit";
 import type { WireTransaction } from "./types";
-import { ServerError, usePrepare, type UsePrepareResult } from "./client";
+import { usePrepare, type UsePrepareResult } from "./client";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
+import { notifyCanceled, notifyFailure } from "../lib/notify";
 import { isWalletCanceled } from "../wallet/cancel";
 
 export type CheckInState =
   | { phase: "idle" }
   | { phase: "preparing" }
   | { phase: "signing" }
-  | { phase: "ready"; qr: string }
-  | { phase: "error"; message: string };
+  | { phase: "ready"; qr: string };
 
 export interface CheckInParams {
   ticketId: string;
@@ -25,12 +25,6 @@ export interface PendingUse {
   owner_signed: unknown;
 }
 
-function errorMsg(err: unknown): string {
-  if (!(err instanceof Error)) return "Handover can't complete.";
-  if (err instanceof ServerError) return "No connection — handover can't complete.";
-  return err.message;
-}
-
 function logError(context: string, err: unknown): void {
   devError(`[check-in:${context}]`, err);
 }
@@ -42,8 +36,9 @@ function logStep(step: string, detail?: unknown): void {
 /**
  * Step 1 — prepare (KTK-123): the backend verifies the ticket is owned and
  * builds the mark_used template. On success the caller shows the wallet dialog
- * (FR-24); only an approval proceeds to `signCheckIn`. A failure surfaces the
- * owner error ("No ticket" / no-connection) — no QR is produced.
+ * (FR-24); only an approval proceeds to `signCheckIn`. A failure is one toast
+ * and the page returns to idle — no QR is produced and no inline error repeats
+ * the message.
  */
 export async function prepareCheckIn(
   setState: (s: CheckInState) => void,
@@ -63,7 +58,8 @@ export async function prepareCheckIn(
     return prepared;
   } catch (err) {
     logError("prepare", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    setState({ phase: "idle" });
+    notifyFailure(err, "Couldn't prepare the check-in. Try again.");
     return undefined;
   }
 }
@@ -95,10 +91,12 @@ export async function signCheckIn(
   } catch (err) {
     if (isWalletCanceled(err)) {
       setState({ phase: "idle" });
+      notifyCanceled(err);
       return undefined;
     }
     logError("sign", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    setState({ phase: "idle" });
+    notifyFailure(err, "Couldn't finish the check-in. Try again.");
     return undefined;
   }
 }

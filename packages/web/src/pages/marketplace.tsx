@@ -44,18 +44,7 @@ function MarketplaceCard({
           Seller <span className="mono">{shortAddress(listing.seller_pkh)}</span>
         </p>
 
-        {buy.phase === "error" ? (
-          <div className="checkin-error" role="alert">
-            <p>{buy.message}</p>
-            <button
-              type="button"
-              className="button button-link button-sm"
-              onClick={() => setBuy({ phase: "idle" })}
-            >
-              Try again
-            </button>
-          </div>
-        ) : busy ? (
+        {busy ? (
           <div className="checkin-status" role="status">
             <div className="spinner spinner-sm" />
             <span>

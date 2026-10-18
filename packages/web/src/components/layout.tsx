@@ -3,6 +3,7 @@ import { networkLabel } from "../config/runtime";
 import { useRuntimeConfig } from "../config/RuntimeConfigProvider";
 import { useNetworkQuiet, useNetworkSwitching } from "../hooks/use-network-switching";
 import { useWallet } from "../hooks/use-wallet";
+import { useWalletNotices } from "../hooks/use-wallet-notices";
 import { GitHubLink } from "./github-link";
 import { HeaderActions } from "./header-actions";
 import { ToastViewport } from "./toast";
@@ -12,6 +13,7 @@ export function Layout() {
   const config = useRuntimeConfig();
   const switching = useNetworkSwitching();
   const quiet = useNetworkQuiet();
+  useWalletNotices();
   // The banner explains steady-state drift; while an action owns the switch the
   // toast already says what is happening (KTK-172).
   const networkMismatch =

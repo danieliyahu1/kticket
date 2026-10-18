@@ -10,6 +10,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { showToast } from "../components/toast-store";
 import { devError } from "../lib/log";
+import { notifyFailure } from "../lib/notify";
+import { MISSING_WALLET_MESSAGE } from "../lib/present-error";
 import { ensureWalletNetwork } from "../wallet/network";
 import { isSwitchingNetwork } from "../wallet/network-status";
 import type { ConnectedWallet } from "../wallet/provider";
@@ -105,7 +107,7 @@ export function usePendingAction(options: PendingActionOptions = {}): PendingAct
         }
         if (!identity || abortedRef.current) {
           if (!window.kasware) {
-            showToast("Kasware isn't available in this browser.", { tone: "info" });
+            showToast(MISSING_WALLET_MESSAGE, { tone: "info" });
           }
           return false;
         }
@@ -115,6 +117,7 @@ export function usePendingAction(options: PendingActionOptions = {}): PendingAct
         if (!tokenReady) showToast("Sign in to continue.", { tone: "info" });
         const signedIn = await authRef.current.signInFor(identity.address, {
           force: !tokenReady,
+          notify: true,
         });
         if (!signedIn || abortedRef.current) return false;
 
@@ -126,7 +129,7 @@ export function usePendingAction(options: PendingActionOptions = {}): PendingAct
           await action(identity);
         } catch (err) {
           devError("[pending-action] action failed", err);
-          showToast("That didn't go through.", { tone: "error" });
+          notifyFailure(err, "That didn't go through. Try again.");
           return false;
         }
         return true;

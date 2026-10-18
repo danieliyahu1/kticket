@@ -32,6 +32,10 @@ export class ServerError extends Error {
 let authToken: string | null = null;
 let authAddress: string | null = null;
 let reauthHandler: (() => Promise<void>) | null = null;
+let sessionExpiredHandler: (() => void) | null = null;
+// One "session expired" message per token lifetime; parallel 401s must not
+// queue up behind each other in the single toast slot.
+let sessionExpiredNotified = false;
 
 export function getAuthToken(): string | null {
   return authToken;
@@ -43,6 +47,7 @@ export function getAuthAddress(): string | null {
 }
 
 export function setAuthToken(token: string | null, address?: string): void {
+  if (token !== null) sessionExpiredNotified = false;
   authToken = token;
   authAddress = token === null ? null : (address ?? authAddress);
 }
@@ -50,6 +55,11 @@ export function setAuthToken(token: string | null, address?: string): void {
 /** The AuthProvider registers this so a 401 can silently re-sign + retry. */
 export function setReauthHandler(handler: (() => Promise<void>) | null): void {
   reauthHandler = handler;
+}
+
+/** The UI registers this to announce that the session could not be renewed. */
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
 }
 
 function authHeaders(hasBody: boolean): Record<string, string> {
@@ -98,7 +108,8 @@ async function request<T>(method: string, url: string, body: unknown): Promise<T
   };
 
   let res = await run();
-  if (res.status === 401 && authToken !== null && reauthHandler) {
+  const hadToken = authToken !== null;
+  if (res.status === 401 && hadToken && reauthHandler) {
     devLog(`[api] 401 ${url} — re-signing`);
     setAuthToken(null);
     try {
@@ -111,6 +122,10 @@ async function request<T>(method: string, url: string, body: unknown): Promise<T
       res = await run();
     } else {
       devLog(`[api] reauth failed — keeping 401 for ${url}`);
+      if (!sessionExpiredNotified) {
+        sessionExpiredNotified = true;
+        sessionExpiredHandler?.();
+      }
     }
   }
   devLog(`[api] <- ${res.status} ${method} ${url} ms=${Math.round(performance.now() - startedAt)}`);
@@ -302,7 +317,7 @@ export function useFinalize(
   );
 }
 
-// --- resale (KTK-151) ---------------------------------------------------------
+// --- resale -----------------------------------------------------------------
 
 /** A chain-proven resale listing as served by the directory. */
 export interface ListingSummary {

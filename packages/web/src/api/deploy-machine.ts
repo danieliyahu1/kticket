@@ -1,7 +1,9 @@
-import { deployFinalize, deployPrepare, ServerError } from "./client";
+import { deployFinalize, deployPrepare } from "./client";
 import type { DeployPrepareRequest } from "./types";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
+import { notifyCanceled } from "../lib/notify";
+import { presentError } from "../lib/present-error";
 import { isWalletCanceled } from "../wallet/cancel";
 
 export type DeployState =
@@ -24,11 +26,8 @@ export interface DeployParams {
   isCurrent?: () => boolean;
 }
 
-function errorMsg(err: unknown): string {
-  if (!(err instanceof Error)) return "Deploy failed.";
-  if (err instanceof ServerError) return "The server isn't responding — deploy can't complete.";
-  // The backend owns the message; the frontend relays it.
-  return err.message;
+function deployErrorMessage(err: unknown): string {
+  return presentError(err, "Couldn't create the event. Try again.");
 }
 
 function logError(context: string, err: unknown): void {
@@ -84,7 +83,7 @@ export async function executeDeploy(
     });
   } catch (err) {
     logError("prepare", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    setState({ phase: "error", message: deployErrorMessage(err) });
     return;
   }
   if (!stillCurrent(params)) {
@@ -101,10 +100,11 @@ export async function executeDeploy(
     if (isWalletCanceled(err)) {
       logStep("canceled");
       setState({ phase: "idle" });
+      notifyCanceled(err);
       return;
     }
     logError("sign", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    setState({ phase: "error", message: deployErrorMessage(err) });
     return;
   }
   if (!stillCurrent(params)) {
@@ -123,6 +123,6 @@ export async function executeDeploy(
     setState({ phase: "success", txid: result.deploy_txid, covenantId: result.covenant_id });
   } catch (err) {
     logError("finalize", err);
-    setState({ phase: "error", message: errorMsg(err) });
+    setState({ phase: "error", message: deployErrorMessage(err) });
   }
 }

@@ -5,7 +5,7 @@ import {
   coSignAndFinalize,
   decodeError,
   decodeGatePayload,
-  errorMsg,
+  gateErrorMessage,
   isDecodeFailure,
   logError,
   logStep,
@@ -14,6 +14,7 @@ import {
   type GateState,
 } from "../api/gate-machine";
 import { Empty, OfflineEmpty } from "../components/empty";
+import { notifyCanceled } from "../lib/notify";
 import { useCamera } from "../hooks/use-camera";
 import { usePendingAction } from "../hooks/use-pending-action";
 import { useWallet } from "../hooks/use-wallet";
@@ -105,8 +106,8 @@ export default function GatePage() {
       } catch (err) {
         logError("decode", err);
         // Unparseable payloads / foreign tickets → "Not a valid ticket code."
-        // (FR-23); server outages → "No connection…" (mapped by errorMsg).
-        setGate({ phase: "red", message: isDecodeFailure(err) ? decodeError() : errorMsg(err) });
+        // (FR-23); server outages → one mapped sentence.
+        setGate({ phase: "red", message: isDecodeFailure(err) ? decodeError() : gateErrorMessage(err) });
       }
     },
     [gate.phase, params],
@@ -125,13 +126,14 @@ export default function GatePage() {
         logStep("finalized", { txid: result.txid });
         setGate({ phase: "green", txid: result.txid });
       } catch (err) {
-        // A canceled wallet prompt returns the door to scanning, quietly.
+        // A canceled wallet prompt returns the door to scanning, with one notice.
         if (isWalletCanceled(err)) {
           setGate({ phase: "scanning" });
+          notifyCanceled(err);
           return;
         }
         logError("finalize", err);
-        setGate({ phase: "red", message: errorMsg(err) });
+        setGate({ phase: "red", message: gateErrorMessage(err) });
       }
     });
   }, [gate, gateAction.start, gateAction.isCurrent]);

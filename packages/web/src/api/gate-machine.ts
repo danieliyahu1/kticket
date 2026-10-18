@@ -17,6 +17,7 @@ import { ServerError, useFinalize, useSignTemplate } from "./client";
 import type { WireTransaction } from "./types";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
+import { presentError } from "../lib/present-error";
 import { WalletCanceledError } from "../wallet/cancel";
 
 export type GateState =
@@ -45,13 +46,11 @@ export function isDecodeFailure(err: unknown): boolean {
 
 /**
  * Map any gate failure to the door's red copy. Unparseable payloads, foreign
- * tickets and server outages each get the operator-facing message; a server
- * outage (5xx) is "No connection…" (FR-23 / SC-9).
+ * tickets and server outages each get one operator-facing sentence; the verdict
+ * stays inline because it is the door's primary state.
  */
-function errorMsg(err: unknown): string {
-  if (!(err instanceof Error)) return "Handover can't complete.";
-  if (err instanceof ServerError) return "No connection — handover can't complete.";
-  return err.message;
+function gateErrorMessage(err: unknown): string {
+  return presentError(err, "Handover can't complete.");
 }
 
 function logError(context: string, err: unknown): void {
@@ -140,4 +139,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export { errorMsg, logError, logStep };
+export { gateErrorMessage, logError, logStep };
