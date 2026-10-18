@@ -114,6 +114,7 @@ jobs:
           docker run -d --name kticket-smoke \
             --read-only --tmpfs /tmp:rw,size=32m --user 1000:1000 \
             -e AUTH_SECRET=smoke-test-not-a-real-credential \
+            -e PUBLIC_ORIGIN=http://127.0.0.1:3000 \
             -e KASPANET=testnet10 -e PORT=3000 -e METRICS_PORT=9090 \
             -e EVENTS_FILE=/tmp/events.json -e LISTINGS_FILE=/tmp/listings.json \
             -p 3000:3000 -p 9090:9090 "${REF}"
