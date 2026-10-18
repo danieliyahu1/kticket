@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { canonicalEventUrl } from "../lib/canonical";
 import { ShareEventButton } from "./share-event";
-import { dismissToast, getToast } from "./toast";
+import { dismissToast, getToast } from "./toast-store";
 
 const COVENANT_ID = "ab".repeat(32);
 

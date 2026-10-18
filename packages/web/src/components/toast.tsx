@@ -1,99 +1,29 @@
-// The app's single toast channel (KTK-161 depends on it).
+// The single toast view (KTK-161).
 //
-// One message is visible at a time. The store lives outside React so any module
-// — a page action, a wallet hook, the API client — can publish without prop
-// drilling, and the last caller owns the banner. The component owns the dwell
-// timer, holds it while the message is hovered or focused, and dismisses on
-// Escape.
+// It renders the store's current message, owns the dwell timer, holds the
+// message while hovered or focused, and dismisses on Escape. Mount once, in the
+// app shell.
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  dismissToast,
+  getToast,
+  subscribeToToast,
+  type Toast,
+  type ToastAction,
+} from "./toast-store";
 
-export type ToastTone = "error" | "info" | "notice" | "success";
-
-export interface ToastAction {
-  label: string;
-  href: string;
+function useToast(): Toast | null {
+  return useSyncExternalStore(subscribeToToast, getToast, getToast);
 }
 
-export interface Toast {
-  id: number;
-  tone: ToastTone;
-  message: string;
-  action?: ToastAction;
-  dwellMs: number;
-}
-
-export interface ToastOptions {
-  tone?: ToastTone;
-  action?: ToastAction;
-  dwellMs?: number;
-}
-
-/** Confirmations are quick; explanations stay long enough to read. */
-export const TOAST_DWELL_MS: Record<ToastTone, number> = {
-  success: 5_000,
-  notice: 5_000,
-  error: 8_000,
-  info: 8_000,
-};
-
-let current: Toast | null = null;
-let nextId = 1;
-const listeners = new Set<() => void>();
-
-function emit(): void {
-  for (const listener of listeners) listener();
-}
-
-/** Publish a toast, replacing the one on screen. */
-export function showToast(message: string, options: ToastOptions = {}): Toast {
-  const tone = options.tone ?? "info";
-  current = {
-    id: nextId++,
-    tone,
-    message,
-    ...(options.action ? { action: options.action } : {}),
-    dwellMs: options.dwellMs ?? TOAST_DWELL_MS[tone],
-  };
-  emit();
-  return current;
-}
-
-/** Dismiss the current toast, or a specific one if `id` is supplied. */
-export function dismissToast(id?: number): void {
-  if (current === null) return;
-  if (id !== undefined && current.id !== id) return;
-  current = null;
-  emit();
-}
-
-export function getToast(): Toast | null {
-  return current;
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-/** Read the current toast; re-renders whenever it changes. */
-export function useToast(): Toast | null {
-  return useSyncExternalStore(subscribe, getToast, getToast);
-}
-
-/** Mount once, in the app shell. */
 export function ToastViewport() {
   const toast = useToast();
-  const [held, setHeld] = useState(false);
+  // Holding is tied to the message being held: a replacement toast starts with
+  // its own dwell instead of inheriting the previous hold.
+  const [heldToastId, setHeldToastId] = useState<number | null>(null);
+  const held = toast !== null && heldToastId === toast.id;
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const toastId = toast?.id;
-
-  // A replacement toast is a new message: do not inherit a hold from the old one.
-  useEffect(() => {
-    setHeld(false);
-  }, [toastId]);
 
   useEffect(() => {
     if (!toast || held) return;
@@ -104,42 +34,23 @@ export function ToastViewport() {
     };
   }, [toast, held]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") dismissToast();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  useEscapeToDismiss();
 
   if (!toast) return null;
-
-  const isError = toast.tone === "error";
 
   return (
     <div
       className={`toast toast-${toast.tone}`}
-      role={isError ? "alert" : "status"}
-      aria-atomic="true"
-      onMouseEnter={() => setHeld(true)}
-      onMouseLeave={() => setHeld(false)}
-      onFocus={() => setHeld(true)}
+      onMouseEnter={() => setHeldToastId(toast.id)}
+      onMouseLeave={() => setHeldToastId(null)}
+      onFocus={() => setHeldToastId(toast.id)}
       onBlur={(event) => {
         const next = event.relatedTarget;
-        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setHeld(false);
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setHeldToastId(null);
       }}
     >
-      <p className="toast-message">{toast.message}</p>
-      {toast.action && (
-        <a
-          className="toast-action"
-          href={toast.action.href}
-          target="_blank"
-          rel="noreferrer"
-        >
-          {toast.action.label}
-        </a>
-      )}
+      <ToastMessage toast={toast} />
+      {toast.action && <ToastActionLink action={toast.action} />}
       <button
         type="button"
         className="toast-dismiss"
@@ -150,4 +61,34 @@ export function ToastViewport() {
       </button>
     </div>
   );
+}
+
+function ToastMessage({ toast }: { toast: Toast }) {
+  return (
+    <p
+      className="toast-message"
+      role={toast.tone === "error" ? "alert" : "status"}
+      aria-atomic="true"
+    >
+      {toast.message}
+    </p>
+  );
+}
+
+function ToastActionLink({ action }: { action: ToastAction }) {
+  return (
+    <a className="toast-action" href={action.href} target="_blank" rel="noreferrer">
+      {action.label}
+    </a>
+  );
+}
+
+function useEscapeToDismiss(): void {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismissToast();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 }

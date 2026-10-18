@@ -61,6 +61,11 @@ export function eventPath(covenantId: string): string {
   return `/events/${encodeURIComponent(covenantId)}`;
 }
 
+/** The absolute canonical URL for one event. */
+export function eventUrl(origin: string, covenantId: string): string {
+  return absoluteUrl(origin, eventPath(covenantId));
+}
+
 /** The metadata used by the site itself and by any event without usable facts. */
 export function buildGenericMeta(origin: string): EventMeta {
   return {
@@ -80,31 +85,29 @@ export function buildEventMeta(event: EventMetaFacts, origin: string): EventMeta
   if (name.length === 0) return buildGenericMeta(origin);
 
   const when = eventWhenLabel(event.date, event.time);
-  const price = eventPriceLabel(event.price);
-  const canonicalUrl = absoluteUrl(origin, eventPath(event.covenant_id));
   const imageUrl = absoluteImage(event.image, origin);
-
-  const lead = when.length > 0 ? `${name} — ${when}` : name;
-  const priceSentence =
-    event.price === 0
-      ? "Free entry"
-      : price.length > 0
-        ? `${price} per ticket`
-        : "";
-  const description = truncate(
-    [lead, priceSentence, "Verified on-chain on Kaspa"]
-      .filter((part) => part.length > 0)
-      .join(". ") + ".",
-    MAX_DESCRIPTION_LENGTH,
-  );
 
   return {
     title: `${name} — ${SITE_NAME}`,
-    description,
-    canonicalUrl,
+    description: eventDescription(name, when, event.price),
+    canonicalUrl: eventUrl(origin, event.covenant_id),
     ...(imageUrl ? { imageUrl } : {}),
     twitterCard: imageUrl ? "summary_large_image" : "summary",
   };
+}
+
+function eventDescription(name: string, when: string, price: number): string {
+  const lead = when.length > 0 ? `${name} — ${when}` : name;
+  const parts = [lead, ticketPriceSentence(price), "Verified on-chain on Kaspa"].filter(
+    (part) => part.length > 0,
+  );
+  return truncate(`${parts.join(". ")}.`, MAX_DESCRIPTION_LENGTH);
+}
+
+function ticketPriceSentence(price: number): string {
+  if (price === 0) return "Free entry";
+  const label = eventPriceLabel(price);
+  return label.length > 0 ? `${label} per ticket` : "";
 }
 
 /**
@@ -113,26 +116,40 @@ export function buildEventMeta(event: EventMetaFacts, origin: string): EventMeta
  */
 export function eventWhenLabel(date: string, time?: string): string {
   const raw = date.trim();
+  const parsed = parseIsoDate(raw);
+  if (parsed === null) return raw;
+
+  const dayLabel = `${parsed.day} ${MONTHS[parsed.month - 1]} ${parsed.year}`;
+  const clock = parseClock(time);
+  return clock === undefined ? dayLabel : `${dayLabel}, ${clock}`;
+}
+
+interface CalendarDate {
+  year: number;
+  month: number;
+  day: number;
+}
+
+function parseIsoDate(raw: string): CalendarDate | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  if (!match) return raw;
+  if (match === null) return null;
 
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return raw;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
 
   const probe = new Date(Date.UTC(year, month - 1, day));
-  if (
-    probe.getUTCFullYear() !== year ||
-    probe.getUTCMonth() !== month - 1 ||
-    probe.getUTCDate() !== day
-  ) {
-    return raw;
-  }
+  const isRealDay =
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day;
+  return isRealDay ? { year, month, day } : null;
+}
 
-  const dayLabel = `${day} ${MONTHS[month - 1]} ${year}`;
-  const clock = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time?.trim() ?? "");
-  return clock ? `${dayLabel}, ${clock[1]}:${clock[2]}` : dayLabel;
+function parseClock(time: string | undefined): string | undefined {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time?.trim() ?? "");
+  return match === null ? undefined : `${match[1]}:${match[2]}`;
 }
 
 /** Format a sompi price as KAS; `Free` when the price is zero. */

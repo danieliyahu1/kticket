@@ -2,7 +2,8 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TOAST_DWELL_MS, ToastViewport, dismissToast, getToast, showToast } from "./toast";
+import { ToastViewport } from "./toast";
+import { TOAST_DWELL_MS, dismissToast, getToast, showToast } from "./toast-store";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -95,14 +96,19 @@ describe("ToastViewport (KTK-161 accessibility)", () => {
   it("holds while focused", () => {
     render(<ToastViewport />);
 
-    act(() => showToast("Focus me", { tone: "success", action: { label: "Open", href: "https://example.com" } }));
-    const toast = screen.getByRole("status");
+    act(() =>
+      showToast("Focus me", {
+        tone: "success",
+        action: { label: "Open", href: "https://example.com" },
+      }),
+    );
+    const link = screen.getByRole("link", { name: "Open" });
 
-    fireEvent.focus(toast);
+    fireEvent.focus(link);
     act(() => vi.advanceTimersByTime(TOAST_DWELL_MS.success * 3));
     expect(screen.queryByRole("status")).not.toBeNull();
 
-    fireEvent.blur(toast);
+    fireEvent.blur(link);
     act(() => vi.advanceTimersByTime(TOAST_DWELL_MS.success));
     expect(screen.queryByRole("status")).toBeNull();
   });

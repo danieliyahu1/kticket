@@ -56,7 +56,12 @@ async function openListingStore(config: ApiConfig): Promise<ListingStore> {
 
 export async function buildApp(
   config: ApiConfig = loadConfig(),
-  deps?: AppContext,
+  /**
+   * Optional collaborators. Every field falls back to the production adapter,
+   * so tests can replace one boundary (the chain, the registry) without
+   * constructing the whole context.
+   */
+  deps?: Partial<AppContext>,
   options: BuildOptions = {},
 ): Promise<FastifyInstance> {
   const https = config.tls
@@ -87,7 +92,9 @@ export async function buildApp(
 
   // Wallet auth is fail-closed: the app refuses to boot without an AUTH_SECRET
   // (or an injected auth context for tests). User-specific reads depend on it.
-  const authCtx = deps?.auth ?? (config.auth ? { store: new InMemoryAuthStore(), config: config.auth } : undefined);
+  const authCtx =
+    deps?.auth ??
+    (config.auth ? { store: new InMemoryAuthStore(), config: config.auth } : undefined);
   if (!authCtx) {
     throw new ConfigError("AUTH_SECRET is required — wallet auth is fail-closed");
   }
@@ -116,27 +123,10 @@ export async function buildApp(
   registerDiscoveryRoutes(app, { ctx, origin: config.publicOrigin });
 
   if (options.serveStatic) {
-    const root = resolve(options.serveStatic);
-
-    // Per-event previews are real routes, registered before the static SPA so
-    // the catch-all never serves a generic shell for a shareable event URL
-    // (KTK-159). The shell is read once; every request only injects metadata.
-    registerEventShell(app, ctx, {
+    await serveSpa(app, {
+      root: resolve(options.serveStatic),
+      ctx,
       origin: config.publicOrigin,
-      shellHtml: readFileSync(join(root, "index.html"), "utf8"),
-    });
-
-    await app.register(fastifyStatic, {
-      root,
-      wildcard: false,
-    });
-
-    app.setNotFoundHandler(async (req, reply) => {
-      if (req.method !== "GET") return reply.code(404).send({ error: "Not Found" });
-      if (req.url.startsWith("/v1") || req.url.startsWith("/health")) {
-        return reply.code(404).send({ error: "Not Found" });
-      }
-      return reply.type("text/html").sendFile("index.html");
     });
   }
 
@@ -147,4 +137,42 @@ export async function buildApp(
   }
 
   return app;
+}
+
+interface SpaOptions {
+  root: string;
+  ctx: AppContext;
+  origin: string;
+}
+
+/**
+ * Serve the built SPA plus per-event previews. Preview routes are registered
+ * before the static handler so the catch-all never serves a generic shell for a
+ * shareable event URL (KTK-159).
+ */
+async function serveSpa(app: FastifyInstance, { root, ctx, origin }: SpaOptions): Promise<void> {
+  registerEventShell(app, ctx, { origin, shellHtml: readSpaShell(root) });
+
+  await app.register(fastifyStatic, {
+    root,
+    wildcard: false,
+  });
+
+  app.setNotFoundHandler(async (req, reply) => {
+    if (req.method !== "GET") return reply.code(404).send({ error: "Not Found" });
+    if (req.url.startsWith("/v1") || req.url.startsWith("/health")) {
+      return reply.code(404).send({ error: "Not Found" });
+    }
+    return reply.type("text/html").sendFile("index.html");
+  });
+}
+
+/** Read the SPA shell once at boot; a missing build is a clear config error. */
+function readSpaShell(root: string): string {
+  const indexPath = join(root, "index.html");
+  try {
+    return readFileSync(indexPath, "utf8");
+  } catch {
+    throw new ConfigError(`WEB_DIST has no index.html at ${indexPath}`);
+  }
 }

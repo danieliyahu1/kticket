@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { canonicalEventUrl } from "../lib/canonical";
 import { copyText } from "../lib/share";
-import { showToast } from "./toast";
+import { showToast } from "./toast-store";
 
 export function ShareEventButton({ covenantId }: { covenantId: string }) {
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
@@ -19,7 +19,7 @@ export function ShareEventButton({ covenantId }: { covenantId: string }) {
     inputRef.current?.select();
   }, [fallbackUrl]);
 
-  async function share(): Promise<void> {
+  async function copyShareLink(): Promise<void> {
     const url = canonicalEventUrl(window.location.origin, covenantId);
     try {
       await copyText(url);
@@ -36,7 +36,7 @@ export function ShareEventButton({ covenantId }: { covenantId: string }) {
       <button
         type="button"
         className="button button-secondary button-sm"
-        onClick={() => void share()}
+        onClick={() => void copyShareLink()}
       >
         Share event
       </button>

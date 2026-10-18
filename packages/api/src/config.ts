@@ -95,12 +95,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
  */
 function resolvePublicOrigin(env: NodeJS.ProcessEnv): string {
   const explicit = env.PUBLIC_ORIGIN?.trim();
-  if (!explicit && env.NODE_ENV === "production") {
+  if (explicit) return normalizeOrigin(explicit, "PUBLIC_ORIGIN");
+
+  if (env.NODE_ENV === "production") {
     throw new ConfigError("PUBLIC_ORIGIN is required in production");
   }
-  const fallback = env.AUTH_ORIGIN?.trim();
-  const value = explicit ?? fallback ?? DEFAULT_PUBLIC_ORIGIN;
-  return normalizeOrigin(value, explicit ? "PUBLIC_ORIGIN" : fallback ? "AUTH_ORIGIN" : "PUBLIC_ORIGIN");
+
+  const authOrigin = env.AUTH_ORIGIN?.trim();
+  return authOrigin
+    ? normalizeOrigin(authOrigin, "AUTH_ORIGIN")
+    : DEFAULT_PUBLIC_ORIGIN;
 }
 
 function normalizeOrigin(value: string, label: string): string {
