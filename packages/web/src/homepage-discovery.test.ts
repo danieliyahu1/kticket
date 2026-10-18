@@ -76,6 +76,7 @@ describe("homepage discovery (KTK-152)", () => {
 
     expect(fallback).toContain("No browser is required");
     expect(fallback).toContain("wallet signature");
+    expect(fallback).toContain("https://github.com/danieliyahu1/kticket");
     for (const path of AGENT_ENTRY_POINTS) {
       expect(fallback, path).toContain(`href="${path}"`);
     }
