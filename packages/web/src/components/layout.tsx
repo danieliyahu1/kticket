@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { network } from "../network";
 import { useWallet } from "../hooks/use-wallet";
 import { HeaderActions } from "./header-actions";
+import { ToastViewport } from "./toast";
 
 export function Layout() {
   const { state } = useWallet();
@@ -43,6 +44,7 @@ export function Layout() {
       <footer className="app-footer">
         <p>On {network.label}</p>
       </footer>
+      <ToastViewport />
     </div>
   );
 }

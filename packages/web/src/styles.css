@@ -1023,3 +1023,104 @@ a.card:hover {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* ── Share ─────────────────────────────────────────────── */
+
+.share-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.share-fallback {
+  width: 100%;
+  max-width: 420px;
+  text-align: left;
+}
+
+.share-fallback-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.share-fallback-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+/* ── Toast ─────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  z-index: 100;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: max-content;
+  max-width: min(560px, calc(100vw - 2rem));
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.toast-error {
+  border-left-color: var(--color-error);
+}
+
+.toast-success {
+  border-left-color: var(--color-success);
+}
+
+.toast-notice {
+  border-left-color: var(--color-warning);
+}
+
+.toast-message {
+  flex: 1;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.toast-action {
+  align-self: center;
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  color: var(--color-primary-hover);
+}
+
+.toast-dismiss {
+  align-self: center;
+  padding: 0 0.25rem;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast-dismiss:hover {
+  color: var(--color-text);
+}

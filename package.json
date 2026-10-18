@@ -24,6 +24,9 @@
     "validate:deploy": "node scripts/validate-deploy.mjs"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "jsdom": "^27.4.0",
     "playwright": "^1.62.1",
     "tsx": "^4.23.9",
     "typescript": "^5.9.3",

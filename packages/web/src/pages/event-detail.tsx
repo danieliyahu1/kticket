@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { buildEventMeta } from "@kticket/kit";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { fetchEvent, fetchEventListings, ServerError, type EventDetail, type ListingSummary } from "../api/client";
 import { executeBuy, type BuyState } from "../api/buy-machine";
 import { executePurchase, type ResaleState } from "../api/resale-machine";
+import { useDocumentMeta } from "../hooks/use-document-meta";
 import { useWallet } from "../hooks/use-wallet";
 import { OfflineEmpty, Empty } from "../components/empty";
+import { ShareEventButton } from "../components/share-event";
 import { priceLabel, shortAddress, whenLabel } from "../lib/format";
 
 export default function EventDetailPage() {
@@ -21,6 +24,7 @@ export default function EventDetailPage() {
   const load = useCallback(async () => {
     if (!covenantId) return;
     setLoading(true);
+    setEvent(null);
     setError(null);
     setOffline(false);
     try {
@@ -41,6 +45,14 @@ export default function EventDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Align the browser's title, description, and canonical link with the event
+  // that is visible right now (KTK-162). Same builder as the server shell.
+  const documentMeta = useMemo(
+    () => (event ? buildEventMeta(event.event, window.location.origin) : null),
+    [event],
+  );
+  useDocumentMeta(documentMeta);
 
   const handleBuy = useCallback(async () => {
     if (!covenantId || !event || state.status !== "connected" || !state.accounts[0]) return;
@@ -111,6 +123,8 @@ export default function EventDetailPage() {
             Unverified
           </p>
         )}
+
+        <ShareEventButton covenantId={event.event.covenant_id} />
       </header>
 
       <div className="buy-cta">

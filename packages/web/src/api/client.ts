@@ -184,6 +184,7 @@ export interface EventDetail {
     name: string;
     date: string;
     time: string;
+    image: string;
     price: number;
     capacity: number;
     organizer_address: string;
