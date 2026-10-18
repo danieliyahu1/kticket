@@ -13,7 +13,7 @@ update them in the same commit when the app changes.
 | Rendered API reference | `packages/api/src/docs-page.ts` (renders the contract) | `/docs/api` |
 | Agent guide | `docs/agent-guide.md` (read by `packages/api/src/agent-guide.ts`) | `/docs/agent-guide.md` |
 | Machine entry point | `packages/api/src/llms.ts` | `/llms.txt` |
-| Homepage discovery | `packages/web/index.html` (head links + no-JS fallback) | `/` |
+| Homepage discovery | `packages/web/index.html` (head links + static body explainer) | `/` |
 | Route handlers | `packages/api/src/routes.ts` | — |
 | Event shell with per-event previews | `packages/api/src/event-shell.ts` (metadata builder: `packages/kit/src/event-meta.ts`) | `/events/{covenant_id}` |
 | Search discovery | `packages/api/src/discovery.ts`, `packages/api/src/discovery-routes.ts` | `/sitemap.xml`, `/robots.txt` |

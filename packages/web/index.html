@@ -26,8 +26,13 @@
     />
   </head>
   <body>
+    <!--
+      The product explanation for clients that never run JavaScript (GitHub
+      issue #1). Plain body markup, not <noscript>: readers and sanitizers strip
+      that. main.tsx replaces this block with the app.
+    -->
     <div id="root">
-      <noscript>
+      <div id="static-intro" class="app static-intro">
         <h1>kticket</h1>
         <p>Tickets on the chain. The browser app is one client of the same HTTP API.</p>
         <p>
@@ -46,7 +51,7 @@
           Source:
           <a href="https://github.com/danieliyahu1/kticket">github.com/danieliyahu1/kticket</a>
         </p>
-      </noscript>
+      </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

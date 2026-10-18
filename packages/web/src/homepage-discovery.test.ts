@@ -32,8 +32,9 @@ function attribute(tag: string, name: string): string | undefined {
   return new RegExp(`\\b${name}="([^"]*)"`, "i").exec(tag)?.[1];
 }
 
-function noscriptBody(html: string): string {
-  return /<noscript\b[^>]*>([\s\S]*?)<\/noscript>/i.exec(html)?.[1] ?? "";
+/** What an HTML-to-text reader sees when it drops `<noscript>` (GitHub issue #1). */
+function withoutNoscript(html: string): string {
+  return html.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, "").replace(/\s+/g, " ");
 }
 
 function metaContent(html: string, name: string): string | undefined {
@@ -71,14 +72,16 @@ describe("homepage discovery (KTK-152)", () => {
     expect(description).toContain("no browser required");
   });
 
-  it("tells a no-JS client that every flow works without the UI", () => {
-    const fallback = noscriptBody(SHELL).replace(/\s+/g, " ");
+  it("explains the product in body markup, not behind noscript", () => {
+    // HTML-to-text readers and sanitizers drop <noscript>, so the explanation
+    // must survive its removal (GitHub issue #1).
+    const readable = withoutNoscript(SHELL);
 
-    expect(fallback).toContain("No browser is required");
-    expect(fallback).toContain("wallet signature");
-    expect(fallback).toContain("https://github.com/danieliyahu1/kticket");
+    expect(readable).toContain("No browser is required");
+    expect(readable).toContain("wallet signature");
+    expect(readable).toContain("https://github.com/danieliyahu1/kticket");
     for (const path of AGENT_ENTRY_POINTS) {
-      expect(fallback, path).toContain(`href="${path}"`);
+      expect(readable, path).toContain(`href="${path}"`);
     }
   });
 });
