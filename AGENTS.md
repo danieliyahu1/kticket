@@ -14,11 +14,17 @@ update them in the same commit when the app changes.
 | Agent guide | `docs/agent-guide.md` (read by `packages/api/src/agent-guide.ts`) | `/docs/agent-guide.md` |
 | Machine entry point | `packages/api/src/llms.ts` | `/llms.txt` |
 | Route handlers | `packages/api/src/routes.ts` | — |
+| Event shell with per-event previews | `packages/api/src/event-shell.ts` (metadata builder: `packages/kit/src/event-meta.ts`) | `/events/{covenant_id}` |
+| Search discovery | `packages/api/src/discovery.ts`, `packages/api/src/discovery-routes.ts` | `/sitemap.xml`, `/robots.txt` |
 | Error envelope | `packages/api/src/errors.ts`, `packages/api/src/error-handler.ts` | every failure |
 | Path constants | `packages/api/src/docs-paths.ts` | all of the above |
 
-All of these are registered by `packages/api/src/docs-routes.ts` **before** the
-static SPA and its catch-all, so they never fall through to `index.html`.
+All of these are registered by `packages/api/src/docs-routes.ts`,
+`packages/api/src/discovery-routes.ts`, and `packages/api/src/event-shell.ts`
+**before** the static SPA and its catch-all, so they never fall through to a
+generic `index.html`. Shareable event pages are the same built shell with the
+verified event's metadata injected; the sitemap uses the events directory's
+verification path, so only verified events are advertised.
 
 ## The update rule
 

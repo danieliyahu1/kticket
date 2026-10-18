@@ -33,6 +33,12 @@ export interface ApiConfig {
   turso?: TursoConfig;
   /** Set when AUTH_SECRET is configured; otherwise the app refuses to boot (fail-closed). */
   auth?: AuthConfig;
+  /**
+   * The absolute origin used for shareable event URLs (canonical, Open Graph,
+   * sitemap). Never derived from the request's Host header, so a preview cannot
+   * be pointed at an attacker-controlled origin.
+   */
+  publicOrigin: string;
 }
 
 export class ConfigError extends Error {
@@ -47,6 +53,7 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_EVENTS_FILE = "events.json";
 const DEFAULT_LISTINGS_FILE = "listings.json";
 const DEFAULT_AUTH_ORIGIN = "http://localhost:3000";
+const DEFAULT_PUBLIC_ORIGIN = "http://localhost:3000";
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const network = getNetworkConfig(env.KASPANET);
@@ -58,6 +65,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const tls = resolveTls(env);
   const turso = resolveTurso(env);
   const auth = resolveAuth(env, port);
+  const publicOrigin = resolvePublicOrigin(env);
 
   return {
     port,
@@ -66,6 +74,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     kaspaNet: network.net,
     networkId: network.networkId,
     apiBaseUrl: network.apiBaseUrl,
+    publicOrigin,
     upstream: {
       timeoutMs: positiveInt(env.KASPA_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
       maxAttempts: positiveInt(env.KASPA_MAX_ATTEMPTS, DEFAULT_MAX_ATTEMPTS),
@@ -76,6 +85,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     ...(turso ? { turso } : {}),
     ...(auth ? { auth } : {}),
   };
+}
+
+/**
+ * Resolve the public origin for shareable links. Deployment sets it explicitly;
+ * development falls back to AUTH_ORIGIN (the same site) and then to the local
+ * API origin. Production refuses to guess: a wrong origin silently breaks every
+ * preview and sitemap entry, so it is a boot-time error instead.
+ */
+function resolvePublicOrigin(env: NodeJS.ProcessEnv): string {
+  const explicit = env.PUBLIC_ORIGIN?.trim();
+  if (!explicit && env.NODE_ENV === "production") {
+    throw new ConfigError("PUBLIC_ORIGIN is required in production");
+  }
+  const fallback = env.AUTH_ORIGIN?.trim();
+  const value = explicit ?? fallback ?? DEFAULT_PUBLIC_ORIGIN;
+  return normalizeOrigin(value, explicit ? "PUBLIC_ORIGIN" : fallback ? "AUTH_ORIGIN" : "PUBLIC_ORIGIN");
+}
+
+function normalizeOrigin(value: string, label: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigError(`${label} must be an absolute http(s) URL (got ${value})`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new ConfigError(`${label} must use http or https (got ${value})`);
+  }
+  return url.origin;
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {

@@ -200,10 +200,11 @@ describe("published documentation routes (KTK-155 / KTK-157)", () => {
         expect(response.body, path).not.toContain("kticket SPA");
       }
 
-      // A non-docs path still falls through to the SPA.
+      // An event URL is a real route now (KTK-159): an unknown event still
+      // returns the SPA shell, with generic metadata, and never the docs.
       const spa = await app.inject({ method: "GET", url: "/events/anything" });
       expect(spa.statusCode).toBe(200);
-      expect(spa.body).toContain("kticket SPA");
+      expect(spa.body).toContain("<title>kticket — tickets on the chain</title>");
     } finally {
       await app.close();
     }

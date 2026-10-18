@@ -1,12 +1,14 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createClient } from "@libsql/client";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { type ApiConfig, ConfigError, loadConfig } from "./config";
 import { registerErrorHandler } from "./error-handler";
+import { registerDiscoveryRoutes } from "./discovery-routes.js";
 import { registerDocsRoutes } from "./docs-routes.js";
+import { registerEventShell } from "./event-shell.js";
 import { EventStore, type EventRegistry } from "./eventstore";
 import { TursoEventStore } from "./eventstore-turso";
 import { InMemoryAuthStore } from "./auth/auth-store.js";
@@ -105,13 +107,25 @@ export async function buildApp(
   // The published contract is registered before the SPA so its paths are never
   // swallowed by the static catch-all (KTK-157).
   registerDocsRoutes(app, {
-    origin: authCtx.config.origin,
+    origin: config.publicOrigin,
     network: ctx.network,
     networkId: ctx.networkId,
   });
 
+  // Search discovery is public and static-independent (KTK-163).
+  registerDiscoveryRoutes(app, { ctx, origin: config.publicOrigin });
+
   if (options.serveStatic) {
     const root = resolve(options.serveStatic);
+
+    // Per-event previews are real routes, registered before the static SPA so
+    // the catch-all never serves a generic shell for a shareable event URL
+    // (KTK-159). The shell is read once; every request only injects metadata.
+    registerEventShell(app, ctx, {
+      origin: config.publicOrigin,
+      shellHtml: readFileSync(join(root, "index.html"), "utf8"),
+    });
+
     await app.register(fastifyStatic, {
       root,
       wildcard: false,

@@ -123,6 +123,20 @@ registry claims:
 txid, authorizing txid, maker address, decoded constants, decoded state, and the
 raw payload. Use `raw_chain` if you need to re-check a displayed value yourself.
 
+## Shareable event pages
+
+The browser page and the link preview are the same URL: `/events/{covenant_id}`.
+It serves the SPA shell with the verified event's title, description, canonical
+URL, Open Graph, and Twitter tags — a chat client that does not run JavaScript
+still sees the real event. If the event is unknown, unverified, or the chain is
+briefly unavailable, the page still returns `200` with the generic site
+metadata. Never treat a preview as proof; the JSON read above remains the
+authoritative event fact.
+
+Search discovery follows the same verification policy: `/sitemap.xml` lists
+verified event pages with absolute URLs, and `/robots.txt` points at it while
+excluding check-in, ticket, and API routes.
+
 ## The two-step flow
 
 Every state-changing ticket operation uses the same stateless shape:
@@ -448,4 +462,6 @@ HTTP status carries the class:
 - [`/openapi.json`](/openapi.json) and `/.well-known/openapi.json` — OpenAPI 3.1.
 - [`/docs/api`](/docs/api) — the same contract rendered as HTML.
 - [`/llms.txt`](/llms.txt) — a plain-text map for machines.
+- `/sitemap.xml` — verified event pages, for search engines.
+- `/robots.txt` — the crawler policy and a pointer to the sitemap.
 - `GET /health` — `{ "status": "ok", "network": "..." }`.

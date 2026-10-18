@@ -10,6 +10,13 @@ export const API_DOCS_PATH = "/docs/api";
 export const AGENT_GUIDE_PATH = "/docs/agent-guide.md";
 /** The plain-text map an agent reads first. */
 export const LLMS_TXT_PATH = "/llms.txt";
+/** Search-engine discovery for verified events (KTK-163). */
+export const SITEMAP_PATH = "/sitemap.xml";
+export const ROBOTS_TXT_PATH = "/robots.txt";
 
 /** Docs are cacheable, but a deploy should not leave clients stale for long. */
 export const DOCS_CACHE_CONTROL = "public, max-age=300";
+/** Discovery documents change only when events are registered; keep it short. */
+export const DISCOVERY_CACHE_CONTROL = "public, max-age=300";
+/** Event shells are per-event and safe to cache briefly (fallbacks recover fast). */
+export const EVENT_SHELL_CACHE_CONTROL = "public, max-age=60";

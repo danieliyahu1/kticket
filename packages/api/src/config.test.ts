@@ -41,6 +41,45 @@ describe("loadConfig (KASPANET wiring)", () => {
   });
 });
 
+describe("loadConfig (PUBLIC_ORIGIN)", () => {
+  it("defaults the shareable origin to the local app", () => {
+    expect(loadConfig({}).publicOrigin).toBe("http://localhost:3000");
+  });
+
+  it("reads an explicit public origin and normalizes it", () => {
+    expect(loadConfig({ PUBLIC_ORIGIN: "https://kticket.example.com/" }).publicOrigin).toBe(
+      "https://kticket.example.com",
+    );
+    expect(loadConfig({ PUBLIC_ORIGIN: "https://kticket.example.com/app" }).publicOrigin).toBe(
+      "https://kticket.example.com",
+    );
+  });
+
+  it("falls back to AUTH_ORIGIN outside production", () => {
+    expect(loadConfig({ AUTH_ORIGIN: "https://kticket.example.com" }).publicOrigin).toBe(
+      "https://kticket.example.com",
+    );
+  });
+
+  it("refuses to guess in production", () => {
+    expect(() => loadConfig({ NODE_ENV: "production", AUTH_SECRET: "secret" })).toThrow(
+      ConfigError,
+    );
+    expect(
+      loadConfig({
+        NODE_ENV: "production",
+        AUTH_SECRET: "secret",
+        PUBLIC_ORIGIN: "https://kticket.example.com",
+      }).publicOrigin,
+    ).toBe("https://kticket.example.com");
+  });
+
+  it("rejects a non-http origin", () => {
+    expect(() => loadConfig({ PUBLIC_ORIGIN: "ftp://kticket.example.com" })).toThrow(ConfigError);
+    expect(() => loadConfig({ PUBLIC_ORIGIN: "not a url" })).toThrow(ConfigError);
+  });
+});
+
 describe("loadConfig (TLS)", () => {
   it("serves plain HTTP when TLS is unset", () => {
     expect(loadConfig({}).tls).toBeUndefined();

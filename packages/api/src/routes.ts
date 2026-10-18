@@ -44,7 +44,7 @@ import type { AuthConfig } from "./auth/auth.js";
 import { invalidError, isApiError, notFoundError, toErrorEnvelope, unauthorizedError } from "./errors.js";
 import { describeWalletSignatures } from "./flow.js";
 import { deployFinalize, deployPrepare } from "./deploy.js";
-import type { EventRegistry, StoredEvent } from "./eventstore.js";
+import type { EventRegistry } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { ListingStore } from "./listings.js";
 import type { VerifiedEvent } from "./provenance.js";
@@ -64,6 +64,7 @@ import { metrics } from "./metrics.js";
 import { usePrepare } from "./use.js";
 import { useFinalize, useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
+import { verifyAll } from "./verified-events.js";
 import { HEX64, hex64, isRecord } from "./validate.js";
 import { HTTP_UNAUTHORIZED } from "./http-status.js";
 import type { WireTransaction } from "./wire.js";
@@ -596,36 +597,6 @@ function parseRegisterEventBody(raw: unknown): string {
     throw invalidError("deploy_txid must be 64 hex chars");
   }
   return value;
-}
-
-/**
- * Verify every registry entry against the chain, hiding entries that fail
- * verification (poisoned or stale registry data). Non-verification errors
- * (e.g. upstream outages) propagate — the whole directory fails rather than
- * silently dropping events we could not check.
- */
-async function verifyAll(
-  entries: readonly StoredEvent[],
-  ctx: AppContext,
-): Promise<VerifiedEvent[]> {
-  const outcomes = await Promise.all(entries.map((entry) => verifyIfValid(entry, ctx)));
-  return outcomes.filter(isVerifiedEvent);
-}
-
-async function verifyIfValid(
-  entry: StoredEvent,
-  ctx: AppContext,
-): Promise<VerifiedEvent | undefined> {
-  try {
-    return await ctx.verified.verify(ctx.kaspa, ctx.network, entry.deployTxId);
-  } catch (err) {
-    if (isApiError(err) && err.type === "invalid") return undefined;
-    throw err;
-  }
-}
-
-function isVerifiedEvent(event: VerifiedEvent | undefined): event is VerifiedEvent {
-  return event !== undefined;
 }
 
 /** The chain-verified facts shown on the homepage card and the detail page. */

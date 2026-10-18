@@ -44,6 +44,24 @@ The chain is the source of truth; the app is a thin wrapper:
 - The frontend shows **"Organized by: <address>"** as the trust anchor with a
   **verified** badge.
 
+## Shareable event pages (KTK-153)
+
+`/events/{covenant_id}` is both the buyer page and the link preview. The API
+serves the built SPA shell with the verified event's title, description,
+canonical URL, and Open Graph/Twitter tags injected. The metadata is built by a
+pure function in `packages/kit/src/event-meta.ts`, shared with the client-side
+navigation sync so a fresh load and an in-app navigation agree. Unknown,
+unverified, or temporarily unreachable events still return `200` with the
+generic site metadata — a preview never blocks the page or leaks an unverified
+value. The chain read is bounded and uses the existing `VerifiedEventCache`.
+
+`/sitemap.xml` lists verified event pages with absolute URLs, and `/robots.txt`
+points at it while excluding check-in, ticket, and API routes. Both use the same
+verification path as the events directory.
+
+`PUBLIC_ORIGIN` supplies the absolute origin for these URLs. It is required in
+production; local development falls back to `AUTH_ORIGIN`.
+
 ## Resilience boundaries
 
 The app stays a thin orchestrator — timing and transport concerns are owned by
@@ -165,8 +183,8 @@ Configuration comes from the compose `.env` (see `example.env`); when a value is
 unset or invalid, every host falls back to `testnet10`.
 
 - **API** reads `KASPANET` (and `PORT`, `HOST`, `METRICS_PORT`, `TLS_KEY`,
-  `TLS_CERT`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) from the environment set
-  by `compose.yaml`.
+  `TLS_CERT`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `PUBLIC_ORIGIN`) from the
+  environment set by `compose.yaml`.
 - **Web** reads `VITE_KASPANET` at build time (`import.meta.env`); the API
   serves the built SPA.
 - **Kit** exposes the shared resolver (`getNetworkConfig`) used by all hosts.
