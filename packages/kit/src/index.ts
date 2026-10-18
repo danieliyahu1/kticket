@@ -41,6 +41,16 @@ import {
   p2pkScriptFromPubkey,
   p2shScript,
 } from "./runtime/builder.js";
+import {
+  buildEventMeta,
+  buildGenericMeta,
+  eventPath,
+  eventPriceLabel,
+  eventWhenLabel,
+  GENERIC_DESCRIPTION,
+  GENERIC_TITLE,
+  SITE_NAME,
+} from "./event-meta.js";
 import { covenantId } from "./runtime/covenant.js";
 import { computeFee, kasToSompi, relayFloor, requiredInput, SOMPI_PER_KAS } from "./runtime/fee.js";
 import { eventCommitmentMatches, eventOutputScript, organizerAddressFromPubkeyHex, organizerPkh, orgSpkFromPublicKey, recoverEventCapacity } from "./runtime/provenance.js";
@@ -104,6 +114,7 @@ export type {
   AddressOptions,
   RedeemScript,
 } from "./runtime/address.js";
+export type { EventMeta, EventMetaFacts } from "./event-meta.js";
 export type { EventState } from "./runtime/provenance.js";
 export type {
   BuyInput,
@@ -154,12 +165,20 @@ export {
   buildBuy,
   buildDelist,
   buildDeploy,
+  buildEventMeta,
+  buildGenericMeta,
   buildHandover,
   buildList,
   buildMarkUsed,
   buildPurchase,
   buildRedeemScript,
   BURN_ARTIFACT,
+  eventPath,
+  eventPriceLabel,
+  eventWhenLabel,
+  GENERIC_DESCRIPTION,
+  GENERIC_TITLE,
+  SITE_NAME,
   computeFee,
   computeMassLocal,
   covenantId,
