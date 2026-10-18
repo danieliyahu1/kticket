@@ -3,7 +3,7 @@
 // KTK-157). The docs page is checked for endpoints and error codes rather than
 // mere existence: a contract nobody can read is not published.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -56,6 +56,15 @@ function spaDirectory(): string {
   const directory = mkdtempSync(join(tmpdir(), "kticket-spa-"));
   temporaryDirectories.push(directory);
   writeFileSync(join(directory, "index.html"), "<!doctype html><title>kticket SPA</title>");
+  return directory;
+}
+
+/** The real built shell, so the test follows the links the app actually ships. */
+function realSpaDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), "kticket-web-"));
+  temporaryDirectories.push(directory);
+  const shell = readFileSync(new URL("../../web/index.html", import.meta.url), "utf8");
+  writeFileSync(join(directory, "index.html"), shell);
   return directory;
 }
 
@@ -205,6 +214,27 @@ describe("published documentation routes (KTK-155 / KTK-157)", () => {
       const spa = await app.inject({ method: "GET", url: "/events/anything" });
       expect(spa.statusCode).toBe(200);
       expect(spa.body).toContain("<title>kticket — tickets on the chain</title>");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("serves a homepage that advertises the published surface", async () => {
+    const directory = realSpaDirectory();
+    const config = loadConfig({ KASPANET: NETWORK, AUTH_SECRET: "test-secret-for-kticket-api" });
+    const app = await buildApp(config, undefined, { serveStatic: directory });
+
+    try {
+      const home = await app.inject({ method: "GET", url: "/" });
+      expect(home.statusCode).toBe(200);
+      expect(home.headers["content-type"]).toContain("text/html");
+      expect(home.body).toContain("No browser is required");
+
+      for (const path of [LLMS_TXT_PATH, AGENT_GUIDE_PATH, OPENAPI_PATH, API_DOCS_PATH]) {
+        expect(home.body, path).toContain(`href="${path}"`);
+        const target = await app.inject({ method: "GET", url: path });
+        expect(target.statusCode, path).toBe(200);
+      }
     } finally {
       await app.close();
     }

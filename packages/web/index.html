@@ -7,12 +7,43 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta
       name="description"
-      content="Tickets on the chain. Create an event on Kaspa and let anyone in who holds a ticket."
+      content="Tickets on the chain. Create an event on Kaspa and let anyone in who holds a ticket. The same flows are available over an HTTP API — no browser required."
     />
     <title>kticket</title>
+    <!-- The machine-readable contract, so a client that reads the HTML finds the API. -->
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="kticket for agents" />
+    <link
+      rel="alternate"
+      type="text/markdown"
+      href="/docs/agent-guide.md"
+      title="kticket agent guide"
+    />
+    <link
+      rel="alternate"
+      type="application/json"
+      href="/openapi.json"
+      title="kticket HTTP API"
+    />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <noscript>
+        <h1>kticket</h1>
+        <p>Tickets on the chain. The browser app is one client of the same HTTP API.</p>
+        <p>
+          Every flow — deploy an event, buy a ticket, list or delist it, check in at the
+          door — works without the UI. No browser is required. Identity is a wallet
+          signature.
+        </p>
+        <h2>For agents</h2>
+        <ul>
+          <li><a href="/llms.txt">/llms.txt</a> — the entry point</li>
+          <li><a href="/docs/agent-guide.md">/docs/agent-guide.md</a> — the flows and rules</li>
+          <li><a href="/openapi.json">/openapi.json</a> — the exact contract</li>
+          <li><a href="/docs/api">/docs/api</a> — the rendered reference</li>
+        </ul>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

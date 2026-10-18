@@ -13,6 +13,7 @@ update them in the same commit when the app changes.
 | Rendered API reference | `packages/api/src/docs-page.ts` (renders the contract) | `/docs/api` |
 | Agent guide | `docs/agent-guide.md` (read by `packages/api/src/agent-guide.ts`) | `/docs/agent-guide.md` |
 | Machine entry point | `packages/api/src/llms.ts` | `/llms.txt` |
+| Homepage discovery | `packages/web/index.html` (head links + no-JS fallback) | `/` |
 | Route handlers | `packages/api/src/routes.ts` | — |
 | Event shell with per-event previews | `packages/api/src/event-shell.ts` (metadata builder: `packages/kit/src/event-meta.ts`) | `/events/{covenant_id}` |
 | Search discovery | `packages/api/src/discovery.ts`, `packages/api/src/discovery-routes.ts` | `/sitemap.xml`, `/robots.txt` |
@@ -36,8 +37,9 @@ A route change updates the contract **and** the agent guide in the same commit:
    fixture).
 3. If the flow's *mechanics* changed (what to sign, ordering, retry safety),
    update `docs/agent-guide.md` too.
-4. If a new published path appears, name it in `packages/api/src/llms.ts` and in
-   the table above.
+4. If a new published path appears, name it in `packages/api/src/llms.ts`, link
+   it from the homepage shell (`packages/web/index.html`), and add it to the
+   table above.
 
 `packages/api/src/openapi.test.ts` fails when the contract and the Fastify route
 table disagree in either direction, and validates every example against its
