@@ -13,7 +13,7 @@ update them in the same commit when the app changes.
 | Rendered API reference | `packages/api/src/docs-page.ts` (renders the contract) | `/docs/api` |
 | Agent guide | `docs/agent-guide.md` (read by `packages/api/src/agent-guide.ts`) | `/docs/agent-guide.md` |
 | Machine entry point | `packages/api/src/llms.ts` | `/llms.txt` |
-| Homepage discovery | `packages/web/index.html` (head links + static body explainer) | `/` |
+| Homepage discovery | `packages/web/index.html` (head links + static body), `packages/api/src/home-shell.ts` (head metadata) | `/` |
 | Route handlers | `packages/api/src/routes.ts` | — |
 | Event shell with per-event previews | `packages/api/src/event-shell.ts` (metadata builder: `packages/kit/src/event-meta.ts`) | `/events/{covenant_id}` |
 | Search discovery | `packages/api/src/discovery.ts`, `packages/api/src/discovery-routes.ts` | `/sitemap.xml`, `/robots.txt` |
@@ -21,11 +21,13 @@ update them in the same commit when the app changes.
 | Path constants | `packages/api/src/docs-paths.ts` | all of the above |
 
 All of these are registered by `packages/api/src/docs-routes.ts`,
-`packages/api/src/discovery-routes.ts`, and `packages/api/src/event-shell.ts`
-**before** the static SPA and its catch-all, so they never fall through to a
-generic `index.html`. Shareable event pages are the same built shell with the
-verified event's metadata injected; the sitemap uses the events directory's
-verification path, so only verified events are advertised.
+`packages/api/src/discovery-routes.ts`, `packages/api/src/home-shell.ts`, and
+`packages/api/src/event-shell.ts` **before** the static SPA and its catch-all,
+so they never fall through to a generic `index.html`. The site root and
+shareable event pages are the same built shell with metadata injected; the root
+gets the generic site metadata, an event page gets the verified event's, and
+the sitemap uses the events directory's verification path, so only verified
+events are advertised.
 
 ## The update rule
 

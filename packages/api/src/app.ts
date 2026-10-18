@@ -9,6 +9,7 @@ import { registerErrorHandler } from "./error-handler";
 import { registerDiscoveryRoutes } from "./discovery-routes.js";
 import { registerDocsRoutes } from "./docs-routes.js";
 import { registerEventShell } from "./event-shell.js";
+import { registerHomeShell } from "./home-shell.js";
 import { EventStore, type EventRegistry } from "./eventstore";
 import { TursoEventStore } from "./eventstore-turso";
 import { InMemoryAuthStore } from "./auth/auth-store.js";
@@ -153,10 +154,15 @@ interface SpaOptions {
  * shareable event URL (KTK-159).
  */
 async function serveSpa(app: FastifyInstance, { root, ctx, origin }: SpaOptions): Promise<void> {
-  registerEventShell(app, ctx, { origin, shellHtml: readSpaShell(root) });
+  const shellHtml = readSpaShell(root);
+  registerHomeShell(app, { origin, shellHtml });
+  registerEventShell(app, ctx, { origin, shellHtml });
 
   await app.register(fastifyStatic, {
     root,
+    // `/` is a metadata shell (issue #2), so the static plugin must not claim
+    // it with the raw file. `sendFile("index.html")` still serves the fallback.
+    index: false,
     wildcard: false,
   });
 

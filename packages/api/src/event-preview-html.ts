@@ -1,4 +1,4 @@
-// HTML boundary for shareable event previews (KTK-159).
+// HTML boundary for shareable page previews (KTK-159, issue #2).
 //
 // This module turns an `EventMeta` value into the tags a crawler reads. It knows
 // nothing about the chain, the registry, or HTTP: that keeps the rendering rules
