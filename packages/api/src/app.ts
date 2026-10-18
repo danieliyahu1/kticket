@@ -6,6 +6,7 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { type ApiConfig, ConfigError, loadConfig } from "./config";
 import { registerErrorHandler } from "./error-handler";
+import { registerDocsRoutes } from "./docs-routes.js";
 import { EventStore, type EventRegistry } from "./eventstore";
 import { TursoEventStore } from "./eventstore-turso";
 import { InMemoryAuthStore } from "./auth/auth-store.js";
@@ -100,6 +101,14 @@ export async function buildApp(
   };
 
   registerRoutes(app, ctx);
+
+  // The published contract is registered before the SPA so its paths are never
+  // swallowed by the static catch-all (KTK-157).
+  registerDocsRoutes(app, {
+    origin: authCtx.config.origin,
+    network: ctx.network,
+    networkId: ctx.networkId,
+  });
 
   if (options.serveStatic) {
     const root = resolve(options.serveStatic);

@@ -59,6 +59,9 @@ COPY --from=silverc /app/packages/kit/silverc/target/release/kticket-silverc \
   packages/kit/silverc/target/release/kticket-silverc
 COPY --from=build /app/packages/kit/contracts packages/kit/contracts
 COPY --from=build /app/packages/api/vendor packages/api/vendor
+# The agent guide is a document, not code: it is read at runtime from
+# /app/docs/agent-guide.md and served at /docs/agent-guide.md.
+COPY docs docs
 
 ENV WEB_DIST=packages/web/dist
 ENV NODE_ENV=production
