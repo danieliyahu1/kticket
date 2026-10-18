@@ -36,6 +36,13 @@ function noscriptBody(html: string): string {
   return /<noscript\b[^>]*>([\s\S]*?)<\/noscript>/i.exec(html)?.[1] ?? "";
 }
 
+function metaContent(html: string, name: string): string | undefined {
+  const tag = [...html.matchAll(/<meta\b[^>]*>/gi)]
+    .map(([match]) => match)
+    .find((candidate) => attribute(candidate, "name")?.toLowerCase() === name.toLowerCase());
+  return tag === undefined ? undefined : attribute(tag, "content");
+}
+
 describe("homepage discovery (KTK-152)", () => {
   it("points machines at the published surface from the HTML head", () => {
     const links = linkTags(SHELL);
@@ -58,8 +65,10 @@ describe("homepage discovery (KTK-152)", () => {
   });
 
   it("says in the meta description that the API needs no browser", () => {
-    expect(SHELL).toMatch(/<meta[^>]+name="description"[^>]+content="[^"]*HTTP API[^"]*"/i);
-    expect(SHELL).toContain("no browser required");
+    const description = metaContent(SHELL, "description") ?? "";
+
+    expect(description).toContain("HTTP API");
+    expect(description).toContain("no browser required");
   });
 
   it("tells a no-JS client that every flow works without the UI", () => {
