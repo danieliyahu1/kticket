@@ -5,6 +5,11 @@
 # Every query targets a metric the API actually emits (see
 # packages/api/src/metrics.ts) and is filtered with job="kticket", which the
 # VMServiceScrape sets via jobLabel.
+#
+# The top row is the audience funnel: document requests to the homepage (`/`,
+# served by home-shell.ts) and create-event attempts (`/v1/events/deploy/prepare`,
+# the first request of the create flow). Both come from the generic HTTP counter,
+# so they count requests — crawlers and link unfurlers included — not people.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -26,11 +31,63 @@ data:
       "templating": { "list": [] },
       "panels": [
         {
+          "id": 14,
+          "type": "stat",
+          "title": "Homepage requests",
+          "description": "Document requests to / in the selected range. Counts requests, not unique people — crawlers and link unfurlers are included.",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum(increase(kticket_http_requests_total{job=\"kticket\",route=\"/\"}[$__range])) or vector(0)", "legendFormat": "homepage" }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "Create-event requests",
+          "description": "Create attempts in the selected range: one per POST /v1/events/deploy/prepare, whether or not the wallet signs and broadcasts. Counts requests, not unique people.",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+          "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum(increase(kticket_http_requests_total{job=\"kticket\",route=\"/v1/events/deploy/prepare\"}[$__range])) or vector(0)", "legendFormat": "create event" }
+          ]
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Homepage vs create-event requests",
+          "description": "Requests per time interval. The y-axis is a count, not a per-second rate.",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+          "interval": "20s",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "decimals": 0,
+              "custom": {
+                "axisLabel": "requests",
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "lineWidth": 2,
+                "stacking": { "mode": "none" },
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum(increase(kticket_http_requests_total{job=\"kticket\",route=\"/\"}[$__interval])) or vector(0)", "legendFormat": "homepage" },
+            { "refId": "B", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum(increase(kticket_http_requests_total{job=\"kticket\",route=\"/v1/events/deploy/prepare\"}[$__interval])) or vector(0)", "legendFormat": "create event" }
+          ]
+        },
+        {
           "id": 1,
           "type": "stat",
           "title": "Scrape targets up",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 14 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum(up{job=\"kticket\"})", "legendFormat": "up" }
           ]
@@ -40,7 +97,7 @@ data:
           "type": "stat",
           "title": "Requests / sec",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 4, "w": 5, "x": 4, "y": 0 },
+          "gridPos": { "h": 4, "w": 5, "x": 4, "y": 14 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum(rate(kticket_http_requests_total{job=\"kticket\"}[$__rate_interval]))", "legendFormat": "requests" }
           ]
@@ -50,7 +107,7 @@ data:
           "type": "stat",
           "title": "Error ratio",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 4, "w": 5, "x": 9, "y": 0 },
+          "gridPos": { "h": 4, "w": 5, "x": 9, "y": 14 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum(rate(kticket_http_errors_total{job=\"kticket\"}[$__rate_interval])) / clamp_min(sum(rate(kticket_http_requests_total{job=\"kticket\"}[$__rate_interval])), 1)", "legendFormat": "errors / requests" }
           ]
@@ -60,7 +117,7 @@ data:
           "type": "stat",
           "title": "Latency p95",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 4, "w": 5, "x": 14, "y": 0 },
+          "gridPos": { "h": 4, "w": 5, "x": 14, "y": 14 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "histogram_quantile(0.95, sum by (le) (rate(kticket_http_request_duration_seconds_bucket{job=\"kticket\"}[$__rate_interval])))", "legendFormat": "p95" }
           ]
@@ -70,7 +127,7 @@ data:
           "type": "stat",
           "title": "Warm-up age",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 4, "w": 5, "x": 19, "y": 0 },
+          "gridPos": { "h": 4, "w": 5, "x": 19, "y": 14 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "time() - max(kticket_warmup_last_success_timestamp_seconds{job=\"kticket\"})", "legendFormat": "since last full success" }
           ]
@@ -80,7 +137,7 @@ data:
           "type": "timeseries",
           "title": "Request rate by route",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum by (route) (rate(kticket_http_requests_total{job=\"kticket\"}[$__rate_interval]))", "legendFormat": "{{route}}" }
           ]
@@ -90,7 +147,7 @@ data:
           "type": "timeseries",
           "title": "Request duration p95 by route",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "histogram_quantile(0.95, sum by (le, route) (rate(kticket_http_request_duration_seconds_bucket{job=\"kticket\"}[$__rate_interval])))", "legendFormat": "{{route}}" }
           ]
@@ -100,7 +157,7 @@ data:
           "type": "timeseries",
           "title": "Flows by result",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum by (flow, result) (rate(kticket_flows_total{job=\"kticket\"}[$__rate_interval]))", "legendFormat": "{{flow}} {{result}}" }
           ]
@@ -110,7 +167,7 @@ data:
           "type": "timeseries",
           "title": "Kaspa upstream by operation / outcome",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum by (operation, outcome) (rate(kticket_upstream_requests_total{job=\"kticket\"}[$__rate_interval]))", "legendFormat": "{{operation}} {{outcome}}" }
           ]
@@ -120,7 +177,7 @@ data:
           "type": "timeseries",
           "title": "Warm-up runs by result",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum by (result) (rate(kticket_warmup_runs_total{job=\"kticket\"}[$__rate_interval]))", "legendFormat": "{{result}}" }
           ]
@@ -130,7 +187,7 @@ data:
           "type": "timeseries",
           "title": "CPU cores",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "sum by (pod) (rate(process_cpu_seconds_total{job=\"kticket\"}[$__rate_interval]))", "legendFormat": "{{pod}}" }
           ]
@@ -140,7 +197,7 @@ data:
           "type": "timeseries",
           "title": "Resident memory",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "process_resident_memory_bytes{job=\"kticket\"}", "legendFormat": "{{pod}}" }
           ]
@@ -150,7 +207,7 @@ data:
           "type": "timeseries",
           "title": "Event loop lag",
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
           "targets": [
             { "refId": "A", "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" }, "expr": "nodejs_eventloop_lag_seconds{job=\"kticket\"}", "legendFormat": "{{pod}}" }
           ]
