@@ -68,7 +68,7 @@ export interface WireTransaction {
   inputs: WireInput[];
   outputs: WireOutput[];
   lock_time: number;
-  /** Hex-encoded payload (KCC-0021 metadata for deploy txs). */
+  /** Hex-encoded payload (KCC-23 metadata declaration on the prep tx). */
   payload?: string;
 }
 
@@ -81,25 +81,40 @@ export interface TicketConstantsJson {
 
 export type BuildRequest =
   | {
+      type: "deployPreparation";
+      /** Every organizer UTXO the preparation tx spends. Its single output is
+       *  what the genesis tx spends, so the whole balance flows through. */
+      payer_utxos: WireUtxo[];
+      /** The organizer P2PK script — the preparation output genesis spends. */
+      owner_spk: WireScriptPublicKey;
+      /** Ticket price in sompi, declared in the KCC-23 metadata. */
+      price: number;
+      /** Organizer payout script, declared in the KCC-23 metadata. */
+      org_spk: string;
+      /** Event name / date — declared together, or omitted for a nameless event. */
+      name?: string;
+      date?: string;
+      /** Local wall-clock start time (HH:MM). */
+      time?: string;
+      /** Ecosystem token-metadata keys, declared alongside the event fields. */
+      ticker?: string;
+      decimals?: number;
+      image?: string;
+      image_hash?: string;
+      /** Full prev-output metadata for every spending input, in input order. */
+      input_utxo_metas?: WireUtxoMeta[];
+    }
+  | {
       type: "deploy";
       capacity: number;
       constants: TicketConstantsJson;
       organizer: string;
+      /** The preparation tx output 0 — the authorizing input. */
       authorizing_outpoint: WireUtxo;
       organizer_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
       /** Full prev-output metadata for every spending input, in input order (needed to sign). */
       input_utxo_metas?: WireUtxoMeta[];
-      /** KCC-20 metadata — encoded as a data output in the deploy tx. */
-      name?: string;
-      date?: string;
-      /** Local wall-clock start time (HH:MM). */
-      time?: string;
-      /** KCC-0021 standard token-metadata keys (display-only, optional). */
-      ticker?: string;
-      decimals?: number;
-      image?: string;
-      image_hash?: string;
     }
   | {
       type: "buy";
@@ -250,14 +265,43 @@ function parseConstants(value: unknown): TicketConstantsJson {
   };
 }
 
+function parseDeployPreparation(raw: Record<string, unknown>): BuildRequest {
+  const base = {
+    type: "deployPreparation" as const,
+    payer_utxos: utxos(raw.payer_utxos, "payer_utxos"),
+    owner_spk: scriptSpk(raw.owner_spk, "owner_spk"),
+    price: uint(raw.price, "price"),
+    org_spk: hex(raw.org_spk, "org_spk"),
+    ...(raw.input_utxo_metas !== undefined
+      ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
+      : {}),
+  };
+  if (raw.name === undefined) return base;
+  if (raw.date === undefined) throw invalidError("date is required when name is set");
+  const decimals = raw.decimals === undefined ? undefined : uint(raw.decimals, "decimals");
+  if (decimals !== undefined && decimals > 255) {
+    throw invalidError("decimals must be 0..255");
+  }
+  return {
+    ...base,
+    name: str(raw.name, "name"),
+    date: str(raw.date, "date"),
+    ...(raw.time !== undefined ? { time: str(raw.time, "time") } : {}),
+    ...(raw.ticker !== undefined ? { ticker: str(raw.ticker, "ticker") } : {}),
+    ...(decimals !== undefined ? { decimals } : {}),
+    ...(raw.image !== undefined ? { image: str(raw.image, "image") } : {}),
+    ...(raw.image_hash !== undefined ? { image_hash: str(raw.image_hash, "image_hash") } : {}),
+  };
+}
+
 function parseDeploy(raw: Record<string, unknown>): BuildRequest {
   const capacity = int(raw.capacity, "capacity");
   if (capacity < 0 || capacity > MAX_EVENT_CAPACITY) {
     throw invalidError(`capacity must be 0..${MAX_EVENT_CAPACITY}`);
   }
   const authorizingUtxo = isRecord(raw.authorizing_outpoint) ? raw.authorizing_outpoint : {};
-  const base = {
-    type: "deploy" as const,
+  return {
+    type: "deploy",
     capacity,
     constants: parseConstants(raw.constants),
     organizer: hex64(raw.organizer, "organizer"),
@@ -271,24 +315,6 @@ function parseDeploy(raw: Record<string, unknown>): BuildRequest {
       ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
       : {}),
   };
-  if (raw.name !== undefined) {
-    if (raw.date === undefined) throw invalidError("date is required when name is set");
-    const decimals = raw.decimals === undefined ? undefined : uint(raw.decimals, "decimals");
-    if (decimals !== undefined && decimals > 255) {
-      throw invalidError("decimals must be 0..255");
-    }
-    return {
-      ...base,
-      name: str(raw.name, "name"),
-      date: str(raw.date, "date"),
-      ...(raw.time !== undefined ? { time: str(raw.time, "time") } : {}),
-      ...(raw.ticker !== undefined ? { ticker: str(raw.ticker, "ticker") } : {}),
-      ...(decimals !== undefined ? { decimals } : {}),
-      ...(raw.image !== undefined ? { image: str(raw.image, "image") } : {}),
-      ...(raw.image_hash !== undefined ? { image_hash: str(raw.image_hash, "image_hash") } : {}),
-    };
-  }
-  return base;
 }
 
 function parseBuy(raw: Record<string, unknown>): BuildRequest {
@@ -389,6 +415,8 @@ export function parseBuildRequest(raw: unknown): BuildRequest {
   if (!isRecord(raw)) throw invalidError("request body must be an object");
   const type = str(raw.type, "type");
   switch (type) {
+    case "deployPreparation":
+      return parseDeployPreparation(raw);
     case "deploy":
       return parseDeploy(raw);
     case "buy":
@@ -405,7 +433,7 @@ export function parseBuildRequest(raw: unknown): BuildRequest {
       return parsePurchase(raw);
     default:
       throw invalidError(
-        `type must be deploy|buy|handover|markUsed|list|delist|purchase, got ${type}`,
+        `type must be deployPreparation|deploy|buy|handover|markUsed|list|delist|purchase, got ${type}`,
       );
   }
 }

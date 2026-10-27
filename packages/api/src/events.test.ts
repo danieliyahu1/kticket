@@ -52,6 +52,21 @@ function eventArtifact() {
   });
 }
 
+function legacyMetadataPayload(): string {
+  return bytesToHex(
+    new TextEncoder().encode(
+      JSON.stringify({
+        name: NAME,
+        date: DATE,
+        time: TIME,
+        priceKAS: PRICE / 100_000_000,
+        orgSpk: ORG_SPK_HEX,
+        burnTemplateHash: BURN_TEMPLATE_HASH,
+      }),
+    ),
+  );
+}
+
 function deployModel(capacity: number): TxModel {
   const artifact = compileEventArtifact({
     authorizingTxId: AUTH_TXID,
@@ -69,14 +84,6 @@ function deployModel(capacity: number): TxModel {
     changeScript: { version: 0, script: "51" },
     fee: 1_000,
     network: NETWORK,
-    metadata: {
-      name: NAME,
-      date: DATE,
-      time: TIME,
-      priceKAS: PRICE / 100_000_000,
-      orgSpk: ORG_SPK_HEX,
-      burnTemplateHash: BURN_TEMPLATE_HASH,
-    },
   });
   return {
     transaction_id: G_ID,
@@ -95,7 +102,8 @@ function deployModel(capacity: number): TxModel {
       covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
       covenant_id: output.covenant?.covenantId ?? null,
     })),
-    payload: tx.payload,
+    // Legacy fixture: this deploy carried the metadata on the genesis payload.
+    payload: legacyMetadataPayload(),
   };
 }
 
@@ -112,6 +120,11 @@ function fundingModel(): TxModel {
       },
     ],
   };
+}
+
+/** A KCC-23 preparation tx: one organizer output + the declaration payload. */
+function preparationModel(payload: string): TxModel {
+  return { ...fundingModel(), version: 1, payload };
 }
 
 function buyTxModel(tx: UnsignedTransaction, txId: string): TxModel {
@@ -140,6 +153,8 @@ class FakeKaspa implements KaspaClientLike {
     readonly genesis: TxModel,
     readonly live: Map<string, UtxoResponse[]> = new Map(),
     readonly addressTxs: Map<string, TxModel[]> = new Map(),
+    /** The tx the genesis input 0 spends: a KCC-23 preparation tx, or funding. */
+    readonly preparation: TxModel = fundingModel(),
   ) {}
 
   utxosAt(address: string, outpoint: { transactionId: string; index: number }): void {
@@ -160,7 +175,7 @@ class FakeKaspa implements KaspaClientLike {
   async getTransaction(txId: string): Promise<TxModel | null> {
     const lower = txId.toLowerCase();
     if (lower === this.genesis.transaction_id) return this.genesis;
-    if (lower === AUTH_TXID) return fundingModel();
+    if (lower === AUTH_TXID) return this.preparation;
     return this.addressTxs.get(lower)?.find((t) => t.transaction_id === lower) ?? null;
   }
 
@@ -264,6 +279,7 @@ describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
     expect(verified.raw_chain).toMatchObject({
       deploy_txid: G_ID,
       authorizing_txid: AUTH_TXID,
+      metadata_txid: G_ID,
       maker_address: p2pkAddress(ORG_PKH, NETWORK),
       decoded_state: { owner: ORG_PKH_HEX, capacity: CAPACITY },
     });
@@ -281,21 +297,27 @@ describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
     });
   });
 
-  it("recovers the KCC-0021 standard keys from the deploy payload", async () => {
+  it("recovers the KCC-23 declaration from the preparation transaction", async () => {
     const deploy = deployModel(CAPACITY);
-    deploy.payload = encodeMetadataPayload({
-      name: NAME,
-      date: DATE,
-      time: TIME,
-      priceKAS: PRICE / 100_000_000,
-      orgSpk: ORG_SPK_HEX,
-      burnTemplateHash: BURN_TEMPLATE_HASH,
-      ticker: "RAVE",
-      decimals: 0,
-      image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
-      image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
-    });
-    const kaspa = new FakeKaspa(deploy);
+    // Under KCC-23 the genesis payload is empty: the declaration lives on the
+    // preparation tx, and the covenant id commits to its txid.
+    deploy.payload = undefined;
+    const preparation = preparationModel(
+      encodeMetadataPayload({
+        name: NAME,
+        date: DATE,
+        time: TIME,
+        priceKAS: PRICE / 100_000_000,
+        orgSpk: ORG_SPK_HEX,
+        ticker: "RAVE",
+        decimals: 0,
+        image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
+      }),
+    );
+    // The preparation payload starts with the 0x00 JSON codec byte.
+    expect(preparation.payload?.startsWith("00")).toBe(true);
+    const kaspa = new FakeKaspa(deploy, new Map(), new Map(), preparation);
     const verified = await verifyEventFromChain(kaspa, NETWORK, G_ID);
     expect(verified).toMatchObject({
       name: NAME,
@@ -306,6 +328,21 @@ describe("verifyEventFromChain (KTK-89 trustless provenance)", () => {
       decimals: 0,
       image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
       image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
+    });
+    expect(verified.raw_chain.metadata_txid).toBe(AUTH_TXID);
+    expect(verified.raw_chain.payload).toBe(preparation.payload);
+  });
+
+  it("rejects metadata from a version 0 preparation transaction", async () => {
+    const deploy = deployModel(CAPACITY);
+    deploy.payload = undefined;
+    const preparation = {
+      ...preparationModel(encodeMetadataPayload({ name: NAME, date: DATE, priceKAS: PRICE / 100_000_000, orgSpk: ORG_SPK_HEX })),
+      version: 0,
+    };
+    const kaspa = new FakeKaspa(deploy, new Map(), new Map(), preparation);
+    await expect(verifyEventFromChain(kaspa, NETWORK, G_ID)).rejects.toMatchObject({
+      type: "invalid",
     });
   });
 

@@ -4,7 +4,8 @@
 //   POST /v1/events                              — register an event after deploy (discovery only)
 //   GET  /v1/events/{covenant_id}                — verified event facts + raw chain facts
 //   GET  /v1/events/{covenant_id}/listings       — chain-proven resale listings (KTK-151)
-//   POST /v1/events/deploy/prepare               — backend-owned deploy: build the unsigned template
+//   POST /v1/events/deploy/prepare               — backend-owned deploy: build the KCC-23 prep template
+//   POST /v1/events/deploy/genesis               — backend-owned deploy: broadcast prep, build genesis
 //   POST /v1/events/deploy/finalize              — backend-owned deploy: merge, broadcast, register
 //   POST /v1/events/{covenant_id}/buy/prepare    — backend-owned buy: verify event, build template
 //   POST /v1/events/{covenant_id}/buy/finalize   — backend-owned buy: merge, broadcast, confirm
@@ -44,7 +45,7 @@ import type { AuthStore } from "./auth/auth-store.js";
 import type { AuthConfig } from "./auth/auth.js";
 import { invalidError, isApiError, notFoundError, toErrorEnvelope, unauthorizedError } from "./errors.js";
 import { describeWalletSignatures } from "./flow.js";
-import { deployFinalize, deployPrepare } from "./deploy.js";
+import { deployFinalize, deployGenesis, deployPrepare } from "./deploy.js";
 import type { EventRegistry } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { ListingStore } from "./listings.js";
@@ -245,12 +246,33 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     try {
       const result = await deployPrepare(req.body, deployCtx);
       req.log.info(
-        { deploy_id: result.deploy_id, template_inputs: result.template.inputs.length },
+        {
+          deploy_id: result.deploy_id,
+          preparation_inputs: result.preparation.template.inputs.length,
+        },
         "deploy prepare",
       );
       return result;
     } catch (err) {
       req.log.error({ err }, "deploy prepare failed");
+      throw err;
+    }
+  });
+
+  app.post("/v1/events/deploy/genesis", { config: { kticketFlow: "deploy.genesis" } }, async (req) => {
+    try {
+      const result = await deployGenesis(req.body, deployCtx);
+      req.log.info(
+        {
+          deploy_id: (req.body as { deploy_id?: unknown })?.deploy_id,
+          preparation_txid: result.preparation_txid,
+          event_covenant_id: result.event_covenant_id,
+        },
+        "deploy genesis",
+      );
+      return result;
+    } catch (err) {
+      req.log.error({ err }, "deploy genesis failed");
       throw err;
     }
   });

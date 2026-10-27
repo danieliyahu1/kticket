@@ -28,8 +28,11 @@ import {
   EXAMPLE_SELLER_PKH,
   EXAMPLE_TICKET_ID,
   EXAMPLE_WALLET,
+  PREPARATION_TRANSACTION_EXAMPLE,
   WIRE_TRANSACTION_EXAMPLE,
 } from "./openapi-examples.js";
+
+const PREPARATION_SIGNING_TEMPLATE_EXAMPLE = JSON.stringify(PREPARATION_TRANSACTION_EXAMPLE);
 
 export interface DocumentedOperation {
   method: "get" | "post";
@@ -209,6 +212,7 @@ function eventOperations(): DocumentedOperation[] {
             raw_chain: {
               deploy_txid: EXAMPLE_DEPLOY_TXID,
               authorizing_txid: EXAMPLE_AUTHORIZING_TXID,
+              metadata_txid: EXAMPLE_AUTHORIZING_TXID,
               maker_address: EXAMPLE_ORGANIZER,
               decoded_constants: {
                 price: 1_000,
@@ -216,7 +220,7 @@ function eventOperations(): DocumentedOperation[] {
                 burn_template_hash: EXAMPLE_AUTHORIZING_TXID,
               },
               decoded_state: { owner: EXAMPLE_ORG_PKH, capacity: 2 },
-              payload: null,
+              payload: PREPARATION_TRANSACTION_EXAMPLE.payload,
             },
           }),
           404: errorResponse(404),
@@ -227,6 +231,14 @@ function eventOperations(): DocumentedOperation[] {
 }
 
 function deployOperations(): DocumentedOperation[] {
+  const prepareExample = {
+    capacity: 2,
+    price_kas: 0.00001,
+    ...EXAMPLE_WALLET,
+    name: "Testnet Rave",
+    date: "2026-12-31",
+    time: "20:00",
+  };
   return [
     {
       method: "post",
@@ -234,26 +246,60 @@ function deployOperations(): DocumentedOperation[] {
       operation: operation({
         operationId: "prepareDeploy",
         tag: "events",
-        summary: "Prepare an event deploy",
+        summary: "Prepare the KCC-23 preparation transaction",
         description:
-          "The backend fetches the organizer's UTXOs, builds the unsigned deploy template, and returns the safe JSON the wallet signs. Nothing is broadcast until finalize.",
-        body: jsonRequestBody(jsonRef("DeployPrepareRequest"), {
-          capacity: 2,
-          price_kas: 0.00001,
-          ...EXAMPLE_WALLET,
-          name: "Testnet Rave",
-          date: "2026-12-31",
-          time: "20:00",
-        }),
+          "The backend fetches the organizer's UTXOs and builds the unsigned preparation template: it spends them into one organizer output and carries a `0x00 || UTF-8 JSON` metadata declaration in its payload. Sign `preparation.signing_template`, then send it to `deploy/genesis`. Nothing is broadcast until genesis.",
+        body: jsonRequestBody(jsonRef("DeployPrepareRequest"), prepareExample),
         responses: {
-          200: jsonResponse("The unsigned deploy template.", jsonRef("DeployPrepareResult"), {
+          200: jsonResponse("The unsigned preparation template.", jsonRef("DeployPrepareResult"), {
             deploy_id: DEPLOY_ID,
-            signing_template: SIGNING_TEMPLATE_EXAMPLE,
-            event_covenant_id: EXAMPLE_COVENANT_ID,
-            template: WIRE_TRANSACTION_EXAMPLE,
+            preparation: {
+              template: PREPARATION_TRANSACTION_EXAMPLE,
+              signing_template: PREPARATION_SIGNING_TEMPLATE_EXAMPLE,
+            },
           }),
           400: errorResponse(400),
           422: errorResponse(422),
+        },
+      }),
+    },
+    {
+      method: "post",
+      route: "/v1/events/deploy/genesis",
+      operation: operation({
+        operationId: "genesisDeploy",
+        tag: "events",
+        summary: "Publish the preparation transaction and build the genesis transaction",
+        description:
+          "Merges the preparation signatures, broadcasts the preparation transaction, waits until it is accepted, then returns the genesis template that spends its output 0. The covenant id commits to that outpoint, so it binds the metadata payload. Sign `genesis.signing_template` to continue.",
+        body: jsonRequestBody(jsonRef("DeployGenesisRequest"), {
+          ...prepareExample,
+          deploy_id: DEPLOY_ID,
+          preparation: {
+            template: PREPARATION_TRANSACTION_EXAMPLE,
+            signed: {
+              inputs: [
+                {
+                  transactionId: EXAMPLE_AUTHORIZING_TXID,
+                  index: 0,
+                  signatureScript: `41${"ab".repeat(64)}`,
+                },
+              ],
+            },
+          },
+        }),
+        responses: {
+          200: jsonResponse("The unsigned genesis template.", jsonRef("DeployGenesisResult"), {
+            preparation_txid: EXAMPLE_AUTHORIZING_TXID,
+            event_covenant_id: EXAMPLE_COVENANT_ID,
+            genesis: {
+              template: WIRE_TRANSACTION_EXAMPLE,
+              signing_template: SIGNING_TEMPLATE_EXAMPLE,
+            },
+          }),
+          400: errorResponse(400),
+          422: errorResponse(422),
+          502: errorResponse(502),
         },
       }),
     },
@@ -265,7 +311,7 @@ function deployOperations(): DocumentedOperation[] {
         tag: "events",
         summary: "Finalize an event deploy",
         description:
-          "Merges the wallet's signatures into the exact template it signed, validates it is a deploy, broadcasts it, waits for on-chain verification, and registers the event. Success is returned only after registration.",
+          "Merges the wallet's signatures into the exact genesis template it signed, validates it is a deploy, broadcasts it, waits for on-chain verification, and registers the event. Success is returned only after registration.",
         body: jsonRequestBody(jsonRef("DeployFinalizeRequest"), {
           deploy_id: DEPLOY_ID,
           template: WIRE_TRANSACTION_EXAMPLE,

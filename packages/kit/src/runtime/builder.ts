@@ -4,8 +4,12 @@
 // bindings set. Fee handling: the fee payer's UTXOs are inputs and a change
 // output is derived so `sum(inputs) − sum(outputs) = fee`.
 //
+//   prep     — the KCC-23 preparation tx: spends the organizer's KAS into one
+//              P2PK output and declares the event metadata in its payload.
 //   deploy   — one event covenant (remaining = capacity, ~0.5 KAS dust,
-//              price baked in the compiled bytecode). No per-ticket pre-creation.
+//              price baked in the compiled bytecode). Its authorizing input is
+//              the prep tx output, so the covenant id commits to the metadata.
+//              No per-ticket pre-creation.
 //   buy      — the event covenant splits: ticket (amount=1, buyer) + event
 //              covenant (remaining−1) + org payout (price) + change. Buyer pays
 //              price + ticket dust + fee.
@@ -33,40 +37,84 @@ import type {
 import { TX_VERSION_V1 } from "./tx.js";
 
 const TEXT_ENCODER = new TextEncoder();
-const TEXT_DECODER = new TextDecoder();
+/** Strict UTF-8: an invalid byte makes the payload invalid (KCC-23 §3.1). */
+const STRICT_TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+// --- KCC-23 metadata declaration (bound to the covenant id) -----------------
+//
+// KCC-23 binds display metadata to a covenant id. A version 1 *preparation*
+// transaction carries `0x00 || UTF-8 JSON` in its payload and creates an output
+// the genesis transaction spends; the covenant id commits to that spent
+// outpoint, whose txid commits to the payload. Declaring metadata on the
+// genesis tx payload instead would not be committed to the token.
+//
+// kticket's event fields (name/date/time/priceKAS/orgSpk) live next to the
+// ecosystem token keys (ticker/decimals/image/image_hash) in the same JSON
+// object. KCC-23 leaves field names to ecosystem conventions and unknown keys
+// are ignored on read.
+
+/** KCC-23 codec prefix: `0x00` declares the rest of the payload is one JSON object. */
+export const KCC23_JSON_CODEC = "00";
+
+/** JSON nesting KCC-23 allows, counting the root object as depth 1. */
+const KCC23_MAX_DEPTH = 64;
 
 /**
- * KCC-0021 covenant metadata attached to the genesis transaction payload.
+ * The metadata declaration written into a preparation transaction's payload.
  *
- * The kticket event fields (name/date/time/priceKAS/orgSpk/burnTemplateHash)
- * coexist with the ecosystem KCC-0021 token-metadata keys (ticker/decimals/
- * image/image_hash) in one JSON object, so generic explorers can render our
- * events. The KCC-0021 keys are display-only and optional for kticket events.
+ * The burn template hash is deliberately absent: it is derived from the
+ * preparation txid at compile time, so declaring it would make the payload
+ * depend on its own transaction id.
  */
-export interface EventMetadata {
+export interface MetadataDeclaration {
   name: string;
   date: string;
   /** Local wall-clock start time (HH:MM) — optional for legacy events. */
   time?: string;
   priceKAS: number;
   orgSpk: string;
-  burnTemplateHash: string;
   /** Short ticker (<= 12 code points). `symbol` is read as an alias. */
   ticker?: string;
   /** Display decimals (0..255, default 0). */
   decimals?: number;
-  /** Poster art URI — https:// or ipfs:// (KCC-0021 pinned art). */
+  /** Poster art URI — https:// or ipfs://. */
   image?: string;
-  /** sha256 of the image bytes, 64 lowercase hex (KCC-0021 pinned art). */
+  /** sha256 of the image bytes, 64 lowercase hex. */
   image_hash?: string;
 }
 
+/** A decoded declaration, plus the advisory fields legacy deploys carried. */
+export interface EventMetadata extends MetadataDeclaration {
+  /**
+   * Advisory burn-template hash, decoded only from legacy payloads. Current
+   * deploys derive it from the preparation txid instead.
+   */
+  burnTemplateHash?: string;
+}
+
+/** KCC-23 I-JSON rules: finite numbers, at most 64 levels of nesting. */
+function assertJsonDeclaration(value: unknown, depth = 1): void {
+  if (depth > KCC23_MAX_DEPTH) {
+    throw new Error(`KCC-23 metadata must nest at most ${KCC23_MAX_DEPTH} levels`);
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error("KCC-23 metadata numbers must be finite");
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertJsonDeclaration(item, depth + 1);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value)) assertJsonDeclaration(item, depth + 1);
+  }
+}
+
 /**
- * Encode event metadata as a hex-encoded JSON string for the genesis tx payload
- * (KCC-0021 convention: metadata lives in the tx payload, not a separate output).
+ * Encode a KCC-23 declaration: the `0x00` codec byte followed by the UTF-8 JSON
+ * object, hex-encoded as the transaction payload.
  */
-export function encodeMetadataPayload(meta: EventMetadata): string {
-  const json = JSON.stringify({
+export function encodeMetadataPayload(meta: MetadataDeclaration): string {
+  const declaration = {
     name: meta.name,
     ...(meta.ticker !== undefined ? { ticker: meta.ticker } : {}),
     ...(meta.decimals !== undefined ? { decimals: meta.decimals } : {}),
@@ -76,12 +124,18 @@ export function encodeMetadataPayload(meta: EventMetadata): string {
     ...(meta.time !== undefined ? { time: meta.time } : {}),
     priceKAS: meta.priceKAS,
     orgSpk: meta.orgSpk,
-    burnTemplateHash: meta.burnTemplateHash,
-  });
-  return bytesToHex(TEXT_ENCODER.encode(json));
+  };
+  assertJsonDeclaration(declaration);
+  return KCC23_JSON_CODEC + bytesToHex(TEXT_ENCODER.encode(JSON.stringify(declaration)));
 }
 
-/** KCC-0021 string hygiene: trimmed, no control chars, at most `max` code points. */
+/** True when the payload starts with the KCC-23 JSON codec byte. */
+export function isKcc23Payload(payloadHex: string | null | undefined): boolean {
+  if (!payloadHex) return false;
+  return payloadHex.toLowerCase().startsWith(KCC23_JSON_CODEC);
+}
+
+/** KCC-23 string hygiene: trimmed, no control chars, at most `max` code points. */
 function cleanLabel(value: unknown, maxCodePoints: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -91,7 +145,7 @@ function cleanLabel(value: unknown, maxCodePoints: number): string | undefined {
   return trimmed;
 }
 
-/** KCC-0021 decimals: integer or base-10 string, 0..255. */
+/** Token decimals: integer or base-10 string, 0..255. */
 function decodeDecimals(value: unknown): number | undefined {
   let n: number | undefined;
   if (typeof value === "number" && Number.isInteger(value)) {
@@ -103,7 +157,7 @@ function decodeDecimals(value: unknown): number | undefined {
   return n;
 }
 
-/** KCC-0021 image: https:// or ipfs:// URI, at most 256 code points. */
+/** Poster art: https:// or ipfs:// URI, at most 256 code points. */
 function decodeImage(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -112,7 +166,7 @@ function decodeImage(value: unknown): string | undefined {
   return trimmed;
 }
 
-/** KCC-0021 image_hash: 64 hex chars, normalized to lowercase. */
+/** Image sha256: 64 hex chars, normalized to lowercase. */
 function decodeImageHash(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -120,7 +174,7 @@ function decodeImageHash(value: unknown): string | undefined {
   return trimmed.toLowerCase();
 }
 
-/** Read the optional KCC-0021 keys, dropping values that violate their constraints. */
+/** Read the optional ecosystem token keys, dropping values that violate their constraints. */
 function kccKeysFrom(parsed: Record<string, unknown>): Pick<
   EventMetadata,
   "ticker" | "decimals" | "image" | "image_hash"
@@ -138,51 +192,67 @@ function kccKeysFrom(parsed: Record<string, unknown>): Pick<
 }
 
 /**
- * Decode event metadata from a hex-encoded genesis tx payload.
- * Returns `null` if the payload does not carry valid kticket metadata.
+ * Decode a kticket metadata declaration.
  *
- * Supports both the current KCC-0021 format (readable field names) and
- * the legacy format ({n, d, p}) from older deploy transactions.
+ * Accepts the KCC-23 form (`0x00` codec byte + UTF-8 JSON object) and the
+ * legacy form (bare hex-encoded JSON, where metadata was attached to the
+ * genesis tx payload), so already-deployed events still verify. Returns `null`
+ * when the payload is not a valid kticket declaration — unknown codec bytes,
+ * a BOM, invalid UTF-8, non-object JSON, non-finite numbers, or nesting beyond
+ * KCC-23's 64 levels.
+ *
+ * New deploys read the readable field names; the oldest events used `{n, d, p}`.
  */
 export function decodeMetadataFromPayload(payloadHex: string | null | undefined): EventMetadata | null {
   if (!payloadHex) return null;
   try {
     const bytes = hexToBytes(payloadHex);
-    const json = TEXT_DECODER.decode(bytes);
-    const parsed = JSON.parse(json) as Record<string, unknown>;
+    if (bytes.length === 0) return null;
+    // KCC-23 prefixes the JSON with the `0x00` codec byte; legacy payloads are
+    // the bare JSON bytes (they start with `{`).
+    const body = bytes[0] === 0x00 ? bytes.subarray(1) : bytes;
+    // A BOM is forbidden by KCC-23 and never valid legacy JSON either.
+    if (body.length >= 3 && body[0] === 0xef && body[1] === 0xbb && body[2] === 0xbf) {
+      return null;
+    }
+    const json = STRICT_TEXT_DECODER.decode(body);
+    const parsed: unknown = JSON.parse(json);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    assertJsonDeclaration(parsed);
+    const record = parsed as Record<string, unknown>;
 
-    // Current format — readable names, self-describing (may also carry the
-    // ecosystem KCC-0021 keys; unknown keys are ignored per KCC-0021).
+    // Current format — readable names, self-describing. (Legacy payloads may
+    // also carry the ecosystem token keys; unknown keys are ignored.)
     if (
-      typeof parsed.name === "string" &&
-      typeof parsed.date === "string" &&
-      typeof parsed.priceKAS === "number" &&
-      typeof parsed.orgSpk === "string" &&
-      typeof parsed.burnTemplateHash === "string"
+      typeof record.name === "string" &&
+      typeof record.date === "string" &&
+      typeof record.priceKAS === "number" &&
+      typeof record.orgSpk === "string"
     ) {
       return {
-        name: parsed.name,
-        date: parsed.date,
-        ...(typeof parsed.time === "string" ? { time: parsed.time } : {}),
-        priceKAS: parsed.priceKAS,
-        orgSpk: parsed.orgSpk,
-        burnTemplateHash: parsed.burnTemplateHash,
-        ...kccKeysFrom(parsed),
+        name: record.name,
+        date: record.date,
+        ...(typeof record.time === "string" ? { time: record.time } : {}),
+        priceKAS: record.priceKAS,
+        orgSpk: record.orgSpk,
+        ...(typeof record.burnTemplateHash === "string"
+          ? { burnTemplateHash: record.burnTemplateHash }
+          : {}),
+        ...kccKeysFrom(record),
       };
     }
 
     // Legacy format — {n, d, p} (no orgSpk/burnTemplateHash)
     if (
-      typeof parsed.n === "string" &&
-      typeof parsed.d === "string" &&
-      typeof parsed.p === "number"
+      typeof record.n === "string" &&
+      typeof record.d === "string" &&
+      typeof record.p === "number"
     ) {
       return {
-        name: parsed.n,
-        date: parsed.d,
-        priceKAS: parsed.p / 100_000_000,
+        name: record.n,
+        date: record.d,
+        priceKAS: record.p / 100_000_000,
         orgSpk: "",
-        burnTemplateHash: "",
       };
     }
 
@@ -305,10 +375,66 @@ function inputsWithTicket(ticketOutpoint: Outpoint, payers: readonly Outpoint[])
   return [asInput(ticketOutpoint), ...payerInputs(payers)];
 }
 
-// --- deploy (one event covenant) -------------------------------------------
+// --- deploy (preparation tx + one event covenant) ---------------------------
+//
+// KCC-23 deploys are two transactions:
+//
+//   prep    — spends the organizer's KAS, creates one P2PK output, and carries
+//             the `0x00 || UTF-8 JSON` metadata declaration in its payload.
+//   genesis — spends that prep output (input 0, the authorizing input) and
+//             creates the event covenant, so the covenant id commits to the
+//             metadata through the prep txid.
+
+export interface MetadataPrepInput {
+  /** Funding UTXOs the preparation tx spends (the organizer's KAS). */
+  payerUtxos: readonly Outpoint[];
+  /** Values (sompi) of those inputs, in input order. */
+  payerUtxoValues: readonly number[];
+  /** The organizer's P2PK output script — the output the genesis tx spends. */
+  ownerScript: ScriptPublicKey;
+  /** Network fee in sompi (paid by the organizer). */
+  fee: number;
+  /** The KCC-23 declaration bound to the event's covenant id (absent for a
+   *  nameless deploy — the prep tx then simply has no payload). */
+  metadata?: MetadataDeclaration;
+}
+
+/**
+ * Build the KCC-23 preparation transaction: it spends the organizer's UTXOs
+ * into one P2PK output and commits the metadata declaration in its payload.
+ *
+ * The output the event covenant's genesis transaction spends must be output 0,
+ * so a single output (all inputs minus the fee) keeps the binding unambiguous —
+ * there is no change output to confuse the reading.
+ */
+export function buildMetadataPrep(input: MetadataPrepInput): UnsignedTransaction {
+  if (!Number.isSafeInteger(input.fee) || input.fee < 0) {
+    throw new Error(`fee ${input.fee} is invalid`);
+  }
+  validatePairedValues(input.payerUtxoValues, input.payerUtxos, "payer");
+  if (input.payerUtxos.length === 0) {
+    throw new Error("a preparation transaction needs at least one input");
+  }
+  const total = totalOf(input.payerUtxoValues);
+  const value = total - input.fee;
+  if (value <= 0) {
+    throw new Error(`payer inputs ${total} cannot cover the preparation fee ${input.fee}`);
+  }
+  return {
+    version: TX_VERSION_V1,
+    inputs: payerInputs(input.payerUtxos),
+    outputs: [{ value, scriptPublicKey: input.ownerScript, covenant: null }],
+    lockTime: 0,
+    ...(input.metadata ? { payload: encodeMetadataPayload(input.metadata) } : {}),
+  };
+}
 
 export interface DeployInput {
-  /** Organizer KAS UTXO (input index 0) authorizing the deploy. */
+  /**
+   * The preparation transaction's output 0 — the authorizing input. The event
+   * covenant id commits to this outpoint (and therefore to the KCC-23
+   * metadata in the prep tx payload).
+   */
   authorizingOutpoint: Outpoint;
   /** Additional organizer KAS UTXOs funding the fee. */
   organizerUtxos: Outpoint[];
@@ -325,10 +451,6 @@ export interface DeployInput {
   /** Network fee in sompi (paid by the organizer). */
   fee: number;
   network: AddressNetwork;
-  /** Optional KCC-20 metadata output (name, date, price). When set, a data
-   *  output is inserted between the event covenant and the change output so
-   *  anyone can read event info from the chain. */
-  metadata?: EventMetadata;
 }
 
 export interface DeployResult {
@@ -402,7 +524,6 @@ export function buildDeploy(input: DeployInput): DeployResult {
         changeOutput(input.changeScript, change),
       ],
       lockTime: 0,
-      ...(input.metadata ? { payload: encodeMetadataPayload(input.metadata) } : {}),
     },
     eventCovenantId,
     eventOutputIndex: 0,

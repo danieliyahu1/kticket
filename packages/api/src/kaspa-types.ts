@@ -51,7 +51,7 @@ export interface TxModel {
   accepting_block_time?: number;
   inputs: TxInput[];
   outputs: TxOutput[];
-  /** Hex-encoded payload (KCC-0021 metadata for deploy txs). */
+  /** Hex-encoded payload (KCC-23 metadata on the preparation tx). */
   payload?: string;
 }
 

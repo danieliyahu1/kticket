@@ -45,7 +45,7 @@ export interface UnsignedTransaction {
   inputs: TxInput[];
   outputs: TxOutput[];
   lockTime: number;
-  /** Hex-encoded payload (KCC-0021: covenant metadata in genesis tx payload). */
+  /** Hex-encoded payload (KCC-23 metadata declaration on the prep tx). */
   payload?: string;
 }
 

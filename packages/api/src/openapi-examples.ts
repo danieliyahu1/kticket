@@ -31,6 +31,39 @@ export const EXAMPLE_AUTHORIZING_TXID = AUTHORIZING_TXID;
 export const EXAMPLE_TICKET_ID = `bb${"00".repeat(31)}:0`;
 export const EXAMPLE_SELLER_PKH = `02${"03".repeat(31)}`;
 
+/** The KCC-23 preparation tx: one organizer output + the metadata in its payload. */
+export const PREPARATION_TRANSACTION_EXAMPLE = {
+  version: 1,
+  inputs: [
+    {
+      previous_outpoint: { transaction_id: AUTHORIZING_TXID, index: 0 },
+      signature_script: "",
+      sequence: 0,
+      sig_op_count: 50,
+    },
+  ],
+  outputs: [
+    {
+      value: 99_000_000,
+      script_public_key: { version: 0, script: ORG_SPK },
+      covenant: null,
+    },
+  ],
+  lock_time: 0,
+  payload:
+    "00" +
+    Buffer.from(
+      JSON.stringify({
+        name: "Testnet Rave",
+        date: "2026-12-31",
+        time: "20:00",
+        priceKAS: 0.00001,
+        orgSpk: ORG_SPK,
+      }),
+      "utf8",
+    ).toString("hex"),
+} as const;
+
 export const OPENAPI_EXAMPLES = {
   event: {
     covenant_id: COVENANT_ID,

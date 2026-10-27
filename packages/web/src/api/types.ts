@@ -42,6 +42,8 @@ export interface WireTransaction {
   inputs: WireInput[];
   outputs: WireOutput[];
   lock_time: number;
+  /** Hex-encoded payload (KCC-23 metadata on the preparation tx). */
+  payload?: string;
 }
 
 export interface BuildResult {
@@ -67,13 +69,30 @@ export interface DeployPrepareRequest {
   date?: string;
   /** Local wall-clock start time (HH:MM). */
   time?: string;
+  /** Ecosystem token-metadata keys, declared in the KCC-23 payload. */
+  ticker?: string;
+  decimals?: number;
+  image?: string;
+  image_hash?: string;
 }
 
 export interface DeployPrepareResult {
-  /** Correlation id echoed back on finalize so the backend can spot abandoned prepares. */
+  /** Correlation id echoed back on genesis and finalize so the backend can spot abandoned prepares. */
   deploy_id: string;
-  signing_template: string;
-  event_covenant_id?: string;
-  /** The unsigned template the wallet signed — relayed back in finalize. */
-  template: WireTransaction;
+  /** The KCC-23 preparation transaction: payload + output the genesis tx spends. */
+  preparation: {
+    template: WireTransaction;
+    signing_template: string;
+  };
+}
+
+export interface DeployGenesisResult {
+  /** The preparation txid — the tx whose payload commits the metadata. */
+  preparation_txid: string;
+  event_covenant_id: string;
+  /** The genesis transaction: it spends the preparation output at input 0. */
+  genesis: {
+    template: WireTransaction;
+    signing_template: string;
+  };
 }

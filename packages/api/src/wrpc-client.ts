@@ -105,6 +105,17 @@ export async function buildWasmTransaction(tx: WireTransaction): Promise<unknown
 }
 
 /**
+ * The consensus transaction id of a signed v1 wire template — computed without
+ * broadcasting. A preparation tx retried across calls has identical signed
+ * bytes (and therefore an identical id), so this lets genesis recognise an
+ * already-relayed preparation instead of double-spending it.
+ */
+export async function transactionIdOf(tx: WireTransaction): Promise<string> {
+  const wasmTx = (await buildWasmTransaction(tx)) as { id: string };
+  return wasmTx.id.toLowerCase();
+}
+
+/**
  * Submit a signed v1 transaction over wRPC, preserving covenant bindings.
  * Returns the transaction id, or throws with the node's rejection message.
  *

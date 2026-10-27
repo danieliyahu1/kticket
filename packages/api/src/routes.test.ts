@@ -2,10 +2,13 @@ import {
   addressFromScriptHash,
   buildBuy,
   buildDeploy,
+  covenantId,
+  encodeMetadataPayload,
   injectState,
   NETWORKS,
   p2pkAddress,
   p2shScript,
+  type MetadataDeclaration,
   type UnsignedTransaction,
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
@@ -21,6 +24,7 @@ import { VerifiedEventCache } from "./verified-cache";
 
 vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
+  transactionIdOf: vi.fn(),
 }));
 
 vi.mock("./compiler.js", async () => {
@@ -28,9 +32,10 @@ vi.mock("./compiler.js", async () => {
   return createCompilerMock();
 });
 
-import { submitTransactionOverWrpc } from "./wrpc-client.js";
+import { submitTransactionOverWrpc, transactionIdOf } from "./wrpc-client.js";
 
 const mockedSubmit = vi.mocked(submitTransactionOverWrpc);
+const mockedTxId = vi.mocked(transactionIdOf);
 
 import type { KaspaClientLike } from "./kaspa-client";
 import type {
@@ -101,10 +106,7 @@ function makeStoredEvent(overrides: Partial<StoredEvent> = {}): StoredEvent {
   };
 }
 
-function deployTxWithCapacity(
-  capacity: number,
-  metaOverrides: Record<string, unknown> = {},
-): TxModel {
+function deployTxWithCapacity(capacity: number): TxModel {
   const { tx } = buildDeploy({
     authorizingOutpoint: { txId: hexToBytes(AUTH_TXID_HEX), index: 0 },
     organizerUtxos: [],
@@ -115,15 +117,6 @@ function deployTxWithCapacity(
     changeScript: { version: 0, script: "51" },
     fee: 1_000,
     network: NETWORK,
-    metadata: {
-      name: EVENT_NAME,
-      date: EVENT_DATE,
-      time: EVENT_TIME,
-      priceKAS: EVENT_PRICE / 100_000_000,
-      orgSpk: ORG_SPK_HEX,
-      burnTemplateHash: BURN_TEMPLATE_HASH,
-      ...metaOverrides,
-    },
   });
   return {
     transaction_id: G_ID,
@@ -142,10 +135,10 @@ function deployTxWithCapacity(
       covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
       covenant_id: output.covenant?.covenantId ?? null,
     })),
-    payload: tx.payload,
   };
 }
 
+/** The output the genesis tx spends — plain organizer P2PK, no payload. */
 function fundingTx(): TxModel {
   return {
     transaction_id: AUTH_TXID,
@@ -158,6 +151,22 @@ function fundingTx(): TxModel {
         script_public_key: ORG_SPK_HEX,
       },
     ],
+  };
+}
+
+/** The KCC-23 preparation tx: one output for genesis + the declaration payload. */
+function preparationTx(metaOverrides: Partial<MetadataDeclaration> = {}): TxModel {
+  return {
+    ...fundingTx(),
+    version: 1,
+    payload: encodeMetadataPayload({
+      name: EVENT_NAME,
+      date: EVENT_DATE,
+      time: EVENT_TIME,
+      priceKAS: EVENT_PRICE / 100_000_000,
+      orgSpk: ORG_SPK_HEX,
+      ...metaOverrides,
+    }),
   };
 }
 
@@ -245,7 +254,7 @@ function readerApp(
 }
 
 function seedVerifiedEvent(kaspa: FakeKaspa): void {
-  kaspa.transactions.set(AUTH_TXID, fundingTx());
+  kaspa.transactions.set(AUTH_TXID, preparationTx());
   kaspa.transactions.set(G_ID, deployTx());
 }
 
@@ -336,6 +345,7 @@ describe("reader routes (KTK-89) — event detail", () => {
       raw_chain: {
         deploy_txid: G_ID,
         authorizing_txid: AUTH_TXID,
+        metadata_txid: AUTH_TXID,
         maker_address: p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK),
         decoded_state: { owner: ORG_PKH_HEX, capacity: 2 },
       },
@@ -345,19 +355,16 @@ describe("reader routes (KTK-89) — event detail", () => {
     await app.close();
   });
 
-  it("GET /v1/events/{id} surfaces the KCC-0021 standard keys when set", async () => {
+  it("GET /v1/events/{id} surfaces the ecosystem token keys when set", async () => {
     const IMAGE_HASH_UPPER = "3B8C4E0F2A1D6B9C7E5F4A2D8B0C1E3F6A9D2C5B8E1F4A7D0C3B6E9F2A5D8C1B";
     const kaspa = new FakeKaspa();
-    kaspa.transactions.set(AUTH_TXID, fundingTx());
-    kaspa.transactions.set(
-      G_ID,
-      deployTxWithCapacity(EVENT_CAPACITY, {
-        ticker: "RAVE",
-        decimals: 0,
-        image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
-        image_hash: IMAGE_HASH_UPPER,
-      }),
-    );
+    kaspa.transactions.set(AUTH_TXID, preparationTx({
+      ticker: "RAVE",
+      decimals: 0,
+      image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      image_hash: IMAGE_HASH_UPPER,
+    }));
+    kaspa.transactions.set(G_ID, deployTxWithCapacity(EVENT_CAPACITY));
     const app = await readerApp(kaspa);
     const res = await app.inject({ method: "GET", url: `/v1/events/${TEST_COVENANT_ID}` });
     expect(res.statusCode).toBe(HTTP_OK);
@@ -572,6 +579,8 @@ class FakeKaspa implements KaspaClientLike {
   utxoMap = new Map<string, UtxoResponse[]>();
   txMap = new Map<string, TxModel[]>();
   transactions = new Map<string, TxModel>();
+  /** Tx ids that were relayed but are not indexed yet. */
+  pendingTxIds = new Set<string>();
   feeEstimate: FeeEstimateResponse = {
     priorityBucket: { feerate: 200, estimatedSeconds: 1 },
     normalBuckets: [],
@@ -598,7 +607,10 @@ class FakeKaspa implements KaspaClientLike {
   }
 
   async getTransaction(txId: string): Promise<TxModel | null> {
-    return this.transactions.get(txId.toLowerCase()) ?? null;
+    const id = txId.toLowerCase();
+    // Relayed but not indexed yet (mempool lag) — the node has no record.
+    if (this.pendingTxIds.has(id)) return null;
+    return this.transactions.get(id) ?? null;
   }
 
   async getFeeEstimate(): Promise<FeeEstimateResponse> {
@@ -1272,9 +1284,20 @@ describe("reader routes — POST /v1/events", () => {
   });
 });
 
-describe("POST /v1/events/deploy/prepare", () => {
+describe("POST /v1/events/deploy/prepare + /genesis", () => {
   const ORG_PUBKEY_HEX = `02${ORG_PKH_HEX}`;
   const ORG_ADDRESS = p2pkAddress(hexToBytes(ORG_PKH_HEX), NETWORK);
+  const PREPARATION_TXID = "cc".repeat(TXID_BYTE_LENGTH);
+
+  const PREPARE_BODY: Record<string, string | number> = {
+    capacity: EVENT_CAPACITY,
+    price_kas: EVENT_PRICE / 100_000_000,
+    publicKey: ORG_PUBKEY_HEX,
+    address: ORG_ADDRESS,
+    name: EVENT_NAME,
+    date: EVENT_DATE,
+    time: EVENT_TIME,
+  };
 
   function fundOrganizer(kaspa: FakeKaspa): void {
     kaspa.utxoMap.set(ORG_ADDRESS, [
@@ -1290,83 +1313,90 @@ describe("POST /v1/events/deploy/prepare", () => {
     ]);
   }
 
-  it("returns a signing template the wallet can sign", async () => {
-    const kaspa = new FakeKaspa();
-    fundOrganizer(kaspa);
-    const app = await buildApp(config(), {
+  function deployApp(kaspa: FakeKaspa, events: EventStore = makeEventStore()) {
+    return buildApp(config(), {
       kaspa,
-      events: makeEventStore(),
+      events,
       network: NETWORK,
       networkId: "testnet-10",
       verified: new VerifiedEventCache(),
       listings: new ListingStoreFile(),
     });
-    const res = await app.inject({
-      method: "POST",
-      url: "/v1/events/deploy/prepare",
-      payload: {
-        capacity: EVENT_CAPACITY,
-        price_kas: EVENT_PRICE / 100_000_000,
-        publicKey: ORG_PUBKEY_HEX,
-        address: ORG_ADDRESS,
-        name: EVENT_NAME,
-        date: EVENT_DATE,
-        time: EVENT_TIME,
-      },
-    });
+  }
+
+  async function prepare(app: Awaited<ReturnType<typeof deployApp>>, body = PREPARE_BODY) {
+    return app.inject({ method: "POST", url: "/v1/events/deploy/prepare", payload: body });
+  }
+
+  /** A wallet-shaped signing result: one signature push per kticket input. */
+  function signedInputs(template: { inputs: { previous_outpoint: { transaction_id: string; index: number } }[] }) {
+    return {
+      inputs: template.inputs.map((input) => ({
+        transactionId: input.previous_outpoint.transaction_id,
+        index: input.previous_outpoint.index,
+        signatureScript: `41${"ab".repeat(65)}`,
+      })),
+    };
+  }
+
+  it("returns the KCC-23 preparation template the wallet signs", async () => {
+    const kaspa = new FakeKaspa();
+    fundOrganizer(kaspa);
+    const app = await deployApp(kaspa);
+    const res = await prepare(app);
     expect(res.statusCode).toBe(HTTP_OK);
     const body = res.json();
     expect(typeof body.deploy_id).toBe("string");
-    expect(typeof body.signing_template).toBe("string");
-    const parsed = JSON.parse(body.signing_template);
+    expect(body.preparation).toBeDefined();
+    expect(body.event_covenant_id).toBeUndefined();
+
+    const { template } = body.preparation;
+    expect(typeof body.preparation.signing_template).toBe("string");
+    const parsed = JSON.parse(body.preparation.signing_template);
     expect(parsed.version).toBe(1);
     expect(parsed.inputs).toHaveLength(1);
     expect(parsed.inputs[0].utxo.scriptPublicKey).toContain("ac");
-    expect(body.event_covenant_id).toMatch(/^[0-9a-f]{64}$/);
+
+    // One organizer output, no covenant ? the output the genesis tx spends.
+    expect(template.outputs).toHaveLength(1);
+    expect(template.outputs[0].script_public_key.script).toBe(ORG_SPK_HEX);
+    expect(template.outputs[0].covenant).toBeNull();
+
+    // KCC-23: the payload starts with the 0x00 JSON codec byte.
+    expect(template.payload.startsWith("00")).toBe(true);
     await app.close();
   });
 
-  it("carries the KCC-0021 keys into the deploy template payload", async () => {
+  it("carries the event metadata into the KCC-23 preparation payload", async () => {
     const kaspa = new FakeKaspa();
     fundOrganizer(kaspa);
-    const app = await buildApp(config(), {
-      kaspa,
-      events: makeEventStore(),
-      network: NETWORK,
-      networkId: "testnet-10",
-      verified: new VerifiedEventCache(),
-      listings: new ListingStoreFile(),
-    });
-    const res = await app.inject({
-      method: "POST",
-      url: "/v1/events/deploy/prepare",
-      payload: {
-        capacity: EVENT_CAPACITY,
-        price_kas: EVENT_PRICE / 100_000_000,
-        publicKey: ORG_PUBKEY_HEX,
-        address: ORG_ADDRESS,
-        name: EVENT_NAME,
-        date: EVENT_DATE,
-        time: EVENT_TIME,
-        ticker: "RAVE",
-        decimals: 0,
-        image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
-        image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
-      },
-    });
-    expect(res.statusCode).toBe(HTTP_OK);
-    const payloadJson = res.json().template?.payload;
-    expect(typeof payloadJson).toBe("string");
-    const parsed = JSON.parse(
-      new TextDecoder().decode(Uint8Array.from(Buffer.from(payloadJson, "hex"))),
-    );
-    expect(parsed).toMatchObject({
-      name: EVENT_NAME,
+    const app = await deployApp(kaspa);
+    const res = await prepare(app, {
+      ...PREPARE_BODY,
       ticker: "RAVE",
       decimals: 0,
       image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
       image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
     });
+    expect(res.statusCode).toBe(HTTP_OK);
+    const payload = res.json().preparation.template.payload;
+    expect(typeof payload).toBe("string");
+    expect(payload.startsWith("00")).toBe(true);
+    const parsed = JSON.parse(
+      new TextDecoder().decode(Uint8Array.from(Buffer.from(payload.slice(2), "hex"))),
+    );
+    expect(parsed).toMatchObject({
+      name: EVENT_NAME,
+      date: EVENT_DATE,
+      time: EVENT_TIME,
+      priceKAS: EVENT_PRICE / 100_000_000,
+      orgSpk: ORG_SPK_HEX,
+      ticker: "RAVE",
+      decimals: 0,
+      image: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+      image_hash: "3b8c4e0f2a1d6b9c7e5f4a2d8b0c1e3f6a9d2c5b8e1f4a7d0c3b6e9f2a5d8c1b",
+    });
+    expect(parsed).not.toHaveProperty("burnTemplateHash");
     await app.close();
   });
 
@@ -1375,15 +1405,7 @@ describe("POST /v1/events/deploy/prepare", () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/events/deploy/prepare",
-      payload: {
-        capacity: EVENT_CAPACITY,
-        price_kas: EVENT_PRICE / 100_000_000,
-        publicKey: ORG_PUBKEY_HEX,
-        address: ORG_ADDRESS,
-        name: EVENT_NAME,
-        date: EVENT_DATE,
-        decimals: 300,
-      },
+      payload: { ...PREPARE_BODY, decimals: 300 },
     });
     expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");
@@ -1404,6 +1426,276 @@ describe("POST /v1/events/deploy/prepare", () => {
     });
     expect(res.statusCode).toBe(422);
     expect(res.json().error.type).toBe("policy");
+    await app.close();
+  });
+
+  it("publishes the preparation tx and returns the genesis template", async () => {
+    const kaspa = new FakeKaspa();
+    fundOrganizer(kaspa);
+    const app = await deployApp(kaspa);
+
+    const prepared = (await prepare(app)).json();
+    const preparation = prepared.preparation.template;
+    const preparationValue = preparation.outputs[0].value;
+
+    // The preparation tx is new: genesis relays it, then waits for the node to
+    // index it before reading its output.
+    mockedTxId.mockResolvedValue(PREPARATION_TXID);
+    kaspa.transactions.set(PREPARATION_TXID, {
+      transaction_id: PREPARATION_TXID,
+      version: 1,
+      inputs: [],
+      outputs: preparation.outputs.map((output: { value: number; script_public_key: unknown }, index: number) => ({
+        transaction_id: PREPARATION_TXID,
+        index,
+        amount: output.value,
+        script_public_key: (output.script_public_key as { script: string }).script,
+      })),
+      payload: preparation.payload,
+    });
+    kaspa.pendingTxIds.add(PREPARATION_TXID);
+    mockedSubmit.mockImplementation(async () => {
+      kaspa.pendingTxIds.delete(PREPARATION_TXID);
+      return PREPARATION_TXID;
+    });
+    // Once the preparation tx is accepted its output is spendable.
+    kaspa.utxoMap.set(ORG_ADDRESS, [
+      {
+        address: ORG_ADDRESS,
+        outpoint: { transactionId: PREPARATION_TXID, index: 0 },
+        utxoEntry: {
+          amount: String(preparationValue),
+          scriptPublicKey: { scriptPublicKey: ORG_SPK_HEX },
+          blockDaaScore: "536453100",
+          isCoinbase: false,
+        },
+      },
+    ]);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/genesis",
+      payload: {
+        ...PREPARE_BODY,
+        deploy_id: prepared.deploy_id,
+        preparation: { template: preparation, signed: signedInputs(preparation) },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_OK);
+    const body = res.json();
+    expect(body.preparation_txid).toBe(PREPARATION_TXID);
+    expect(body.event_covenant_id).toMatch(/^[0-9a-f]{64}$/);
+
+    // The genesis tx spends the preparation output at input 0 and carries no
+    // payload of its own: the metadata lives on the preparation tx.
+    expect(body.genesis.template.inputs).toHaveLength(1);
+    expect(body.genesis.template.inputs[0].previous_outpoint).toEqual({
+      transaction_id: PREPARATION_TXID,
+      index: 0,
+    });
+    expect(body.genesis.template.outputs[0].covenant).toEqual({
+      authorizing_input: 0,
+      covenant_id: body.event_covenant_id,
+    });
+    expect(body.genesis.template.payload).toBeUndefined();
+    expect(typeof body.genesis.signing_template).toBe("string");
+    // The covenant id commits to the preparation outpoint (which commits to the
+    // metadata payload) plus the genesis output group.
+    expect(body.event_covenant_id).toBe(
+      bytesToHex(
+        covenantId(
+          { txId: hexToBytes(PREPARATION_TXID), index: 0 },
+          [
+            {
+              index: 0,
+              value: body.genesis.template.outputs[0].value,
+              version: 0,
+              script: hexToBytes(body.genesis.template.outputs[0].script_public_key.script),
+            },
+          ],
+        ),
+      ),
+    );
+    await app.close();
+  });
+
+  it("does not re-broadcast a preparation tx that is already accepted", async () => {
+    const kaspa = new FakeKaspa();
+    fundOrganizer(kaspa);
+    const app = await deployApp(kaspa);
+
+    const prepared = (await prepare(app)).json();
+    const preparation = prepared.preparation.template;
+    mockedTxId.mockResolvedValue(PREPARATION_TXID);
+    kaspa.transactions.set(PREPARATION_TXID, {
+      transaction_id: PREPARATION_TXID,
+      version: 1,
+      inputs: [],
+      outputs: preparation.outputs.map((output: { value: number; script_public_key: unknown }, index: number) => ({
+        transaction_id: PREPARATION_TXID,
+        index,
+        amount: output.value,
+        script_public_key: (output.script_public_key as { script: string }).script,
+      })),
+      payload: preparation.payload,
+    });
+    kaspa.utxoMap.set(ORG_ADDRESS, [
+      {
+        address: ORG_ADDRESS,
+        outpoint: { transactionId: PREPARATION_TXID, index: 0 },
+        utxoEntry: {
+          amount: String(preparation.outputs[0].value),
+          scriptPublicKey: { scriptPublicKey: ORG_SPK_HEX },
+          blockDaaScore: "536453100",
+          isCoinbase: false,
+        },
+      },
+    ]);
+    const broadcastsBefore = mockedSubmit.mock.calls.length;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/genesis",
+      payload: {
+        ...PREPARE_BODY,
+        deploy_id: prepared.deploy_id,
+        preparation: { template: preparation, signed: signedInputs(preparation) },
+      },
+    });
+
+    // Retrying after a partial run must be safe: the preparation tx keeps its
+    // txid, so genesis resumes instead of double-spending it.
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(mockedSubmit.mock.calls.length).toBe(broadcastsBefore);
+    await app.close();
+  });
+
+  it("runs prepare → genesis → finalize as one deploy", async () => {
+    const kaspa = new FakeKaspa();
+    fundOrganizer(kaspa);
+    const events = new EventStore();
+    const app = await deployApp(kaspa, events);
+
+    // prepare: the KCC-23 preparation template.
+    const prepared = (await prepare(app)).json();
+    const preparation = prepared.preparation.template;
+
+    // genesis: relay the preparation tx, then build the genesis template.
+    mockedTxId.mockResolvedValue(PREPARATION_TXID);
+    kaspa.transactions.set(PREPARATION_TXID, {
+      transaction_id: PREPARATION_TXID,
+      version: 1,
+      inputs: [],
+      outputs: preparation.outputs.map((output: { value: number; script_public_key: unknown }, index: number) => ({
+        transaction_id: PREPARATION_TXID,
+        index,
+        amount: output.value,
+        script_public_key: (output.script_public_key as { script: string }).script,
+      })),
+      payload: preparation.payload,
+    });
+    kaspa.pendingTxIds.add(PREPARATION_TXID);
+    kaspa.utxoMap.set(ORG_ADDRESS, [
+      {
+        address: ORG_ADDRESS,
+        outpoint: { transactionId: PREPARATION_TXID, index: 0 },
+        utxoEntry: {
+          amount: String(preparation.outputs[0].value),
+          scriptPublicKey: { scriptPublicKey: ORG_SPK_HEX },
+          blockDaaScore: "536453100",
+          isCoinbase: false,
+        },
+      },
+    ]);
+    mockedSubmit
+      .mockImplementationOnce(async () => {
+        kaspa.pendingTxIds.delete(PREPARATION_TXID);
+        return PREPARATION_TXID;
+      })
+      .mockResolvedValueOnce(G_ID);
+
+    const genesis = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/genesis",
+      payload: {
+        ...PREPARE_BODY,
+        deploy_id: prepared.deploy_id,
+        preparation: { template: preparation, signed: signedInputs(preparation) },
+      },
+    });
+    expect(genesis.statusCode).toBe(HTTP_OK);
+    const genesisTemplate = genesis.json().genesis.template;
+
+    // finalize: the accepted genesis tx is what the chain will serve.
+    kaspa.transactions.set(G_ID, {
+      transaction_id: G_ID,
+      inputs: genesisTemplate.inputs.map((input: { previous_outpoint: { transaction_id: string; index: number }; signature_script: string }, index: number) => ({
+        transaction_id: input.previous_outpoint.transaction_id,
+        index,
+        previous_outpoint_hash: input.previous_outpoint.transaction_id,
+        previous_outpoint_index: String(input.previous_outpoint.index),
+        signature_script: input.signature_script,
+      })),
+      outputs: genesisTemplate.outputs.map(
+        (output: { value: number; script_public_key: { script: string }; covenant: { authorizing_input: number; covenant_id: string } | null }, index: number) => ({
+          transaction_id: G_ID,
+          index,
+          amount: output.value,
+          script_public_key: output.script_public_key.script,
+          covenant_authorizing_input: output.covenant?.authorizing_input ?? null,
+          covenant_id: output.covenant?.covenant_id ?? null,
+        }),
+      ),
+    });
+
+    const finalized = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/finalize",
+      payload: {
+        deploy_id: prepared.deploy_id,
+        template: genesisTemplate,
+        signed: signedInputs(genesisTemplate),
+      },
+    });
+    expect(finalized.statusCode).toBe(HTTP_OK);
+    const body = finalized.json();
+    expect(body.deploy_txid).toBe(G_ID);
+    expect(events.list()).toEqual([
+      {
+        covenantId: body.covenant_id,
+        deployTxId: G_ID,
+        organizerAddress: ORG_ADDRESS,
+      },
+    ]);
+    await app.close();
+  });
+
+  it("rejects a preparation payload that declares a different event", async () => {
+    const kaspa = new FakeKaspa();
+    fundOrganizer(kaspa);
+    const app = await deployApp(kaspa);
+    const prepared = (await prepare(app)).json();
+    mockedSubmit.mockResolvedValue(PREPARATION_TXID);
+    const broadcastsBefore = mockedSubmit.mock.calls.length;
+    const otherName = "Some Other Event";
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/genesis",
+      payload: {
+        ...PREPARE_BODY,
+        name: otherName,
+        deploy_id: prepared.deploy_id,
+        preparation: {
+          template: prepared.preparation.template,
+          signed: signedInputs(prepared.preparation.template),
+        },
+      },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    expect(res.json().error.message).toContain("preparation payload");
+    // Nothing was relayed: the mismatched declaration is rejected first.
+    expect(mockedSubmit.mock.calls.length).toBe(broadcastsBefore);
     await app.close();
   });
 });

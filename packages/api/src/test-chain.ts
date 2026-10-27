@@ -9,7 +9,7 @@ import {
   p2pkAddress,
   type UnsignedTransaction,
 } from "@kticket/kit";
-import { hexToBytes } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { buildApp } from "./app";
 import { loadConfig } from "./config";
 import { EventStore } from "./eventstore";
@@ -79,16 +79,10 @@ export function eventCovenantId(): string {
 export const TEST_COVENANT_ID = eventCovenantId();
 
 export function deployTx(): TxModel {
-  const { tx } = buildDeploy({
-    ...deployArgs(),
-    metadata: {
-      name: EVENT_NAME,
-      date: EVENT_DATE,
-      priceKAS: EVENT_PRICE / 100_000_000,
-      orgSpk: ORG_SPK_HEX,
-      burnTemplateHash: BURN_TEMPLATE_HASH,
-    },
-  });
+  const { tx } = buildDeploy(deployArgs());
+  // Legacy fixture: these deploys carried the metadata on the genesis payload
+  // itself (no KCC-23 preparation transaction). Verification must still accept
+  // them, so the payload is the bare JSON bytes the old encoder produced.
   return {
     transaction_id: G_ID,
     inputs: tx.inputs.map((input, index) => ({
@@ -106,7 +100,17 @@ export function deployTx(): TxModel {
       covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
       covenant_id: output.covenant?.covenantId ?? null,
     })),
-    payload: tx.payload,
+    payload: bytesToHex(
+      new TextEncoder().encode(
+        JSON.stringify({
+          name: EVENT_NAME,
+          date: EVENT_DATE,
+          priceKAS: EVENT_PRICE / 100_000_000,
+          orgSpk: ORG_SPK_HEX,
+          burnTemplateHash: BURN_TEMPLATE_HASH,
+        }),
+      ),
+    ),
   };
 }
 

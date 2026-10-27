@@ -183,6 +183,13 @@ accepted).
 
 ## Deploying an event
 
+Deploying is two transactions under **KCC-23 "Metadata JSON"**: a *preparation*
+transaction carries the metadata declaration and creates one output, then the
+*genesis* transaction spends that output to create the event covenant. The
+covenant id commits to the preparation txid, which commits to the payload, so
+the declaration is bound to the token. Three stateless calls and two wallet
+signatures:
+
 ```http
 POST /v1/events/deploy/prepare
 Content-Type: application/json
@@ -204,10 +211,42 @@ Content-Type: application/json
 - `address` is where the server fetches funding UTXOs; it must hold spendable
   funds.
 - `name` and `date` must be provided together; `time` requires `date`.
-- Optional KCC-0021 metadata: `ticker`, `decimals`, `image`, `image_hash`.
+- Optional metadata keys: `ticker`, `decimals`, `image`, `image_hash`.
 
-The server derives the organizer identity and change script from `publicKey`; it
-never trusts a caller-supplied owner or script. Sign the template and finalize:
+The response is the preparation round:
+
+```json
+{ "deploy_id": "...", "preparation": { "template": { ... }, "signing_template": "{...}" } }
+```
+
+`template.payload` is the KCC-23 declaration — `0x00` (the JSON codec byte)
+followed by the UTF-8 JSON object, hex-encoded, so `{}` would be `007b7d`. Sign
+`preparation.signing_template`, then send the same request fields plus the
+signed preparation transaction:
+
+```http
+POST /v1/events/deploy/genesis
+Content-Type: application/json
+
+{
+  ...same fields as prepare...,
+  "deploy_id": "...",
+  "preparation": { "template": { ... }, "signed": { ... } }
+}
+```
+
+The server relays the preparation transaction, waits until it is accepted, and
+returns the genesis round:
+
+```json
+{
+  "preparation_txid": "abab...",
+  "event_covenant_id": "234f...",
+  "genesis": { "template": { ... }, "signing_template": "{...}" }
+}
+```
+
+Sign `genesis.signing_template` and finalize with the genesis template:
 
 ```http
 POST /v1/events/deploy/finalize
@@ -223,6 +262,21 @@ Content-Type: application/json
 A successful finalize registers the event for discovery. To register an event
 deployed by another client, `POST /v1/events` with `{ "deploy_txid": "..." }`;
 the server verifies it on chain before recording it.
+
+The organizer pays the network fee twice (once per transaction). If `genesis`
+fails after the preparation tx was relayed, call it again with the same signed
+preparation: its txid is derived from the signed bytes, so the server resumes
+instead of double-spending. The declaration is fixed once the preparation tx is
+signed — change a metadata field and you get a different preparation tx and a
+different covenant id.
+
+Reading the binding back: `GET /v1/events/{covenant_id}` returns
+`raw_chain.metadata_txid` (the transaction whose payload carried the
+declaration) and `raw_chain.payload`. Under KCC-23 `metadata_txid` is the
+preparation txid and equals `raw_chain.authorizing_txid`; the genesis
+transaction's input 0 spends that transaction's output 0. Older events carried
+the payload on the genesis transaction itself; they still verify and report
+`metadata_txid` equal to `deploy_txid`.
 
 ## Buying a primary ticket
 

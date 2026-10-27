@@ -7,8 +7,10 @@ import {
   buildBuy,
   buildDeploy,
   buildHandover,
+  buildMetadataPrep,
   burnScript,
   burnTemplateHash,
+  decodeMetadataFromPayload,
   EVENT_DUST,
   TICKET_DUST,
 } from "./builder";
@@ -246,6 +248,59 @@ describe("golden template_hash (KTK-88 A6)", () => {
     );
     expect(bytesToHex(blake3(preimage))).toBe(
       bytesToHex(Uint8Array.from(EVENT_ARTIFACT.template_hash)),
+    );
+  });
+});
+
+describe("buildMetadataPrep (KCC-23 preparation transaction)", () => {
+  const PREP_FEE = 1_000;
+  const DUST_INPUT = 10_000_000_000;
+  const ownerSpk: ScriptPublicKey = { version: 0, script: "51" };
+  const meta = {
+    name: "Testnet Rave",
+    date: "2026-12-31",
+    priceKAS: 0.00001,
+    orgSpk: "20" + "01".repeat(32) + "ac",
+  };
+
+  function prepArgs(overrides: Partial<Parameters<typeof buildMetadataPrep>[0]> = {}) {
+    return {
+      payerUtxos: [AUTHORIZING],
+      payerUtxoValues: [DUST_INPUT],
+      ownerScript: ownerSpk,
+      fee: PREP_FEE,
+      metadata: meta,
+      ...overrides,
+    };
+  }
+
+  it("spends the organizer inputs into one owner output and declares the metadata", () => {
+    const tx = buildMetadataPrep(prepArgs());
+
+    expect(tx.version).toBe(1);
+    expect(tx.inputs).toHaveLength(1);
+    expect(tx.outputs).toHaveLength(1); // the output genesis spends — no change
+    const [output] = tx.outputs;
+    expect(output?.value).toBe(DUST_INPUT - PREP_FEE);
+    expect(output?.scriptPublicKey).toEqual(ownerSpk);
+    expect(output?.covenant).toBeNull();
+
+    // KCC-23: `0x00` + UTF-8 JSON in the payload, and nothing else.
+    expect(tx.payload?.startsWith("00")).toBe(true);
+    expect(decodeMetadataFromPayload(tx.payload)).toEqual(meta);
+  });
+
+  it("keeps the metadata off the genesis transaction (the prep tx commits it)", () => {
+    const { tx } = buildDeploy(deployArgs());
+    expect(tx.payload).toBeUndefined();
+  });
+
+  it("rejects inputs that cannot cover the fee", () => {
+    expect(() =>
+      buildMetadataPrep(prepArgs({ payerUtxoValues: [PREP_FEE] })),
+    ).toThrow(/cannot cover/);
+    expect(() => buildMetadataPrep(prepArgs({ payerUtxos: [], payerUtxoValues: [] }))).toThrow(
+      /at least one input/,
     );
   });
 });

@@ -28,13 +28,14 @@ The chain is the source of truth; the app is a thin wrapper:
   the verified facts (name, date, time, price, capacity, organizer) for the
   homepage cards. Events that fail verification are hidden.
 - `GET /v1/events/{covenant_id}` verifies the event from the chain on each read:
-  it fetches the deploy tx, decodes the KCC-0021 payload, checks the maker
-  (the deploy funding UTXO owner pubkey), and verifies the address commitment
-  (`P2SH(blake3(redeem))` reproduces the on-chain covenant output, which also
-  recovers capacity). Events that fail verification are hidden.
+  it fetches the genesis tx, follows input 0 to the KCC-23 preparation tx and
+  decodes its metadata payload (legacy deploys carried it on the genesis tx),
+  checks the maker (the spent output's owner pubkey), and verifies the address
+  commitment (`P2SH(blake3(redeem))` reproduces the on-chain covenant output,
+  which also recovers capacity). Events that fail verification are hidden.
 - Responses carry raw chain facts (`deploy_txid`, `authorizing_txid`,
-  `maker_address`, decoded constants + state, payload) so any displayed value
-  can be independently re-checked.
+  `metadata_txid`, `maker_address`, decoded constants + state, payload) so any
+  displayed value can be independently re-checked.
 - Deployed event facts are immutable (baked into the deploy tx), so verified
   reads are memoized in-process (`VerifiedEventCache`, no TTL) and the registry
   is re-verified in the background on boot (warm-up) — steady-state reads are

@@ -190,7 +190,8 @@ function wireSchemas(): JsonObject {
         payload: {
           type: "string",
           pattern: HEX_PATTERN,
-          description: "Hex-encoded transaction payload.",
+          description:
+            "Hex-encoded transaction payload. On a KCC-23 preparation tx it is the metadata declaration: `0x00` (JSON codec) followed by the UTF-8 JSON object, e.g. `007b7d` for `{}`.",
         },
       },
     },
@@ -252,6 +253,7 @@ function eventSchemas(): JsonObject {
       required: [
         "deploy_txid",
         "authorizing_txid",
+        "metadata_txid",
         "maker_address",
         "decoded_constants",
         "decoded_state",
@@ -260,6 +262,12 @@ function eventSchemas(): JsonObject {
       properties: {
         deploy_txid: { type: "string", pattern: HEX64_PATTERN },
         authorizing_txid: { type: "string", pattern: HEX64_PATTERN },
+        metadata_txid: {
+          type: ["string", "null"],
+          pattern: HEX64_PATTERN,
+          description:
+            "Transaction whose payload carried the KCC-23 metadata declaration (the preparation tx); legacy deploys carry it on the genesis tx. Null when the event declares no metadata.",
+        },
         maker_address: { type: "string" },
         decoded_constants: {
           type: "object",
@@ -278,7 +286,11 @@ function eventSchemas(): JsonObject {
             capacity: { type: "integer", minimum: 0, maximum: MAX_EVENT_CAPACITY },
           },
         },
-        payload: { type: ["string", "null"] },
+        payload: {
+          type: ["string", "null"],
+          description:
+            "The hex-encoded metadata payload, read from `metadata_txid`. Null when the event declares no metadata.",
+        },
       },
     },
     RegisterEventRequest: {
@@ -304,44 +316,91 @@ function eventSchemas(): JsonObject {
 }
 
 function deploySchemas(): JsonObject {
+  const prepareProperties: JsonObject = {
+    capacity: {
+      type: "integer",
+      minimum: 0,
+      maximum: MAX_EVENT_CAPACITY,
+      description: "Number of tickets the event can mint.",
+    },
+    price_kas: {
+      type: "number",
+      minimum: 0,
+      description: "Ticket price in KAS (not sompi).",
+    },
+    publicKey: PUBLIC_KEY_SCHEMA,
+    address: ADDRESS_SCHEMA,
+    name: { type: "string" },
+    date: { type: "string", description: "YYYY-MM-DD; required with `name`." },
+    time: { type: "string", description: "HH:MM; requires `date`." },
+    ticker: {
+      type: "string",
+      description: "Ecosystem token ticker, declared in the KCC-23 metadata.",
+    },
+    decimals: { type: "integer", minimum: 0, maximum: 255 },
+    image: { type: "string", description: "https:// or ipfs:// poster URI." },
+    image_hash: { type: "string", description: "sha256 of the poster, 64 hex." },
+  };
+  const signingRound: JsonObject = {
+    type: "object",
+    required: ["template", "signing_template"],
+    properties: {
+      template: jsonRef("WireTransaction"),
+      signing_template: {
+        type: "string",
+        description: "kaspa-wasm safe JSON the wallet signs.",
+      },
+    },
+  };
+  const signedTemplate: JsonObject = {
+    type: "object",
+    required: ["template", "signed"],
+    properties: {
+      template: jsonRef("WireTransaction"),
+      signed: jsonRef("SigningOutput"),
+    },
+  };
   return {
     DeployPrepareRequest: {
       type: "object",
+      description:
+        "The event to deploy. The backend derives the organizer payout and preparation output scripts from `publicKey`; it never trusts a caller-supplied owner or script.",
       required: ["capacity", "price_kas", "publicKey", "address"],
-      properties: {
-        capacity: {
-          type: "integer",
-          minimum: 0,
-          maximum: MAX_EVENT_CAPACITY,
-          description: "Number of tickets the event can mint.",
-        },
-        price_kas: {
-          type: "number",
-          minimum: 0,
-          description: "Ticket price in KAS (not sompi).",
-        },
-        publicKey: PUBLIC_KEY_SCHEMA,
-        address: ADDRESS_SCHEMA,
-        name: { type: "string" },
-        date: { type: "string", description: "YYYY-MM-DD; required with `name`." },
-        time: { type: "string", description: "HH:MM; requires `date`." },
-        ticker: { type: "string" },
-        decimals: { type: "integer", minimum: 0, maximum: 255 },
-        image: { type: "string" },
-        image_hash: { type: "string" },
-      },
+      properties: prepareProperties,
     },
     DeployPrepareResult: {
       type: "object",
-      required: ["deploy_id", "signing_template", "template"],
+      description:
+        "The KCC-23 preparation round: sign `preparation.signing_template`, then post it back with this request to `deploy/genesis`.",
+      required: ["deploy_id", "preparation"],
       properties: {
-        deploy_id: { type: "string", description: "Correlation id echoed on finalize." },
-        signing_template: {
+        deploy_id: {
           type: "string",
-          description: "kaspa-wasm safe JSON the wallet signs.",
+          description: "Correlation id echoed on genesis and finalize.",
         },
+        preparation: signingRound,
+      },
+    },
+    DeployGenesisRequest: {
+      type: "object",
+      description:
+        "The prepare request again, plus the deploy id and the signed preparation transaction. The backend relays it and returns the genesis template to sign.",
+      required: ["deploy_id", "preparation", "capacity", "price_kas", "publicKey", "address"],
+      properties: {
+        ...prepareProperties,
+        deploy_id: { type: "string" },
+        preparation: signedTemplate,
+      },
+    },
+    DeployGenesisResult: {
+      type: "object",
+      description:
+        "The genesis round: `preparation_txid` is the transaction whose payload commits the metadata; sign `genesis.signing_template` and post it to `deploy/finalize`.",
+      required: ["preparation_txid", "event_covenant_id", "genesis"],
+      properties: {
+        preparation_txid: { type: "string", pattern: HEX64_PATTERN },
         event_covenant_id: { type: "string", pattern: HEX64_PATTERN },
-        template: jsonRef("WireTransaction"),
+        genesis: signingRound,
       },
     },
     DeployFinalizeRequest: {
@@ -358,7 +417,11 @@ function deploySchemas(): JsonObject {
       required: ["covenant_id", "deploy_txid"],
       properties: {
         covenant_id: { type: "string", pattern: HEX64_PATTERN },
-        deploy_txid: { type: "string", pattern: HEX64_PATTERN },
+        deploy_txid: {
+          type: "string",
+          pattern: HEX64_PATTERN,
+          description: "The genesis transaction id.",
+        },
       },
     },
   };

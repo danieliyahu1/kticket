@@ -41,14 +41,6 @@ function deployModel(): TxModel {
     changeScript: { version: 0, script: "51" },
     fee: 1_000,
     network: NETWORK,
-    metadata: {
-      name: "Testnet Rave",
-      date: "2026-12-31",
-      time: "20:00",
-      priceKAS: 1_000 / 100_000_000,
-      orgSpk: ORG_SPK_HEX,
-      burnTemplateHash: BURN_TEMPLATE_HASH,
-    },
   });
   return {
     transaction_id: G_ID,
@@ -67,8 +59,22 @@ function deployModel(): TxModel {
       covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
       covenant_id: output.covenant?.covenantId ?? null,
     })),
-    payload: tx.payload,
+    payload: legacyMetadataPayload(),
   };
+}
+
+function legacyMetadataPayload(): string {
+  return bytesToHex(
+    new TextEncoder().encode(
+      JSON.stringify({
+        name: "Testnet Rave",
+        date: "2026-12-31",
+        time: "20:00",
+        priceKAS: 1_000 / 100_000_000,
+        orgSpk: ORG_SPK_HEX,
+      }),
+    ),
+  );
 }
 
 function fundingModel(): TxModel {

@@ -15,6 +15,7 @@ import {
   buildHandover,
   buildList,
   buildMarkUsed,
+  buildMetadataPrep,
   buildPurchase,
   injectState,
   pushData,
@@ -72,21 +73,6 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
   const values = [req.authorizing_outpoint.value, ...req.organizer_utxos.map((u) => u.value)];
   const metas =
     req.input_utxo_metas ?? [req.authorizing_outpoint, ...req.organizer_utxos].map(utxoMetaOf);
-  const metadata =
-    req.name !== undefined && req.date !== undefined
-      ? {
-          name: req.name,
-          ...(req.ticker !== undefined ? { ticker: req.ticker } : {}),
-          ...(req.decimals !== undefined ? { decimals: req.decimals } : {}),
-          ...(req.image !== undefined ? { image: req.image } : {}),
-          ...(req.image_hash !== undefined ? { image_hash: req.image_hash } : {}),
-          date: req.date,
-          ...(req.time !== undefined ? { time: req.time } : {}),
-          priceKAS: req.constants.price / 100_000_000,
-          orgSpk: req.constants.org_spk,
-          burnTemplateHash: burnHash,
-        }
-      : undefined;
   return {
     inputTotal: sum(values),
     payouts: [],
@@ -102,10 +88,49 @@ function deployBuild(req: BuildRequest & { type: "deploy" }): PreparedBuild {
         changeScript: toSpk(req.change_spk),
         fee,
         network: TESTNET10,
-        ...(metadata ? { metadata } : {}),
       });
       return { tx: deploy.tx, eventCovenantId: deploy.eventCovenantId };
     },
+  };
+}
+
+/**
+ * The KCC-23 preparation tx: spend the organizer's UTXOs into one owner output
+ * and declare the event metadata in the payload. The genesis tx spends that
+ * output, so its txid (and therefore the covenant id) commits to the metadata.
+ */
+function deployPreparationBuild(
+  req: BuildRequest & { type: "deployPreparation" },
+): PreparedBuild {
+  const values = req.payer_utxos.map((u) => u.value);
+  const metas = req.input_utxo_metas ?? req.payer_utxos.map(utxoMetaOf);
+  const metadata =
+    req.name !== undefined && req.date !== undefined
+      ? {
+          name: req.name,
+          ...(req.ticker !== undefined ? { ticker: req.ticker } : {}),
+          ...(req.decimals !== undefined ? { decimals: req.decimals } : {}),
+          ...(req.image !== undefined ? { image: req.image } : {}),
+          ...(req.image_hash !== undefined ? { image_hash: req.image_hash } : {}),
+          date: req.date,
+          ...(req.time !== undefined ? { time: req.time } : {}),
+          priceKAS: req.price / 100_000_000,
+          orgSpk: req.org_spk,
+        }
+      : undefined;
+  return {
+    inputTotal: sum(values),
+    payouts: [],
+    inputUtxoMetas: metas,
+    build: (fee) => ({
+      tx: buildMetadataPrep({
+        payerUtxos: req.payer_utxos.map((u) => toOutpoint(u)),
+        payerUtxoValues: values,
+        ownerScript: toSpk(req.owner_spk),
+        fee,
+        ...(metadata ? { metadata } : {}),
+      }),
+    }),
   };
 }
 
@@ -382,6 +407,8 @@ export async function preparedBuildFor(
   kaspa: KaspaClientLike,
 ): Promise<PreparedBuild> {
   switch (request.type) {
+    case "deployPreparation":
+      return deployPreparationBuild(request);
     case "deploy":
       return deployBuild(request);
     case "buy":

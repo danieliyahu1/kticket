@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWasmTransaction } from "./wrpc-client.js";
+import { buildWasmTransaction, transactionIdOf } from "./wrpc-client.js";
 import type { WireTransaction } from "./wire.js";
 
 const TXID_BYTE_LENGTH = 32;
@@ -114,5 +114,51 @@ describe("buildWasmTransaction â€” broadcast relay construction (KTK: outpoint i
       covenantId: EVENT_COVENANT_ID,
     });
     expect(typeof (tx as WasmTransaction).id).toBe("string");
+  });
+});
+
+describe("transactionIdOf — the KCC-23 preparation binding", () => {
+  /** A preparation tx: one organizer output, metadata in the payload. */
+  function preparationWire(payload: string): WireTransaction {
+    return {
+      version: 1,
+      inputs: [
+        {
+          previous_outpoint: { transaction_id: "11".repeat(TXID_BYTE_LENGTH), index: 0 },
+          signature_script: "",
+          sequence: 0,
+          sig_op_count: 0,
+        },
+      ],
+      outputs: [
+        {
+          value: 100_000_000,
+          script_public_key: { version: 0, script: "51" },
+          covenant: null,
+        },
+      ],
+      lock_time: 0,
+      payload,
+    };
+  }
+
+  it("returns the consensus id of the signed transaction", async () => {
+    const tx = preparationWire("007b7d");
+    const wasmTx = (await buildWasmTransaction(tx)) as WasmTransaction;
+    expect(await transactionIdOf(tx)).toBe(wasmTx.id.toLowerCase());
+    expect(await transactionIdOf(tx)).toBe(await transactionIdOf(tx));
+  });
+
+  it("commits to the exact payload bytes, so the metadata is bound", async () => {
+    // KCC-23 §3.1: `007b7d` = `{}`, the others declare different values.
+    const empty = await transactionIdOf(preparationWire("007b7d"));
+    const decimals8 = await transactionIdOf(
+      preparationWire("007b22646563696d616c73223a387d"),
+    );
+    const decimals9 = await transactionIdOf(
+      preparationWire("007b22646563696d616c73223a397d"),
+    );
+    expect(empty).not.toBe(decimals8);
+    expect(decimals8).not.toBe(decimals9);
   });
 });

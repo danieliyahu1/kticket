@@ -1,4 +1,5 @@
 import type {
+  DeployGenesisResult,
   DeployPrepareRequest,
   DeployPrepareResult,
   WireOutpoint,
@@ -158,9 +159,19 @@ export function createSession(
   });
 }
 
-/** prepare: backend fetches UTXOs + builds the unsigned template the wallet signs. */
+/** prepare: backend fetches UTXOs + builds the KCC-23 preparation template. */
 export function deployPrepare(req: DeployPrepareRequest): Promise<DeployPrepareResult> {
   return apiFetch<DeployPrepareResult>("/v1/events/deploy/prepare", req);
+}
+
+/** genesis: backend relays the prep tx and builds the genesis template. */
+export function deployGenesis(
+  req: DeployPrepareRequest & {
+    deploy_id: string;
+    preparation: { template: WireTransaction; signed: unknown };
+  },
+): Promise<DeployGenesisResult> {
+  return apiFetch<DeployGenesisResult>("/v1/events/deploy/genesis", req);
 }
 
 /** finalize: backend merges the signature, broadcasts, confirms, and registers. */

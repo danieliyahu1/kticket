@@ -148,6 +148,7 @@ describe("published documentation routes (KTK-155 / KTK-157)", () => {
       // The guide names every flow and the real field names a client sends back.
       for (const path of [
         "/v1/events/deploy/prepare",
+        "/v1/events/deploy/genesis",
         "/v1/tickets/{ticket_id}/use/prepare",
         "/v1/tickets/{ticket_id}/list/prepare",
         "/v1/tickets/{ticket_id}/delist/prepare",

@@ -5,7 +5,7 @@
 // The chain stores only `P2SH(blake3(redeem_script))` for a covenant output —
 // never the redeem script itself. So verification is *reconstruction*: recompile
 // the per-event artifact from chain-derived facts (authorizing outpoint, funding
-// UTXO owner, KCC-0021 payload) and check that the reconstructed P2SH commitment
+// UTXO owner, KCC-23 metadata payload) and check that the reconstructed P2SH commitment
 // equals the deploy output script on chain. If it matches, the constants (price,
 // org_spk, burn_template_hash) and state (owner, capacity) that produced it are
 // the ones the organizer actually deployed.

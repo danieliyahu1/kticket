@@ -3,7 +3,8 @@
 // verifies them before serving:
 //
 //   1. fetch the deploy tx by its id
-//   2. decode the KCC-0021 payload → name / date / price-label
+//   2. decode the KCC-23 payload from the preparation transaction (falling back
+//      to the genesis payload for legacy deploys) → name / date / price-label
 //   3. recover the constants from on-chain facts (authorizing outpoint, funding
 //      UTXO owner pubkey, derived burn template hash)
 //   4. maker check: the deploy input-0 previous UTXO (the organizer's funding
@@ -35,6 +36,9 @@ import { P2SH_SCRIPT } from "./validate.js";
 export interface RawChainFacts {
   deploy_txid: string;
   authorizing_txid: string;
+  /** Transaction whose payload carried the metadata declaration (KCC-23: the
+   *  preparation tx; legacy deploys: the genesis tx). `null` when none. */
+  metadata_txid: string | null;
   maker_address: string;
   decoded_constants: {
     price: number;
@@ -55,13 +59,13 @@ export interface VerifiedEvent {
   date: string;
   /** Local wall-clock start time (HH:MM), decoded from the payload; "" when absent. */
   time: string;
-  /** KCC-0021 short ticker (read alias `symbol`), decoded from the payload. */
+  /** Ecosystem short ticker (read alias `symbol`), decoded from the payload. */
   ticker: string;
-  /** KCC-0021 display decimals (default 0). */
+  /** Display decimals (default 0). */
   decimals: number;
-  /** KCC-0021 poster art URI (https:// or ipfs://), "" when absent. */
+  /** Poster art URI (https:// or ipfs://), "" when absent. */
   image: string;
-  /** KCC-0021 sha256 image hash (lowercase hex), "" when absent. */
+  /** Image sha256 (lowercase hex), "" when absent. */
   image_hash: string;
   /** Price per ticket in sompi — recovered from covenant constants (verified). */
   price: number;
@@ -123,10 +127,12 @@ export async function verifyEventFromChain(
   const fundingIndex = Number(authorizingInput.previous_outpoint_index ?? 0);
 
   // Maker check (HLD §2.2 step 4): the deploy input-0 previous UTXO is the
-  // organizer's funding output. Its script must be P2PK `20 <x> ac`, and the
-  // pubkey x is the covenant owner. Derive the trust-anchor address from it.
-  const funding = await kaspa.getTransaction(authorizingTxId);
-  const fundingScript = funding?.outputs?.[fundingIndex]?.script_public_key;
+  // output the genesis transaction spends — under KCC-23 the preparation tx's
+  // single output, which is the organizer's P2PK. Its script must be P2PK
+  // `20 <x> ac`, and the pubkey x is the covenant owner. Derive the trust-anchor
+  // address from it.
+  const preparation = await kaspa.getTransaction(authorizingTxId);
+  const fundingScript = preparation?.outputs?.[fundingIndex]?.script_public_key;
   if (typeof fundingScript !== "string") {
     throw invalidError("could not resolve the deploy authorizing UTXO");
   }
@@ -136,8 +142,21 @@ export async function verifyEventFromChain(
   }
   const organizerAddress = p2pkAddress(ownerPubkey, network);
 
-  // Decode KCC-0021 payload → name / date / time / standard keys / price-label.
-  const meta = decodeMetadataFromPayload(deploy.payload);
+  // Metadata decoding. KCC-23 binds the declaration to the covenant id by
+  // carrying it in the preparation tx payload; older deploys carried it on the
+  // genesis payload and are still accepted.
+  const preparationMeta = decodeMetadataFromPayload(preparation?.payload);
+  const deployMeta = decodeMetadataFromPayload(deploy.payload);
+  const meta = preparationMeta ?? deployMeta;
+  const metadataTxId = preparationMeta
+    ? authorizingTxId
+    : deployMeta
+      ? deployTxId.toLowerCase()
+      : null;
+  const metadataPayload = preparationMeta ? (preparation?.payload ?? null) : (deploy.payload ?? null);
+  if (preparationMeta && preparation?.version !== undefined && preparation.version !== 1) {
+    throw invalidError("the metadata preparation transaction must be version 1");
+  }
   const name = meta?.name ?? "";
   const date = meta?.date ?? "";
   const time = meta?.time ?? "";
@@ -201,10 +220,11 @@ export async function verifyEventFromChain(
     raw_chain: {
       deploy_txid: deployTxId.toLowerCase(),
       authorizing_txid: authorizingTxId,
+      metadata_txid: metadataTxId,
       maker_address: organizerAddress,
       decoded_constants: { price, org_spk: orgSpk, burn_template_hash: burnTemplateHash },
       decoded_state: { owner: bytesToHex(ownerPubkey), capacity },
-      payload: deploy.payload ?? null,
+      payload: metadataPayload,
     },
     artifact,
   };
