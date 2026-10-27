@@ -13,6 +13,26 @@ by event organisers and bought / held by attendees — all on chain.
 | `@kticket/api` | `packages/api` | Node.js + TypeScript (Fastify) | Stateless API — every read re-verifies event data from the chain (memoized); only an identifier registry (`deploy_txid`, `covenant_id`, `organizer_address`) is stored, for discovery. |
 | `@kticket/web` | `packages/web` | React + Vite + TypeScript | Monolith SPA — buyer and organiser flows, with a trust-anchor "Organized by" UI and anchor-based discovery links. |
 
+## Covenant model (KCC20-fork)
+
+The ticket covenant is a **KCC20-fork** — a fork of forge's pre-Final 4-field
+token layout. It is **not** an implementation of KCC-20 "Fungible Token
+Covenant Specification" Final: it keeps `owner`, `identifier_type`, `amount`,
+`is_minter`, `used`, and `sale_price` in its own order, exposes ticket
+entrypoints (`mint`, `use`, `mark_used`, `list`, `purchase`, `delist`) instead
+of `transfer`/`transfer_delegator`, and has no borrow fields and no
+`extension_commitment`.
+
+That gap is deliberate. The door (`used`) and resale (`sale_price`) are ticket
+semantics, and adopting the Final state record would change the bytecode and
+stop every deployed event from verifying. Wallets and explorers are served by
+KCC-23 metadata plus the kit's own program artifact, not by a KCC-20
+descriptor. The field mapping, interop path, and the adopted stay-a-fork
+decision are in
+[`packages/kit/docs/decisions/kcc20-fork.md`](packages/kit/docs/decisions/kcc20-fork.md);
+[`packages/kit/docs/README.md`](packages/kit/docs/README.md) indexes the other
+design records.
+
 ## Stateless backend & trustless provenance (KTK-89)
 
 The chain is the source of truth; the app is a thin wrapper:

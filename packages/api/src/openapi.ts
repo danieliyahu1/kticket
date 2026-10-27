@@ -44,7 +44,7 @@ export function openApiDocument(options: OpenApiOptions): JsonObject {
       title: "kticket API",
       version: "1.0.0",
       description:
-        "On-chain event ticketing on Kaspa. The HTTP API is the product: the browser app, a script, and an agent all use it the same way. Identity is wallet ownership — sign a server-issued challenge, then send the bearer token.",
+        "On-chain event ticketing on Kaspa. The HTTP API is the product: the browser app, a script, and an agent all use it the same way. Identity is wallet ownership — sign a server-issued challenge, then send the bearer token. Chain facts are kticket's own KCC20-fork covenant state; the covenant is not an implementation of KCC-20 Final.",
       license: { name: "MIT" },
     },
     servers: [{ url: options.origin, description: `kticket on ${options.network}` }],

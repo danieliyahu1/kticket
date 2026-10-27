@@ -68,6 +68,20 @@ function realSpaDirectory(): string {
   return directory;
 }
 
+/** Phrases that would claim KCC-20 Final conformance; the fork is deliberate. */
+const CONFORMANCE_CLAIMS = [
+  /KCC-?20[^.\n]{0,24}\bcompliant\b/i,
+  /KCC-?20[^.\n]{0,24}\bconformant\b/i,
+  /\bconforms?\s+to\s+KCC-?20\b/i,
+  /\bimplements?\s+KCC-?20\b/i,
+];
+
+function expectNoConformanceClaim(text: string, surface: string): void {
+  for (const claim of CONFORMANCE_CLAIMS) {
+    expect(text, `${surface} must not claim KCC-20 conformance`).not.toMatch(claim);
+  }
+}
+
 describe("published documentation routes (KTK-155 / KTK-157)", () => {
   it("serves the OpenAPI document at all three addresses", async () => {
     await withApp(async (app) => {
@@ -239,5 +253,30 @@ describe("published documentation routes (KTK-155 / KTK-157)", () => {
     } finally {
       await app.close();
     }
+  });
+
+  it("names the covenant a KCC20-fork on every public surface (KTK-179)", async () => {
+    const readme = readFileSync(new URL("../../../README.md", import.meta.url), "utf8");
+    expect(readme).toContain("KCC20-fork");
+    expectNoConformanceClaim(readme, "README.md");
+
+    // The decision record is the source of the naming; the kit docs index links it.
+    const kitIndex = readFileSync(new URL("../../kit/docs/README.md", import.meta.url), "utf8");
+    expect(kitIndex).toContain("decisions/kcc20-fork.md");
+
+    await withApp(async (app) => {
+      const guide = await app.inject({ method: "GET", url: AGENT_GUIDE_PATH });
+      expect(guide.body).toContain("KCC20-fork");
+      expectNoConformanceClaim(guide.body, AGENT_GUIDE_PATH);
+
+      const llms = await app.inject({ method: "GET", url: LLMS_TXT_PATH });
+      expect(llms.body).toContain("KCC20-fork");
+      expectNoConformanceClaim(llms.body, LLMS_TXT_PATH);
+
+      const contract = await app.inject({ method: "GET", url: OPENAPI_PATH });
+      const info = (contract.json() as { info?: { description?: string } }).info;
+      expect(info?.description).toContain("KCC20-fork");
+      expectNoConformanceClaim(info?.description ?? "", `${OPENAPI_PATH} info`);
+    });
   });
 });

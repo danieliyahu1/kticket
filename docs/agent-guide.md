@@ -124,6 +124,17 @@ registry claims:
 txid, authorizing txid, maker address, decoded constants, decoded state, and the
 raw payload. Use `raw_chain` if you need to re-check a displayed value yourself.
 
+### Covenant model
+
+The event covenant is a **KCC20-fork**, not an implementation of KCC-20 Final.
+Its chain state is kticket's own six-field layout (`owner`, `identifier_type`,
+`amount`, `is_minter`, `used`, `sale_price`) and its entrypoints are
+ticket-specific `mint` / `use` / `mark_used` / `list` / `purchase` / `delist` —
+there is no `transfer` or `transfer_delegator`, no borrow support, and no
+`extension_commitment`. Decode `raw_chain.state` as kticket state, not as a
+KCC-20 `KCC20State`. The field mapping is recorded in the repository at
+`packages/kit/docs/decisions/kcc20-fork.md`.
+
 ## Shareable event pages
 
 The browser page and the link preview are the same URL: `/events/{covenant_id}`.

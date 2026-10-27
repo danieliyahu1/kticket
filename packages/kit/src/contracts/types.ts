@@ -1,7 +1,13 @@
 // KCC20-fork covenant types (HLD v0.22 §2.1).
 //
-// The on-chain model follows forge's KCC20: state is
-// `(ownerIdentifier, identifierType, amount, isMinter)`. For kticket:
+// This is a *fork* of forge's pre-Final KCC-20 layout, not an implementation of
+// KCC-20 Final: no `transfer`/`transfer_delegator`, no borrow fields, and no
+// `extension_commitment`. See `packages/kit/docs/decisions/kcc20-fork.md` for
+// the gap, the field mapping for a future migration, and why ticket semantics
+// keep it a fork.
+//
+// The on-chain state is `(owner, identifierType, amount, isMinter)` plus `used`
+// and `salePrice`. For kticket:
 //
 //   - The event covenant starts with `amount = capacity` (remaining tickets)
 //     and `isMinter = false` (fixed supply). `mint` (buy) splits off one
@@ -19,6 +25,7 @@
 
 export type IdentifierType = 0 | 1 | 2;
 
+/** kticket's KCC20-fork state, in on-chain declaration order. */
 export interface Kcc20State {
   /** 32-byte owner identifier (pubkey / script hash / covenant id). */
   owner: Uint8Array;
