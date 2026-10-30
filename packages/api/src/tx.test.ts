@@ -82,6 +82,10 @@ class FakeKaspa implements KaspaClientLike {
     return this.transaction;
   }
 
+  async isTransactionAccepted(): Promise<boolean> {
+    throw new Error("isTransactionAccepted not used by these tests");
+  }
+
   clearCache(): void {}
 
   async getFeeEstimate(): Promise<FeeEstimateResponse> {

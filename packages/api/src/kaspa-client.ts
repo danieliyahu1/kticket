@@ -22,6 +22,7 @@ import type {
   FeeEstimateResponse,
   SubmitTransactionResponse,
   SubmitTxModel,
+  TransactionAcceptance,
   TxMass,
   TxModel,
   UtxoResponse,
@@ -36,6 +37,13 @@ export interface KaspaClientLike {
   getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]>;
   getFullTransactions(address: string, limit?: number): Promise<TxModel[]>;
   getTransaction(txId: string): Promise<TxModel | null>;
+  /**
+   * Whether the ledger has accepted the transaction. Acceptance is the only
+   * signal that its outputs exist, so it is what a caller waits on before
+   * reporting a broadcast as done. Never cached: the answer changes under a
+   * poller, and a stale "not yet" or "yes" would misreport a settlement.
+   */
+  isTransactionAccepted(txId: string): Promise<boolean>;
   getFeeEstimate(): Promise<FeeEstimateResponse>;
   computeMass(tx: SubmitTxModel): Promise<TxMass>;
   broadcastTransaction(tx: SubmitTxModel): Promise<SubmitTransactionResponse>;
@@ -233,6 +241,13 @@ export class KaspaClient implements KaspaClientLike {
       if (err instanceof UpstreamRequestError && err.status === HTTP_NOT_FOUND) return null;
       throw err;
     }
+  }
+
+  async isTransactionAccepted(txId: string): Promise<boolean> {
+    const rows = (await this.#request("transaction_acceptance", "/transactions/acceptance", 0, "POST", {
+      transactionIds: [txId.toLowerCase()],
+    })) as TransactionAcceptance[] | undefined;
+    return Array.isArray(rows) && rows[0]?.accepted === true;
   }
 
   async getFeeEstimate(): Promise<FeeEstimateResponse> {

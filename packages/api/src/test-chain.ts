@@ -169,6 +169,8 @@ export function buyTx(): TxModel {
 export class FakeKaspa implements KaspaClientLike {
   utxoMap = new Map<string, UtxoResponse[]>();
   transactions = new Map<string, TxModel>();
+  /** Transactions the ledger has not accepted yet — served, but only indexed. */
+  unaccepted = new Set<string>();
   feeEstimate: FeeEstimateResponse = {
     priorityBucket: { feerate: 200, estimatedSeconds: 1 },
     normalBuckets: [],
@@ -191,6 +193,11 @@ export class FakeKaspa implements KaspaClientLike {
   }
   async getTransaction(txId: string): Promise<TxModel | null> {
     return this.transactions.get(txId.toLowerCase()) ?? null;
+  }
+  /** A registered transaction is accepted unless a test marks it otherwise. */
+  async isTransactionAccepted(txId: string): Promise<boolean> {
+    const id = txId.toLowerCase();
+    return this.transactions.has(id) && !this.unaccepted.has(id);
   }
   async getFeeEstimate(): Promise<FeeEstimateResponse> {
     return this.feeEstimate;

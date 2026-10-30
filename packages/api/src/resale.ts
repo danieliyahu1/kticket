@@ -32,7 +32,7 @@ import {
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { invalidError, notFoundError, policyError } from "./errors.js";
-import { broadcastAndConfirm } from "./flow.js";
+import { broadcastAndConfirm, type BroadcastOutcome } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
 import type { ListingStore } from "./listings.js";
@@ -365,7 +365,7 @@ export async function listFinalize(
   ticketIdValue: unknown,
   raw: unknown,
   ctx: ResaleContext,
-): Promise<{ txid: string }> {
+): Promise<BroadcastOutcome> {
   const req = parseSignedTemplateWithPrice(raw);
   const { txid, index } = parseTicketId(ticketIdValue);
   assertInputZeroIsTicket(req.template, txid, index);
@@ -401,17 +401,19 @@ export async function listFinalize(
     throw policyError("listing output does not commit to the asking price");
   }
 
-  const finalTxid = await broadcastAndConfirm(merged, {}, ctx, () => {});
+  const outcome = await broadcastAndConfirm(merged, {}, ctx, () => {});
   // The listed UTXO now lives at the NEW outpoint (<final txid>:0 — buildList
   // always puts the covenant output first). Index THAT, not the spent one:
-  // every later read proves the live coin against its listed-state address.
+  // every later read proves the live coin against its listed-state address, so
+  // a pending broadcast that never settles leaves a row the reads simply
+  // ignore.
   await ctx.listings.upsert({
     covenantId: verified.covenant_id,
-    ticketId: `${finalTxid}:0`,
+    ticketId: `${outcome.txid}:0`,
     sellerPkh: bytesToHex(owner),
     price: req.price,
   });
-  return { txid: finalTxid };
+  return outcome;
 }
 
 // --- delist ------------------------------------------------------------------
@@ -478,7 +480,7 @@ export async function delistFinalize(
   ticketIdValue: unknown,
   raw: unknown,
   ctx: ResaleContext,
-): Promise<{ txid: string }> {
+): Promise<BroadcastOutcome> {
   const req = parseSignedTemplate(raw);
   const { txid, index } = parseTicketId(ticketIdValue);
   assertInputZeroIsTicket(req.template, txid, index);
@@ -521,9 +523,9 @@ export async function delistFinalize(
     throw policyError("delist output does not clear the listing");
   }
 
-  const finalTxid = await broadcastAndConfirm(merged, {}, ctx, () => {});
+  const outcome = await broadcastAndConfirm(merged, {}, ctx, () => {});
   await ctx.listings.remove(verified.covenant_id, `${txid}:${index}`);
-  return { txid: finalTxid };
+  return outcome;
 }
 
 // --- purchase ----------------------------------------------------------------
@@ -608,7 +610,7 @@ export async function purchaseFinalize(
   ticketIdValue: unknown,
   raw: unknown,
   ctx: ResaleContext,
-): Promise<{ txid: string }> {
+): Promise<BroadcastOutcome> {
   const req = parseSignedTemplate(raw);
   const { txid, index } = parseTicketId(ticketIdValue);
   assertInputZeroIsTicket(req.template, txid, index);
@@ -635,9 +637,9 @@ export async function purchaseFinalize(
     throw policyError("template is not a purchase (no covenant output)");
   }
 
-  const finalTxid = await broadcastAndConfirm(req.template, req.signed, ctx, () => {});
+  const outcome = await broadcastAndConfirm(req.template, req.signed, ctx, () => {});
   await ctx.listings.remove(verified.covenant_id, `${txid}:${index}`);
-  return { txid: finalTxid };
+  return outcome;
 }
 
 // --- listings directory ------------------------------------------------------

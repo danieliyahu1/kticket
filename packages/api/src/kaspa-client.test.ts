@@ -19,6 +19,7 @@ const BASE_RETRY_MS = 100;
 const CACHE_TTL_EXPIRED = 3001;
 const DISTINCT_CACHE_KEYS = 3;
 const PRIORITY_FEERATE = 100;
+const TXID = "ab".repeat(32);
 
 const ADDRESS_UTXOS = [
   {
@@ -278,6 +279,61 @@ describe("KaspaClient — caching (KTK-5)", () => {
     expect(calls).toBe(1);
     client.clearCache();
     await client.getUtxos("kaspatest:a");
+    expect(calls).toBe(2);
+  });
+});
+
+describe("KaspaClient — transaction acceptance", () => {
+  it("asks the acceptance endpoint about one txid and reads its verdict", async () => {
+    const { fetchFn, calls } = fetchFrom([
+      {
+        match: (u) => u.endsWith("/transactions/acceptance"),
+        respond: () => jsonResponse(HTTP_OK, [{ transactionId: TXID, accepted: true }]),
+      },
+    ]);
+    const client = makeClient(fetchFn);
+
+    await expect(client.isTransactionAccepted(TXID)).resolves.toBe(true);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.init?.method).toBe("POST");
+    expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ transactionIds: [TXID] });
+  });
+
+  it("treats a transaction the ledger has not accepted as false", async () => {
+    const { fetchFn } = fetchFrom([
+      {
+        match: (u) => u.endsWith("/transactions/acceptance"),
+        respond: () => jsonResponse(HTTP_OK, [{ transactionId: TXID, accepted: false }]),
+      },
+    ]);
+    const client = makeClient(fetchFn);
+    await expect(client.isTransactionAccepted(TXID)).resolves.toBe(false);
+  });
+
+  it("treats an empty or malformed answer as not accepted", async () => {
+    const { fetchFn } = fetchFrom([
+      {
+        match: (u) => u.endsWith("/transactions/acceptance"),
+        respond: () => jsonResponse(HTTP_OK, []),
+      },
+    ]);
+    const client = makeClient(fetchFn);
+    await expect(client.isTransactionAccepted(TXID)).resolves.toBe(false);
+  });
+
+  it("never caches the verdict — a poller must see the ledger's current answer", async () => {
+    let accepted = false;
+    let calls = 0;
+    const fetchFn = async () => {
+      calls += 1;
+      return jsonResponse(HTTP_OK, [{ transactionId: TXID, accepted }]);
+    };
+    const client = makeClient(fetchFn);
+
+    await expect(client.isTransactionAccepted(TXID)).resolves.toBe(false);
+    accepted = true;
+    await expect(client.isTransactionAccepted(TXID)).resolves.toBe(true);
     expect(calls).toBe(2);
   });
 });

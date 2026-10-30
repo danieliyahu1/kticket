@@ -105,6 +105,10 @@ class FakeKaspa implements KaspaClientLike {
     return null;
   }
 
+  async isTransactionAccepted(): Promise<boolean> {
+    throw new Error("isTransactionAccepted not used by the warmup tests");
+  }
+
   clearCache(): void {}
 
   async getUtxos(): Promise<UtxoResponse[]> {

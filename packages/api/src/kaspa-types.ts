@@ -55,6 +55,19 @@ export interface TxModel {
   payload?: string;
 }
 
+/**
+ * One row of `POST /transactions/acceptance` — the ledger's verdict on a single
+ * transaction id. `accepted` becomes true only once an acceptance record
+ * exists, which is the point where the transaction and every output it declares
+ * exist; a transaction merely served by `GET /transactions/{id}` is only
+ * indexed, not accepted.
+ */
+export interface TransactionAcceptance {
+  transactionId?: string;
+  accepted?: boolean;
+  acceptingBlueScore?: number | null;
+}
+
 // --- tx build / broadcast models (HLD §2.2 — POST /v1/tx/build, /v1/tx/broadcast) ---
 
 export interface SubmitTxOutpoint {

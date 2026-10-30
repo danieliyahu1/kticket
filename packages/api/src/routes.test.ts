@@ -613,6 +613,12 @@ class FakeKaspa implements KaspaClientLike {
     return this.transactions.get(id) ?? null;
   }
 
+  /** A registered transaction is accepted unless a test lists it as relayed-only. */
+  async isTransactionAccepted(txId: string): Promise<boolean> {
+    const id = txId.toLowerCase();
+    return this.transactions.has(id) && !this.pendingTxIds.has(id);
+  }
+
   async getFeeEstimate(): Promise<FeeEstimateResponse> {
     return this.feeEstimate;
   }
@@ -696,6 +702,9 @@ describe("POST /v1/events/{covenantId}/buy/prepare", () => {
 });
 
 describe("POST /v1/events/{covenantId}/buy/finalize", () => {
+  /** The full acceptance window `broadcastAndConfirm` spends before `pending`. */
+  const CONFIRM_WINDOW_MS = 120_000;
+
   it("merges, broadcasts, and confirms the buy", async () => {
     const kaspa = new FakeKaspa();
     seedVerifiedEvent(kaspa);
@@ -747,9 +756,77 @@ describe("POST /v1/events/{covenantId}/buy/finalize", () => {
       },
     });
     expect(res.statusCode).toBe(HTTP_OK);
-    expect(res.json()).toEqual({ txid: B0_ID });
+    expect(res.json()).toEqual({ txid: B0_ID, status: "settled" });
     // KTK-115: a confirmed broadcast must drop the stale upstream cache.
     expect(kaspa.clearCalls).toBe(1);
+    await app.close();
+  });
+
+  it("reports pending, not success, when the mint is relayed but not accepted", async () => {
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    mockedSubmit.mockResolvedValue(B0_ID);
+    // Indexed (found by txid) but the ledger has not accepted it yet.
+    kaspa.transactions.set(B0_ID, buyTx());
+    kaspa.pendingTxIds.add(B0_ID);
+
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
+    });
+    // The acceptance window is the flow's real ~95s; fake timers spend it
+    // instantly instead of making the suite wait.
+    vi.useFakeTimers();
+    let res: Awaited<ReturnType<typeof app.inject>>;
+    try {
+      const pending = app.inject({
+        method: "POST",
+        url: `/v1/events/${TEST_COVENANT_ID}/buy/finalize`,
+        payload: {
+          buy_id: "buy-789",
+          template: {
+            version: 1,
+            inputs: [
+              {
+                previous_outpoint: { transaction_id: G_ID, index: 0 },
+                signature_script: "",
+                sequence: 0,
+                sig_op_count: 50,
+              },
+            ],
+            outputs: [
+              {
+                value: 49_000,
+                script_public_key: { version: 0, script: "aa20" + "11".repeat(32) + "87" },
+                covenant: { authorizing_input: 0, covenant_id: TEST_COVENANT_ID },
+              },
+            ],
+            lock_time: 0,
+          },
+          signed: {
+            inputs: [
+              {
+                transactionId: G_ID,
+                index: 0,
+                signatureScript: "01".repeat(SIGNATURE_SCRIPT_BYTE_LENGTH),
+              },
+            ],
+          },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(CONFIRM_WINDOW_MS);
+      res = await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(res.statusCode).toBe(HTTP_OK);
+    expect(res.json()).toEqual({ txid: B0_ID, status: "pending" });
+    // Nothing settled, so the cached chain reads are still the truth.
+    expect(kaspa.clearCalls).toBe(0);
     await app.close();
   });
 
@@ -1119,7 +1196,7 @@ describe("POST /v1/tickets/{ticket_id}/use/finalize (gate, KTK-129)", () => {
     });
 
     expect(res.statusCode).toBe(HTTP_OK);
-    expect(res.json()).toEqual({ txid: USED_TXID });
+    expect(res.json()).toEqual({ txid: USED_TXID, status: "settled" });
     expect(kaspa.clearCalls).toBe(1);
     await app.close();
   });

@@ -33,7 +33,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import type { KaspaNetwork } from "@kticket/kit";
 import { buildTransaction, broadcastTransaction, type TxContext } from "./tx.js";
 import { invalidError, isApiError, policyError } from "./errors.js";
-import { broadcastAndConfirm, mergeSignatures, waitForTransaction } from "./flow.js";
+import { broadcastAndConfirm, mergeSignatures, waitForAcceptance } from "./flow.js";
 import { pollUntil } from "./poll-until.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { transactionIdOf } from "./wrpc-client.js";
@@ -364,6 +364,9 @@ export async function deployGenesis(
 
   if (!(await ctx.kaspa.getTransaction(preparationTxid))) {
     try {
+      // The outcome's acceptance is not acted on here: the spendability check
+      // below is what genesis actually needs, and it fails with a clear retry
+      // message when the ledger has not accepted the preparation tx.
       await broadcastAndConfirm(
         req.preparation.template,
         req.preparation.signed,
@@ -375,7 +378,9 @@ export async function deployGenesis(
       // bytes — and therefore the txid — are identical, so wait for it instead
       // of failing the retry (nothing is double-spent).
       if (!(isApiError(err) && err.type === "conflict")) throw err;
-      await waitForTransaction(ctx.kaspa, preparationTxid);
+      // Same rule as above: only acceptance makes the output spendable, and the
+      // check below reports it best.
+      await waitForAcceptance(ctx.kaspa, preparationTxid);
     }
   }
   ctx.kaspa.clearCache();

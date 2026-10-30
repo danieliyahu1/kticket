@@ -24,7 +24,7 @@ import {
 } from "@kticket/kit";
 import { invalidError, notFoundError, policyError } from "./errors.js";
 import type { ListingStore } from "./listings.js";
-import { broadcastAndConfirm } from "./flow.js";
+import { broadcastAndConfirm, type BroadcastOutcome } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { verifyEventFromChain, type VerifiedEvent } from "./provenance.js";
 import { signingTemplateFor } from "./tx.js";
@@ -45,9 +45,8 @@ export interface UseSignTemplateResult {
   signing_template: string;
 }
 
-export interface UseFinalizeResult {
-  txid: string;
-}
+/** The check-in's answer: the mark_used txid and whether the ledger accepted it. */
+export type UseFinalizeResult = BroadcastOutcome;
 
 const TICKET_ID = /^([0-9a-fA-F]{64}):(\d+)$/;
 const P2PK_SCRIPT = /^20[0-9a-fA-F]{64}ac$/;
@@ -233,8 +232,9 @@ function signatureFor(
 
 /**
  * finalize (KTK-129): merge the owner's and gate's signatures, assemble input
- * 0's mark_used sig-script, relay, and return the blockDAG verdict. The door
- * shows this verbatim — green on confirmed, red + the node's message otherwise.
+ * 0's mark_used sig-script, relay, and return the verdict. The door shows this
+ * verbatim — green only once the ledger accepted the mark_used, never on a
+ * transaction that is merely indexed.
  */
 export async function useFinalize(
   ticketIdValue: unknown,
@@ -312,8 +312,7 @@ export async function useFinalize(
   };
 
   // Validate only that this is a covenant spend; the blockDAG is the judge.
-  const txid = await broadcastAndConfirm(merged, {}, ctx, validateCovenantSpend);
-  return { txid };
+  return broadcastAndConfirm(merged, {}, ctx, validateCovenantSpend);
 }
 
 async function verifiedEvent(

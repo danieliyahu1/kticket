@@ -220,7 +220,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
         },
       });
       expect(finalize.statusCode).toBe(HTTP_OK);
-      expect(finalize.json()).toEqual({ txid: USED_TXID });
+      expect(finalize.json()).toEqual({ txid: USED_TXID, status: "settled" });
 
       // Input 0's script is pure kit assembly — byte-exact with the golden VM.
       const broadcastArg = mockedSubmit.mock.calls[0]?.[1] as {
@@ -438,7 +438,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
         payload: { template: prepared.template, signed: buyerSigned },
       });
       expect(finalize.statusCode).toBe(HTTP_OK);
-      expect(finalize.json()).toEqual({ txid: USED_TXID });
+      expect(finalize.json()).toEqual({ txid: USED_TXID, status: "settled" });
 
       // The stamped input-0 script is the trustless purchase reveal:
       // push(buyer_pkh) || selector(purchase) || push(redeem @ sale_price).
@@ -588,7 +588,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
           price: LIST_PRICE,
         },
       });
-      expect(listFinalize.json()).toEqual({ txid: LIST_TXID });
+      expect(listFinalize.json()).toEqual({ txid: LIST_TXID, status: "settled" });
 
       // 2. Anyone buys it — no seller interaction at all.
       mockedSubmit.mockResolvedValueOnce(PURCHASE_TXID);
@@ -615,7 +615,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
           },
         },
       });
-      expect(purchaseFinalize.json()).toEqual({ txid: PURCHASE_TXID });
+      expect(purchaseFinalize.json()).toEqual({ txid: PURCHASE_TXID, status: "settled" });
 
       // The index is clear and the directory proves nothing.
       const directory = await app.inject({ method: "GET", url: "/v1/listings" });

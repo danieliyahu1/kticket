@@ -96,7 +96,7 @@ describe("door flow end-to-end (KTK-119 whole-issue integration)", () => {
       },
     });
     expect(finalize.statusCode).toBe(200);
-    expect(finalize.json()).toEqual({ txid: USED_TXID });
+    expect(finalize.json()).toEqual({ txid: USED_TXID, status: "settled" });
     expect(kaspa.clearCalls).toBe(1);
 
     // 5. The broadcast tx's input 0 carries the assembled mark_used sig-script

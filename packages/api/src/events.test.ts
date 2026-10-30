@@ -179,6 +179,11 @@ class FakeKaspa implements KaspaClientLike {
     return this.addressTxs.get(lower)?.find((t) => t.transaction_id === lower) ?? null;
   }
 
+  /** These tests never broadcast, so every fixture is already accepted. */
+  async isTransactionAccepted(): Promise<boolean> {
+    return true;
+  }
+
   clearCache(): void {}
 
   async getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]> {

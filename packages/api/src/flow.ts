@@ -1,12 +1,11 @@
 // Shared tx-flow helpers (buy / handover) — the backend owns the whole flow:
 // merge the wallet's signatures, validate, broadcast over wRPC, and wait for
-// the tx to be accepted before reporting success. The frontend only relays the
-// template + the wallet's output.
+// the tx to be accepted before reporting it as settled. The frontend only
+// relays the template + the wallet's output.
 
-import { invalidError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { elapsedSeconds, metrics } from "./metrics.js";
-import { pollUntil } from "./poll-until.js";
+import { pollUntil, type PollOptions } from "./poll-until.js";
 import { throwRejectionError } from "./broadcast.js";
 import { submitTransactionOverWrpc } from "./wrpc-client.js";
 import type { WireTransaction } from "./wire.js";
@@ -43,9 +42,85 @@ export function mergeSignatures(template: WireTransaction, signed: unknown): Wir
   };
 }
 
-const CONFIRM_MAX_ATTEMPTS = 9;
-const CONFIRM_BASE_DELAY_MS = 1_000;
-const CONFIRM_MAX_DELAY_MS = 16_000;
+const CONFIRM_SCHEDULE: PollOptions = {
+  maxAttempts: 9,
+  baseDelayMs: 1_000,
+  maxDelayMs: 16_000,
+};
+
+/**
+ * How a broadcast ended. `settled` — the ledger accepted the transaction, so
+ * every output it declares exists. `pending` — it was relayed but acceptance is
+ * not established yet; the transaction may still settle (or never land).
+ */
+export type BroadcastStatus = "settled" | "pending";
+
+export interface BroadcastOutcome {
+  txid: string;
+  status: BroadcastStatus;
+}
+
+/**
+ * Wait for the ledger to accept a broadcast transaction, and report whether it
+ * did. Timing (doubling backoff) belongs to `pollUntil`; what counts as "done"
+ * belongs here — an acceptance record, never mere visibility in the indexer,
+ * which only means the transaction reached a block. A not-yet-accepted result
+ * is `false`, not an error: the broadcast already happened, so failing here
+ * would tell the client its payment never went out. For the same reason a
+ * lookup failure counts as "not yet" (the upstream error is already in the
+ * metrics) rather than as a failure of the broadcast.
+ */
+export async function waitForAcceptance(
+  kaspa: KaspaClientLike,
+  txid: string,
+  schedule: PollOptions = CONFIRM_SCHEDULE,
+): Promise<boolean> {
+  const accepted = await pollUntil(async () => {
+    const settled = await kaspa.isTransactionAccepted(txid).catch(() => false);
+    return settled ? true : undefined;
+  }, schedule);
+  return accepted === true;
+}
+
+export interface BroadcastContext {
+  kaspa: KaspaClientLike;
+  networkId: string;
+}
+
+/**
+ * Broadcast a merged, signed transaction over wRPC and wait for it to be
+ * accepted. Returns the txid and whether acceptance was established.
+ * `validate` may reject a template that is not the expected flow type.
+ */
+export async function broadcastAndConfirm(
+  template: WireTransaction,
+  signed: unknown,
+  ctx: BroadcastContext,
+  validate: (tx: WireTransaction) => void = () => {},
+): Promise<BroadcastOutcome> {
+  const merged = mergeSignatures(template, signed);
+  validate(merged);
+  let txid: string;
+  const broadcastStarted = process.hrtime();
+  try {
+    txid = await submitTransactionOverWrpc(ctx.networkId, merged);
+    metrics.observeUpstream("wrpc_broadcast", "success", elapsedSeconds(broadcastStarted));
+  } catch (err) {
+    metrics.observeUpstream("wrpc_broadcast", "error", elapsedSeconds(broadcastStarted));
+    // Surface the node's raw rejection instead of leaking a generic 500 — the
+    // route handler logs it via the ApiError detail (KTK buy).
+    throwRejectionError(err instanceof Error ? err.message : String(err));
+  }
+  const id = txid.toLowerCase();
+  const status: BroadcastStatus = (await waitForAcceptance(ctx.kaspa, id)) ? "settled" : "pending";
+  if (status === "settled") {
+    // KTK-115: the accepted tx invalidates cached chain reads (the covenant's
+    // UTXOs and the buyer's funding UTXO). Drop them so the next availability
+    // walk or buy prepare sees the post-buy state, not a ≤3s-old snapshot.
+    ctx.kaspa.clearCache();
+  }
+  return { txid: id, status };
+}
 
 /**
  * Operator-side diagnostics for wallet-signing regressions (e.g. Kasware
@@ -104,62 +179,4 @@ function walletSignedPositions(template: WireTransaction, signed: unknown): numb
       ? [i]
       : [],
   );
-}
-
-/**
- * Wait until a broadcast tx is accepted on chain (visible via `getTransaction`).
- * The timing (doubling backoff) is owned by `pollUntil`; this flow owns the
- * "visible is enough" policy. Throws `invalid` if it never appears.
- */
-export async function waitForTransaction(
-  kaspa: KaspaClientLike,
-  txid: string,
-): Promise<void> {
-  const tx = await pollUntil(
-    () => kaspa.getTransaction(txid),
-    {
-      maxAttempts: CONFIRM_MAX_ATTEMPTS,
-      baseDelayMs: CONFIRM_BASE_DELAY_MS,
-      maxDelayMs: CONFIRM_MAX_DELAY_MS,
-    },
-  );
-  if (!tx) throw invalidError(`transaction ${txid} was not confirmed on chain`);
-}
-
-export interface BroadcastContext {
-  kaspa: KaspaClientLike;
-  networkId: string;
-}
-
-/**
- * Broadcast a merged, signed transaction over wRPC and wait for it to be
- * accepted. Returns the txid. `validate` may reject a template that is not the
- * expected flow type.
- */
-export async function broadcastAndConfirm(
-  template: WireTransaction,
-  signed: unknown,
-  ctx: BroadcastContext,
-  validate: (tx: WireTransaction) => void = () => {},
-): Promise<string> {
-  const merged = mergeSignatures(template, signed);
-  validate(merged);
-  let txid: string;
-  const broadcastStarted = process.hrtime();
-  try {
-    txid = await submitTransactionOverWrpc(ctx.networkId, merged);
-    metrics.observeUpstream("wrpc_broadcast", "success", elapsedSeconds(broadcastStarted));
-  } catch (err) {
-    metrics.observeUpstream("wrpc_broadcast", "error", elapsedSeconds(broadcastStarted));
-    // Surface the node's raw rejection instead of leaking a generic 500 — the
-    // route handler logs it via the ApiError detail (KTK buy).
-    throwRejectionError(err instanceof Error ? err.message : String(err));
-  }
-  const id = txid.toLowerCase();
-  await waitForTransaction(ctx.kaspa, id);
-  // KTK-115: the confirmed tx invalidates cached chain reads (the covenant's
-  // UTXOs and the buyer's funding UTXO). Drop them so the next availability
-  // walk or buy prepare sees the post-buy state, not a ≤3s-old snapshot.
-  ctx.kaspa.clearCache();
-  return id;
 }

@@ -7,7 +7,7 @@
 //              `buy_id` the client echoes on finalize so ops can spot
 //              abandoned prepares (a prepared buy whose finalize never came).
 //   finalize — backend merges the wallet's signatures, validates it is a buy,
-//              broadcasts, waits for chain confirmation -> { txid }.
+//              broadcasts, waits for acceptance -> { txid, status }.
 //
 // The frontend only relays: the covenant id + the buyer's pubkey/address, then
 // the template + the wallet's output. It never merges, retries, or owns state.
@@ -17,7 +17,7 @@ import { MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey, TICKET_DUST } fr
 import type { KaspaNetwork } from "@kticket/kit";
 import { invalidError, policyError } from "./errors.js";
 import { eventAvailability } from "./events.js";
-import { broadcastAndConfirm } from "./flow.js";
+import { broadcastAndConfirm, type BroadcastOutcome } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
 import { verifyEventFromChain } from "./provenance.js";
@@ -59,9 +59,8 @@ export interface BuyPrepareResult {
   ticket_deposit: number;
 }
 
-export interface BuyFinalizeResult {
-  txid: string;
-}
+/** The buy's answer: the mint's txid and whether the ledger accepted it. */
+export type BuyFinalizeResult = BroadcastOutcome;
 
 const COMPRESSED_PUBKEY_HEX_LEN = 66;
 const X_COORD_HEX_LEN = 64;
@@ -191,12 +190,11 @@ export async function buyPrepare(
   };
 }
 
-/** finalize: merge, validate it is a buy, broadcast, wait, return the txid. */
+/** finalize: merge, validate it is a buy, broadcast, wait for acceptance. */
 export async function buyFinalize(
   raw: unknown,
   ctx: BuyContext,
 ): Promise<BuyFinalizeResult> {
   const req = parseFinalize(raw);
-  const txid = await broadcastAndConfirm(req.template, req.signed, ctx, validateBuy);
-  return { txid };
+  return broadcastAndConfirm(req.template, req.signed, ctx, validateBuy);
 }
