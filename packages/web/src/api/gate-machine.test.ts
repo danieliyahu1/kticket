@@ -23,7 +23,9 @@ import {
   gateErrorMessage,
   isDecodeFailure,
   isForEvent,
+  NOT_ACCEPTED_YET,
   prepareGateCheck,
+  verdictFor,
 } from "./gate-machine";
 
 const COVENANT_ID = "aa".repeat(32);
@@ -120,7 +122,7 @@ describe("coSignAndFinalize (KTK-131)", () => {
   it("co-signs the rebuilt template and relays both signatures via finalize", async () => {
     vi.mocked(useSignTemplate).mockResolvedValue({ signing_template: "{}" });
     vi.mocked(signTemplate).mockResolvedValue({ inputs: [{ index: 0, signatureScript: "41aa" }] });
-    vi.mocked(useFinalize).mockResolvedValue({ txid: "dd".repeat(32) });
+    vi.mocked(useFinalize).mockResolvedValue({ txid: "dd".repeat(32), status: "settled" });
 
     const result = await coSignAndFinalize(payload);
 
@@ -131,12 +133,28 @@ describe("coSignAndFinalize (KTK-131)", () => {
       owner_signed: payload.owner_signed,
       gate_signed: { inputs: [{ index: 0, signatureScript: "41aa" }] },
     });
-    expect(result).toEqual({ txid: "dd".repeat(32) });
+    expect(result).toEqual({ txid: "dd".repeat(32), status: "settled" });
   });
 
   it("surfaces a signing failure as red", async () => {
     vi.mocked(useSignTemplate).mockResolvedValue({ signing_template: "{}" });
     vi.mocked(signTemplate).mockRejectedValue(new Error("User rejected"));
     await expect(coSignAndFinalize(payload)).rejects.toThrow("User rejected");
+  });
+});
+
+describe("verdictFor (the door's verdict)", () => {
+  it("opens the door only on a settled check-in", () => {
+    expect(verdictFor({ txid: "ee".repeat(32), status: "settled" })).toEqual({
+      phase: "green",
+      txid: "ee".repeat(32),
+    });
+  });
+
+  it("keeps the door shut — with re-scan copy — when the check-in is only relayed", () => {
+    expect(verdictFor({ txid: "ee".repeat(32), status: "pending" })).toEqual({
+      phase: "red",
+      message: NOT_ACCEPTED_YET,
+    });
   });
 });

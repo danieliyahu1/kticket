@@ -1,4 +1,5 @@
 import type {
+  BroadcastResult,
   DeployGenesisResult,
   DeployPrepareRequest,
   DeployPrepareResult,
@@ -201,12 +202,12 @@ export function buyPrepare(
   return apiFetch<BuyPrepareResult>(`/v1/events/${covenantId}/buy/prepare`, req);
 }
 
-/** finalize: backend merges, broadcasts, and waits for confirmation. */
+/** finalize: backend merges, broadcasts, and waits for the ledger to accept. */
 export function buyFinalize(
   covenantId: string,
   req: { buy_id: string; template: WireTransaction; signed: unknown },
-): Promise<{ txid: string }> {
-  return apiFetch<{ txid: string }>(`/v1/events/${covenantId}/buy/finalize`, req);
+): Promise<BroadcastResult> {
+  return apiFetch<BroadcastResult>(`/v1/events/${covenantId}/buy/finalize`, req);
 }
 
 /** Fetch event detail + raw chain facts from the API (KTK-89: chain-verified). */
@@ -321,8 +322,8 @@ export function useSignTemplate(
 export function useFinalize(
   ticketId: string,
   req: { use_id: string; template: WireTransaction; owner_signed: unknown; gate_signed: unknown },
-): Promise<{ txid: string }> {
-  return apiFetch<{ txid: string }>(
+): Promise<BroadcastResult> {
+  return apiFetch<BroadcastResult>(
     `/v1/tickets/${encodeURIComponent(ticketId)}/use/finalize`,
     req,
   );
@@ -414,13 +415,13 @@ export function purchasePrepare(
   );
 }
 
-/** finalize: backend merges, broadcasts, confirms, and updates the index. */
+/** finalize: backend merges, broadcasts, waits for acceptance, updates the index. */
 function resaleFinalize(
   kind: "list" | "delist" | "purchase",
   ticketId: string,
   req: { template: WireTransaction; signed: unknown; price?: number },
-): Promise<{ txid: string }> {
-  return apiFetch<{ txid: string }>(
+): Promise<BroadcastResult> {
+  return apiFetch<BroadcastResult>(
     `/v1/tickets/${encodeURIComponent(ticketId)}/${kind}/finalize`,
     req,
   );
@@ -429,14 +430,14 @@ function resaleFinalize(
 export const listFinalize = (
   ticketId: string,
   req: { template: WireTransaction; signed: unknown; price: number },
-): Promise<{ txid: string }> => resaleFinalize("list", ticketId, req);
+): Promise<BroadcastResult> => resaleFinalize("list", ticketId, req);
 
 export const delistFinalize = (
   ticketId: string,
   req: { template: WireTransaction; signed: unknown },
-): Promise<{ txid: string }> => resaleFinalize("delist", ticketId, req);
+): Promise<BroadcastResult> => resaleFinalize("delist", ticketId, req);
 
 export const purchaseFinalize = (
   ticketId: string,
   req: { template: WireTransaction; signed: unknown },
-): Promise<{ txid: string }> => resaleFinalize("purchase", ticketId, req);
+): Promise<BroadcastResult> => resaleFinalize("purchase", ticketId, req);

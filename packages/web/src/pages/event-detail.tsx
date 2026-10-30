@@ -124,11 +124,17 @@ export default function EventDetailPage() {
           </button>
         ) : buy.phase === "success" ? (
           <div className="status">
-            <div className="status-icon status-icon-ok">
-              <span>&#10003;</span>
+            <div className={buy.status === "settled" ? "status-icon status-icon-ok" : "status-icon"}>
+              {buy.status === "settled" ? <span>&#10003;</span> : <div className="spinner" />}
             </div>
-            <p className="status-title">You're in.</p>
-            <p className="status-copy">Your ticket is on the chain.</p>
+            <p className="status-title">
+              {buy.status === "settled" ? "You're in." : "Almost there."}
+            </p>
+            <p className="status-copy">
+              {buy.status === "settled"
+                ? "Your ticket is on the chain."
+                : "Your payment is broadcast; the ticket appears under My tickets as soon as the network accepts it."}
+            </p>
             <div className="form-actions">
               <Link to="/tickets" className="button button-primary">
                 View my tickets
@@ -262,7 +268,9 @@ function ListingRow({
           </div>
         ) : buy.phase === "success" ? (
           <p className="checkin-copy" role="status">
-            It's yours — find it under My Tickets.
+            {buy.status === "settled"
+              ? "It's yours — find it under My Tickets."
+              : "The payment is on its way; the ticket appears once the network accepts it."}
           </p>
         ) : null}
       </div>

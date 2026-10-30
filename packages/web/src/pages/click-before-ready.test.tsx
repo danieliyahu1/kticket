@@ -168,7 +168,7 @@ function mockApi(calls: ApiCall[]): void {
         });
       }
       if (path === `/v1/events/${COVENANT_ID}/buy/finalize`) {
-        return json({ txid: "cd".repeat(32) });
+        return json({ txid: "cd".repeat(32), status: "settled" });
       }
       return json({ error: { type: "invalid", message: `unexpected ${method} ${path}` } }, 404);
     }),

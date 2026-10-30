@@ -55,7 +55,9 @@ function MarketplaceCard({
           </div>
         ) : buy.phase === "success" ? (
           <p className="checkin-copy" role="status">
-            It's yours — find it under My tickets.
+            {buy.status === "settled"
+              ? "It's yours — find it under My tickets."
+              : "The payment is on its way; your ticket appears once the network accepts it."}
           </p>
         ) : null}
       </div>

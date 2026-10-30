@@ -1,5 +1,6 @@
 import { buyFinalize, buyPrepare } from "./client";
 import type { BuyPrepareResult } from "./client";
+import type { BroadcastStatus } from "./types";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
 import { notifyCanceled, notifyFailure } from "../lib/notify";
@@ -10,7 +11,8 @@ export type BuyState =
   | { phase: "loading" }
   | { phase: "building" }
   | { phase: "broadcasting" }
-  | { phase: "success"; txid: string };
+  /** `status` is the chain's answer: `settled` means the ticket exists. */
+  | { phase: "success"; txid: string; status: BroadcastStatus };
 
 export interface BuyParams {
   covenantId: string;
@@ -112,7 +114,7 @@ export async function executeBuy(
       signed,
     });
     logStep("finalized", result);
-    setState({ phase: "success", txid: result.txid });
+    setState({ phase: "success", txid: result.txid, status: result.status });
   } catch (err) {
     reportError(setState, "finalize", err);
   }

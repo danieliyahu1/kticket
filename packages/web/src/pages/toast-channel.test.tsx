@@ -113,7 +113,7 @@ function mockApi(options: { failPrepare?: boolean } = {}): void {
         });
       }
       if (path === `/v1/events/${COVENANT_ID}/buy/finalize`) {
-        return json({ txid: "cd".repeat(32) });
+        return json({ txid: "cd".repeat(32), status: "settled" });
       }
       return json({ error: { type: "invalid", message: `unexpected ${path}` } }, 404);
     }),

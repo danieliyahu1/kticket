@@ -14,7 +14,7 @@
 
 import { decodeUsePayload, type UsePayload } from "@kticket/kit";
 import { ServerError, useFinalize, useSignTemplate } from "./client";
-import type { WireTransaction } from "./types";
+import type { BroadcastResult, WireTransaction } from "./types";
 import { signTemplate } from "../lib/signing";
 import { devError, devLog } from "../lib/log";
 import { presentError } from "../lib/present-error";
@@ -42,6 +42,25 @@ export function decodeError(): string {
 /** A codec failure (garbage payload), as opposed to a server outage. */
 export function isDecodeFailure(err: unknown): boolean {
   return !(err instanceof ServerError);
+}
+
+/** The door's copy for a check-in the network has not accepted yet. */
+export const NOT_ACCEPTED_YET = "Not accepted by the network yet. Scan the ticket again.";
+
+export type GateVerdict =
+  | { phase: "green"; txid: string }
+  | { phase: "red"; message: string };
+
+/**
+ * The door's verdict for a finalized check-in. Green means the ticket is used,
+ * which only the ledger's acceptance establishes: a relayed-but-unaccepted
+ * mark_used leaves the ticket spendable, so the door stays shut and the
+ * operator scans the same ticket again (a safe retry — the bytes are identical).
+ */
+export function verdictFor(outcome: BroadcastResult): GateVerdict {
+  return outcome.status === "settled"
+    ? { phase: "green", txid: outcome.txid }
+    : { phase: "red", message: NOT_ACCEPTED_YET };
 }
 
 /**
@@ -115,12 +134,12 @@ export async function prepareGateCheck(
  * Step 2 — co-sign the rebuilt template with the organizer wallet, then relay
  * both signatures via finalize. The owner already paid the fee, so the only
  * signature that matters is the organizer's over the ticket input (index 0);
- * finalize picks it out by outpoint. Returns the blockDAG verdict.
+ * finalize picks it out by outpoint. Returns the ledger's verdict.
  */
 export async function coSignAndFinalize(
   payload: UsePayload,
   options: { isCurrent?: () => boolean } = {},
-): Promise<{ txid: string }> {
+): Promise<BroadcastResult> {
   const ticket = ticketIdOf(payload.template as WireTransaction);
   const { signing_template } = await useSignTemplate(ticket, payload.template as WireTransaction);
   if (options.isCurrent && !options.isCurrent()) throw new WalletCanceledError();

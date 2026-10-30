@@ -7,6 +7,7 @@ import {
   purchasePrepare,
 } from "./client";
 import { signTemplate } from "../lib/signing";
+import type { BroadcastStatus } from "./types";
 import { devError } from "../lib/log";
 import { notifyCanceled, notifyFailure } from "../lib/notify";
 import { isWalletCanceled } from "../wallet/cancel";
@@ -17,7 +18,8 @@ export type ResaleState =
   | { phase: "loading" }
   | { phase: "building" }
   | { phase: "broadcasting" }
-  | { phase: "success"; txid: string };
+  /** `status` is the chain's answer: `settled` means the spend was accepted. */
+  | { phase: "success"; txid: string; status: BroadcastStatus };
 
 export interface HolderParams {
   ticketId: string;
@@ -118,7 +120,7 @@ export async function executeList(
       signed,
       price: prepared.price,
     });
-    setState({ phase: "success", txid: result.txid });
+    setState({ phase: "success", txid: result.txid, status: result.status });
   } catch (err) {
     reportError(setState, "list/finalize", err, "Couldn't list the ticket. Try again.");
   }
@@ -155,7 +157,7 @@ export async function executeDelist(
       template: prepared.template,
       signed,
     });
-    setState({ phase: "success", txid: result.txid });
+    setState({ phase: "success", txid: result.txid, status: result.status });
   } catch (err) {
     reportError(setState, "delist/finalize", err, "Couldn't cancel the sale. Try again.");
   }
@@ -196,7 +198,7 @@ export async function executePurchase(
       template: prepared.template,
       signed,
     });
-    setState({ phase: "success", txid: result.txid });
+    setState({ phase: "success", txid: result.txid, status: result.status });
   } catch (err) {
     reportError(setState, "purchase/finalize", err, "Couldn't buy the ticket. Try again.");
   }

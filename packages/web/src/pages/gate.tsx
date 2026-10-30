@@ -10,6 +10,7 @@ import {
   logError,
   logStep,
   prepareGateCheck,
+  verdictFor,
   type GateParams,
   type GateState,
 } from "../api/gate-machine";
@@ -123,8 +124,8 @@ export default function GatePage() {
       setGate({ phase: "co-signing", ...waiting });
       try {
         const result = await coSignAndFinalize(payload, { isCurrent: gateAction.isCurrent });
-        logStep("finalized", { txid: result.txid });
-        setGate({ phase: "green", txid: result.txid });
+        logStep("finalized", result);
+        setGate(verdictFor(result));
       } catch (err) {
         // A canceled wallet prompt returns the door to scanning, with one notice.
         if (isWalletCanceled(err)) {

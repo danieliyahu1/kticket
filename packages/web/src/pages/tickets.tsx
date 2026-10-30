@@ -220,7 +220,11 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
 
         {resale.phase === "success" && (
           <p className="checkin-copy" role="status">
-            {ticket.listed ? "Your listing is live." : "Sale cancelled."}
+            {resale.status === "pending"
+              ? "On its way — the network hasn't accepted it yet. Check again in a moment."
+              : ticket.listed
+                ? "Your listing is live."
+                : "Sale cancelled."}
           </p>
         )}
       </div>

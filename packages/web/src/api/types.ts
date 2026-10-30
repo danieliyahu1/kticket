@@ -55,7 +55,16 @@ export interface BuildResult {
 
 export interface BroadcastResult {
   txid: string;
+  /**
+   * What the chain has established: `settled` once the ledger accepted the
+   * transaction, `pending` when it was only relayed. Pending is not a failure —
+   * read the chain (tickets/listings) rather than broadcasting again.
+   */
+  status: BroadcastStatus;
 }
+
+/** The two states a finalize can report (mirrors the API's `status`). */
+export type BroadcastStatus = "settled" | "pending";
 
 export interface DeployPrepareRequest {
   capacity: number;
