@@ -94,9 +94,9 @@ the layers that already have the context to handle them:
   offline/retry.
 - **Broadcast (wRPC)** goes through the vendored kaspa-wasm `RpcClient`, which
   owns connect retry/reconnect/failover; only a connect-attempt bound is set.
-- **Flow-specific confirmation waits** (deploy "verifiable", buy "visible")
-  are owned by their flows via a shared, business-agnostic `pollUntil` helper —
-  the data-access layer never knows why it is being polled.
+- **Flow-specific confirmation waits** (deploy "verifiable", buy "accepted by the
+  ledger") are owned by their flows via a shared, business-agnostic `pollUntil`
+  helper — the data-access layer never knows why it is being polled.
 
 ## Prerequisites
 

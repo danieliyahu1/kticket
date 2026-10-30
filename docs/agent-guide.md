@@ -159,8 +159,9 @@ Every state-changing ticket operation uses the same stateless shape:
 2. The client signs **only those inputs**, leaving every other input and every
    output exactly as prepared.
 3. `POST .../finalize` merges the signatures into the template it issued,
-   validates it is still the operation it claims, broadcasts, and waits for
-   chain confirmation.
+   validates it is still the operation it claims, broadcasts, and waits for the
+   ledger to accept it. The response's `status` says whether acceptance was
+   established (`settled`) or not yet (`pending`).
 
 Do not rebuild, reorder, re-encode, or "fix" the template between the two calls.
 The server checks what it broadcasts against the prepared shape; a changed
@@ -324,11 +325,26 @@ Content-Type: application/json
 ```
 
 ```json
-{ "txid": "1234..." }
+{ "txid": "1234...", "status": "settled" }
 ```
 
+`txid` is always the broadcast transaction id. `status` says what the chain has
+established:
+
+| `status` | Meaning | What to do |
+| --- | --- | --- |
+| `settled` | The ledger accepted the transaction. Every output it declares exists. | Read `GET /v1/tickets`; the ticket is there. |
+| `pending` | The transaction was relayed, but acceptance is not established within the wait (~95s). It may still settle. | Keep the txid, do **not** re-broadcast, and poll `GET /v1/tickets` (or the ticket's outpoint) to learn the outcome. |
+
+A `pending` finalize is **not** a failure and returns `200`: the signature is out
+there, and reporting an error would invite a duplicate broadcast. The same two
+values appear on every `*_finalize` response (`use`, `list`, `delist`,
+`purchase`). `deploy/finalize` answers differently — it registers the event, so
+its success already means the deploy was proven from chain.
+
 The ticket's `ticket_id` is the mint transaction id and output index:
-`<64-hex-txid>:<index>`. Read it from `GET /v1/tickets` after the mint confirms.
+`<64-hex-txid>:<index>`. Read it from `GET /v1/tickets` once the mint is
+`settled`.
 
 Common rejections:
 
@@ -403,8 +419,11 @@ Content-Type: application/json
 ```
 
 ```json
-{ "txid": "5678..." }
+{ "txid": "5678...", "status": "settled" }
 ```
+
+Only `status: "settled"` means the ticket is used — the door should treat
+`pending` as "not yet", scan again, and never as an error.
 
 A ticket can be used once. An already used or non-owned ticket is rejected
 before a template is built.
@@ -432,7 +451,9 @@ Content-Type: application/json
 ```
 
 The server proves ownership and unlisted state on chain before building the
-template, and indexes the listing after the broadcast confirms.
+template, and indexes the listing as soon as the spend is broadcast. The index
+row is a hint: every read re-proves it against the chain, so a `pending` or
+never-settled listing is simply omitted rather than served.
 
 ### Browse listings
 
@@ -516,7 +537,9 @@ HTTP status carries the class:
 - A `*_id` correlates a prepare with its finalize; the server keeps no pending
   state.
 - Do not retry a finalize blindly: the broadcast may already have gone out.
-  Re-read the chain (or `GET /v1/tickets`) before deciding.
+  A `pending` status means exactly that — read the chain (or `GET /v1/tickets`)
+  instead of broadcasting again. Retrying is only safe when the transaction is
+  identical (the same signed template), because the txid is derived from it.
 - Never alter the template between prepare and finalize.
 - Sign only the indices the server returns. Signing extra inputs, or changing
   amounts/scripts, produces a template the server rejects.

@@ -367,7 +367,7 @@ function buyOperations(): DocumentedOperation[] {
         tag: "events",
         summary: "Finalize a primary ticket purchase",
         description:
-          "Merges signatures, validates the template is a buy (it must carry the ticket covenant output), broadcasts, and waits for the mint. Returns the transaction id.",
+          "Merges signatures, validates the template is a buy (it must carry the ticket covenant output), broadcasts, and waits for the ledger to accept the mint. `status: \"settled\"` means the ticket exists; `\"pending\"` means the purchase was relayed but acceptance is not established yet — keep the txid and read `GET /v1/tickets` rather than re-broadcasting.",
         parameters: [COVENANT_ID_PARAMETER],
         body: jsonRequestBody(jsonRef("BuyFinalizeRequest"), {
           buy_id: BUY_ID,
@@ -375,8 +375,9 @@ function buyOperations(): DocumentedOperation[] {
           signed: signedInput(1, "cd"),
         }),
         responses: {
-          200: jsonResponse("The confirmed mint transaction.", jsonRef("BuyFinalizeResult"), {
+          200: jsonResponse("The mint transaction and whether it settled.", jsonRef("BuyFinalizeResult"), {
             txid: "1234".repeat(16),
+            status: "settled",
           }),
           400: errorResponse(400),
           502: errorResponse(502),
@@ -528,7 +529,7 @@ function useOperations(): DocumentedOperation[] {
         tag: "tickets",
         summary: "Finalize a check-in",
         description:
-          "Assembles the owner's and the gate's signatures over input 0, broadcasts, and returns the confirmed transaction id.",
+          "Assembles the owner's and the gate's signatures over input 0, broadcasts, and waits for the ledger to accept the check-in. The door opens only on `status: \"settled\"`; `\"pending\"` means the mark_used was relayed but is not accepted yet.",
         parameters: [TICKET_ID_PARAMETER],
         body: jsonRequestBody(jsonRef("UseFinalizeRequest"), {
           use_id: USE_ID,
@@ -537,8 +538,9 @@ function useOperations(): DocumentedOperation[] {
           gate_signed: signedInput(0, "bb"),
         }),
         responses: {
-          200: jsonResponse("The confirmed check-in transaction.", jsonRef("FinalizeResult"), {
+          200: jsonResponse("The check-in transaction and whether it settled.", jsonRef("FinalizeResult"), {
             txid: "5678".repeat(16),
+            status: "settled",
           }),
           400: errorResponse(400),
           404: errorResponse(404),
@@ -589,7 +591,7 @@ function listOperations(): DocumentedOperation[] {
         tag: "resale",
         summary: "Finalize a resale listing",
         description:
-          "Merges signatures, broadcasts the listed-state spend, and indexes the listing. The price must match the one sent to prepare.",
+          "Merges signatures, broadcasts the listed-state spend, and indexes the listing. The price must match the one sent to prepare. The index row is a hint proven against the chain on every read, so a `pending` broadcast is safe to report as-is.",
         parameters: [TICKET_ID_PARAMETER],
         body: jsonRequestBody(jsonRef("ListFinalizeRequest"), {
           template: WIRE_TRANSACTION_EXAMPLE,
@@ -597,8 +599,9 @@ function listOperations(): DocumentedOperation[] {
           price: 2_000,
         }),
         responses: {
-          200: jsonResponse("The confirmed listing transaction.", jsonRef("FinalizeResult"), {
+          200: jsonResponse("The listing transaction and whether it settled.", jsonRef("FinalizeResult"), {
             txid: "9abc".repeat(16),
+            status: "settled",
           }),
           400: errorResponse(400),
           404: errorResponse(404),
@@ -651,8 +654,9 @@ function delistOperations(): DocumentedOperation[] {
           signed: signedInput(0, "ad"),
         }),
         responses: {
-          200: jsonResponse("The confirmed delisting transaction.", jsonRef("FinalizeResult"), {
+          200: jsonResponse("The delisting transaction and whether it settled.", jsonRef("FinalizeResult"), {
             txid: "bcde".repeat(16),
+            status: "settled",
           }),
           400: errorResponse(400),
           404: errorResponse(404),
@@ -702,7 +706,7 @@ function purchaseOperations(): DocumentedOperation[] {
         tag: "resale",
         summary: "Finalize a trustless resale purchase",
         description:
-          "Validates the escrow, broadcasts, and drops the index row. Returns the confirmed purchase transaction.",
+          "Validates the escrow, broadcasts, and drops the index row. The seller is paid and the ticket changes hands atomically once the ledger accepts it, so `status` says whether that happened yet.",
         parameters: [TICKET_ID_PARAMETER],
         body: jsonRequestBody(jsonRef("PurchaseFinalizeRequest"), {
           template: WIRE_TRANSACTION_EXAMPLE,
@@ -710,9 +714,9 @@ function purchaseOperations(): DocumentedOperation[] {
         }),
         responses: {
           200: jsonResponse(
-            "The confirmed purchase transaction.",
+            "The purchase transaction and whether it settled.",
             jsonRef("FinalizeResult"),
-            { txid: "def0".repeat(16) },
+            { txid: "def0".repeat(16), status: "settled" },
           ),
           400: errorResponse(400),
           404: errorResponse(404),

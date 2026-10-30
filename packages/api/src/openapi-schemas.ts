@@ -74,11 +74,21 @@ function errorEnvelopeSchema(): JsonObject {
   };
 }
 
+const BROADCAST_STATUS_SCHEMA: JsonObject = {
+  type: "string",
+  enum: ["settled", "pending"],
+  description:
+    "`settled` — the ledger accepted the transaction, so every output it declares exists (the ticket exists, the payment settled). `pending` — the transaction was relayed and is not accepted yet; it may still settle. A pending response is not a failure: do not re-broadcast, and read the chain to learn the outcome.",
+};
+
 function finalizeResultSchema(): JsonObject {
   return {
     type: "object",
-    required: ["txid"],
-    properties: { txid: { type: "string", pattern: HEX64_PATTERN } },
+    required: ["txid", "status"],
+    properties: {
+      txid: { type: "string", pattern: HEX64_PATTERN },
+      status: BROADCAST_STATUS_SCHEMA,
+    },
   };
 }
 
@@ -472,8 +482,11 @@ function buySchemas(): JsonObject {
     },
     BuyFinalizeResult: {
       type: "object",
-      required: ["txid"],
-      properties: { txid: { type: "string", pattern: HEX64_PATTERN } },
+      required: ["txid", "status"],
+      properties: {
+        txid: { type: "string", pattern: HEX64_PATTERN },
+        status: BROADCAST_STATUS_SCHEMA,
+      },
     },
   };
 }
