@@ -160,6 +160,17 @@ export function createSession(
   });
 }
 
+export interface FeedbackResult {
+  accepted: true;
+  /** False while the note is queued for retry; it has not been sent yet. */
+  delivered: boolean;
+}
+
+/** Anonymous feedback: no wallet and no account. */
+export function submitFeedback(message: string): Promise<FeedbackResult> {
+  return apiFetch<FeedbackResult>("/v1/feedback", { message });
+}
+
 /** prepare: backend fetches UTXOs + builds the KCC-23 preparation template. */
 export function deployPrepare(req: DeployPrepareRequest): Promise<DeployPrepareResult> {
   return apiFetch<DeployPrepareResult>("/v1/events/deploy/prepare", req);

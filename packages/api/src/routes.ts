@@ -43,10 +43,11 @@ import {
 import { addressXPubkey } from "./auth/kaspa-signature.js";
 import type { AuthStore } from "./auth/auth-store.js";
 import type { AuthConfig } from "./auth/auth.js";
-import { invalidError, isApiError, notFoundError, toErrorEnvelope, unauthorizedError } from "./errors.js";
+import { invalidError, isApiError, notFoundError, rateLimitedError, toErrorEnvelope, unauthorizedError } from "./errors.js";
 import { describeWalletSignatures } from "./flow.js";
 import { deployFinalize, deployGenesis, deployPrepare } from "./deploy.js";
 import type { EventRegistry } from "./eventstore.js";
+import type { FeedbackService } from "./feedback.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { ListingStore } from "./listings.js";
 import type { VerifiedEvent } from "./provenance.js";
@@ -63,6 +64,7 @@ import {
   type ResaleContext,
 } from "./resale.js";
 import { metrics } from "./metrics.js";
+import { RateLimiter } from "./rate-limit.js";
 import { usePrepare } from "./use.js";
 import { useFinalize, useSignTemplate } from "./use-gate.js";
 import { VerifiedEventCache } from "./verified-cache.js";
@@ -109,6 +111,8 @@ export interface AppContext {
   verified: VerifiedEventCache;
   /** Wallet auth (fail-closed): required for user-specific reads. */
   auth: { store: AuthStore; config: AuthConfig };
+  /** Anonymous feedback: validate, queue durably, then deliver. */
+  feedback: FeedbackService;
 }
 
 /**
@@ -171,6 +175,10 @@ function resaleCtx(ctx: AppContext): ResaleContext {
 }
 
 export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // Five notes per client per ten minutes. Public + anonymous, so this is the
+  // endpoint's abuse control; it is intentionally generous for a real visitor.
+  const feedbackLimiter = new RateLimiter({ limit: 5, windowMs: 10 * 60_000 });
+
   // The runtime identity of this deployment (KTK-171). The browser reads it at
   // boot so a bundle built once follows whichever chain the server serves.
   app.get("/v1/config", async (_req, reply) => {
@@ -181,6 +189,21 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       wallet_network: ctx.walletNetworkName,
       address_prefix: ctx.addressPrefix,
     };
+  });
+
+  app.post("/v1/feedback", { config: { kticketFlow: "feedback.submit" } }, async (req, reply) => {
+    // Public and anonymous, so the per-client cap is the only abuse control.
+    const decision = feedbackLimiter.check(feedbackClientKey(req));
+    if (!decision.allowed) {
+      reply.header("retry-after", String(decision.retryAfterSeconds));
+      throw rateLimitedError(
+        "Too many submissions; try again later",
+        decision.retryAfterSeconds,
+      );
+    }
+
+    const result = await ctx.feedback.submit(req.body);
+    return reply.code(202).send(result);
   });
 
   app.post("/v1/auth/challenge", { config: { kticketFlow: "auth.challenge" } }, async (req, reply) => {
@@ -622,6 +645,19 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
+}
+
+/**
+ * The rate-limit key. The deployment sits behind a tunnel that sets
+ * `X-Forwarded-For`; fall back to the socket address for direct/local calls.
+ */
+function feedbackClientKey(req: FastifyRequest): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.ip || req.socket.remoteAddress || "unknown";
 }
 
 function parseRegisterEventBody(raw: unknown): string {

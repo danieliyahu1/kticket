@@ -51,6 +51,10 @@ export function openApiDocument(options: OpenApiOptions): JsonObject {
     tags: [
       { name: "config", description: "The deployment's runtime network identity." },
       { name: "auth", description: "Challenge → signature → session token." },
+      {
+        name: "feedback",
+        description: "Anonymous feedback, no wallet and no account.",
+      },
       { name: "events", description: "Verified events, deploys, and primary ticket purchases." },
       { name: "tickets", description: "The caller's tickets and the door (check-in) flow." },
       { name: "resale", description: "List, delist, browse, and trustlessly purchase tickets." },

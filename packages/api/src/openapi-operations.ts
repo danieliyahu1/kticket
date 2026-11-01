@@ -3,6 +3,7 @@
 // named ids so prepare and finalize read as one story.
 
 import { TICKET_DUST } from "@kticket/kit";
+import { FEEDBACK_MAX_MESSAGE } from "./feedback.js";
 import type { JsonObject } from "./json.js";
 import {
   BEARER_SECURITY,
@@ -139,6 +140,34 @@ function authOperations(options: OpenApiOptions): DocumentedOperation[] {
           }),
           400: errorResponse(400),
           401: errorResponse(401),
+        },
+      }),
+    },
+  ];
+}
+
+function feedbackOperations(): DocumentedOperation[] {
+  return [
+    {
+      method: "post",
+      route: "/v1/feedback",
+      operation: operation({
+        operationId: "submitFeedback",
+        tag: "feedback",
+        summary: "Send anonymous feedback",
+        description:
+          `Accepts a short note from any visitor - no wallet and no account. The server stores it durably before trying to deliver it, so a delivery outage or restart never loses it. The response's \`delivered\` flag says whether it reached the maintainers: \`false\` means it is queued for retry, not sent. Messages are capped at ${FEEDBACK_MAX_MESSAGE} characters and rate-limited per client.`,
+        body: jsonRequestBody(jsonRef("FeedbackRequest"), {
+          message:
+            "The check-in page worked, but I could not find where to download my ticket.",
+        }),
+        responses: {
+          202: jsonResponse("Feedback accepted and queued or delivered.", jsonRef("FeedbackResponse"), {
+            accepted: true,
+            delivered: true,
+          }),
+          400: errorResponse(400),
+          429: errorResponse(429),
         },
       }),
     },
@@ -731,6 +760,7 @@ function purchaseOperations(): DocumentedOperation[] {
 export function buildOperations(options: OpenApiOptions): DocumentedOperation[] {
   return [
     ...authOperations(options),
+    ...feedbackOperations(),
     ...eventOperations(),
     ...deployOperations(),
     ...buyOperations(),

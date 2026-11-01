@@ -154,6 +154,23 @@ button {
    anything, and repeats the shell's words so hydration does
    not change the message (issue #8). */
 
+/* The footer's feedback trigger is a button that reads like a footer link. */
+.feedback-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.feedback-button:hover {
+  color: var(--color-primary-hover);
+}
+
+/* ── Static intro ──────────────────────────────────────── */
+/* The pre-hydration explanation in the served shell (GitHub issue #1). */
+
 .home-intro {
   padding: 0.5rem 0 2.25rem;
 }
@@ -611,6 +628,13 @@ a.card:hover {
 
 .input::placeholder {
   color: var(--color-text-secondary);
+}
+
+textarea.input {
+  min-height: 7rem;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
 }
 
 .input:focus {

@@ -93,7 +93,7 @@ describe("OpenAPI contract (KTK-154)", () => {
 
   it("gives every operation an id, summary, tag, and responses", () => {
     const operations = documentedOperations(document);
-    expect(operations).toHaveLength(23);
+    expect(operations).toHaveLength(24);
 
     const ids = new Set<string>();
     for (const { path, method, operation } of operations) {
@@ -184,6 +184,8 @@ describe("OpenAPI contract (KTK-154)", () => {
       operations.get("post /v1/events/{covenant_id}/buy/prepare")?.security,
     ).toBeUndefined();
     expect(operations.get("post /v1/auth/challenge")?.security).toBeUndefined();
+    // Anonymous feedback is public: no token and no signed transaction.
+    expect(operations.get("post /v1/feedback")?.security).toBeUndefined();
   });
 
   it("describes the wire transaction shape the wallet signs", () => {

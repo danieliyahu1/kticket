@@ -86,6 +86,26 @@ describe("loadConfig (PUBLIC_ORIGIN)", () => {
   });
 });
 
+describe("loadConfig (Telegram feedback)", () => {
+  it("stays disabled when neither credential is set", () => {
+    expect(loadConfig({}).telegramFeedback).toBeUndefined();
+  });
+
+  it("resolves both credentials together", () => {
+    expect(
+      loadConfig({
+        TELEGRAM_FEEDBACK_BOT_TOKEN: "bot-token",
+        TELEGRAM_FEEDBACK_CHAT_ID: "42",
+      }).telegramFeedback,
+    ).toEqual({ botToken: "bot-token", chatId: "42" });
+  });
+
+  it("keeps delivery disabled when only one credential is set", () => {
+    expect(loadConfig({ TELEGRAM_FEEDBACK_BOT_TOKEN: "bot-token" }).telegramFeedback).toBeUndefined();
+    expect(loadConfig({ TELEGRAM_FEEDBACK_CHAT_ID: "42" }).telegramFeedback).toBeUndefined();
+  });
+});
+
 describe("loadConfig (TLS)", () => {
   it("serves plain HTTP when TLS is unset", () => {
     expect(loadConfig({}).tls).toBeUndefined();

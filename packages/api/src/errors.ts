@@ -5,6 +5,7 @@ import {
   HTTP_INTERNAL_SERVER_ERROR,
   HTTP_NOT_FOUND,
   HTTP_SERVICE_UNAVAILABLE,
+  HTTP_TOO_MANY_REQUESTS,
   HTTP_UNAUTHORIZED,
   HTTP_UNPROCESSABLE_ENTITY,
 } from "./http-status.js";
@@ -76,6 +77,17 @@ export function unauthorizedError(message: string, detail?: unknown): ApiError {
     message,
     statusCode: HTTP_UNAUTHORIZED,
     detail,
+  });
+}
+
+/** The public rate-limit refusal: a policy answer, not a malformed request. */
+export function rateLimitedError(message: string, retryAfter: number): ApiError {
+  return new ApiError({
+    type: "policy",
+    message,
+    statusCode: HTTP_TOO_MANY_REQUESTS,
+    retryable: true,
+    retryAfter,
   });
 }
 

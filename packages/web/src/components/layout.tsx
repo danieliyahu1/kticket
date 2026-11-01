@@ -6,6 +6,7 @@ import { useWallet } from "../hooks/use-wallet";
 import { useWalletNotices } from "../hooks/use-wallet-notices";
 import { GitHubLink } from "./github-link";
 import { HeaderActions } from "./header-actions";
+import { FeedbackButton } from "./feedback-button";
 import { ToastViewport } from "./toast";
 
 export function Layout() {
@@ -55,6 +56,7 @@ export function Layout() {
       <footer className="app-footer">
         <p>On {networkLabel(config)}</p>
         <GitHubLink />
+        <FeedbackButton />
       </footer>
       <ToastViewport />
     </div>

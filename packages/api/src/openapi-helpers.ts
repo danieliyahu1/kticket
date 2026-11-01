@@ -74,6 +74,7 @@ const ERROR_DESCRIPTIONS: Record<number, string> = {
   404: "The named resource is not known (or not on chain).",
   409: "Conflict — the resource changed while you worked.",
   422: "Rejected by a policy (sold out, not the owner, no spendable funds).",
+  429: "Too many requests; retry after `retryAfter` seconds.",
   500: "Unexpected server error.",
   502: "The network refused the signed transaction.",
   503: "The chain upstream is unavailable; retry after `retryAfter`.",

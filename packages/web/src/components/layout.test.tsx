@@ -70,4 +70,10 @@ describe("network banner ownership (KTK-172)", () => {
 
     expect(screen.queryByText(/Your wallet's address is for a different network/)).toBeNull();
   });
+
+  it("offers anonymous feedback from every page footer", () => {
+    renderLayout();
+
+    expect(screen.getByRole("button", { name: "Send feedback" })).toBeTruthy();
+  });
 });

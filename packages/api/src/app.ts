@@ -13,10 +13,18 @@ import { registerHomeShell } from "./home-shell.js";
 import { EventStore, type EventRegistry } from "./eventstore";
 import { TursoEventStore } from "./eventstore-turso";
 import { InMemoryAuthStore } from "./auth/auth-store.js";
+import {
+  FEEDBACK_DRAIN_INTERVAL_MS,
+  FeedbackService,
+  MemoryFeedbackOutbox,
+  TelegramFeedback,
+  type FeedbackOutbox,
+} from "./feedback.js";
+import { TursoFeedbackOutbox } from "./feedback-turso.js";
 import { ListingStoreFile, type ListingStore } from "./listings";
 import { TursoListingStore } from "./listings-turso";
 import { KaspaClient } from "./kaspa-client";
-import { registerHttpMetrics } from "./metrics";
+import { metrics, registerHttpMetrics } from "./metrics";
 import { type AppContext, registerRoutes } from "./routes";
 import { VerifiedEventCache } from "./verified-cache";
 import { warmVerifiedEvents } from "./warmup";
@@ -55,6 +63,22 @@ async function openListingStore(config: ApiConfig): Promise<ListingStore> {
   return store;
 }
 
+/**
+ * The feedback queue is durable whenever Turso is configured (every deployed
+ * environment). Without it, local development gets an in-memory queue: feedback
+ * still accepts, but a restart drops it. That fallback is never deployed.
+ */
+async function openFeedbackOutbox(config: ApiConfig): Promise<FeedbackOutbox> {
+  if (!config.turso) return new MemoryFeedbackOutbox();
+  const client = createClient({
+    url: config.turso.url,
+    ...(config.turso.authToken ? { authToken: config.turso.authToken } : {}),
+  });
+  const outbox = new TursoFeedbackOutbox(client);
+  await outbox.init();
+  return outbox;
+}
+
 export async function buildApp(
   config: ApiConfig = loadConfig(),
   /**
@@ -90,6 +114,14 @@ export async function buildApp(
   const events = deps?.events ?? (await openEventRegistry(config));
   const listings = deps?.listings ?? (await openListingStore(config));
   const verified = deps?.verified ?? new VerifiedEventCache();
+  const feedback =
+    deps?.feedback ??
+    new FeedbackService({
+      outbox: await openFeedbackOutbox(config),
+      deliverer: new TelegramFeedback(config.telegramFeedback ?? {}),
+      metrics,
+      logger: app.log,
+    });
 
   // Wallet auth is fail-closed: the app refuses to boot without an AUTH_SECRET
   // (or an injected auth context for tests). User-specific reads depend on it.
@@ -110,9 +142,15 @@ export async function buildApp(
     networkId: deps?.networkId ?? config.networkId,
     walletNetworkName: deps?.walletNetworkName ?? config.walletNetworkName,
     addressPrefix: deps?.addressPrefix ?? config.addressPrefix,
+    feedback,
   };
 
   registerRoutes(app, ctx);
+
+  // Queued feedback is retried in the background. The timer is unref'd so it
+  // never keeps the process (or a test) alive, and it is cleared on shutdown.
+  const stopFeedbackDrain = startFeedbackDrain(feedback, app);
+  app.addHook("onClose", async () => stopFeedbackDrain());
 
   // The published contract is registered before the SPA so its paths are never
   // swallowed by the static catch-all (KTK-157).
@@ -140,6 +178,35 @@ export async function buildApp(
   }
 
   return app;
+}
+
+/**
+ * Drain queued feedback once at boot (a previous rollout may have left a
+ * backlog) and then periodically. Disabled delivery leaves entries queued; the
+ * next boot with credentials delivers them.
+ */
+function startFeedbackDrain(feedback: FeedbackService, app: FastifyInstance): () => void {
+  if (!feedback.deliveryEnabled) {
+    app.log.warn(
+      { reason: "TELEGRAM_FEEDBACK_BOT_TOKEN or TELEGRAM_FEEDBACK_CHAT_ID is not set" },
+      "feedback_delivery_disabled",
+    );
+    return () => {};
+  }
+
+  const drain = () => {
+    void feedback.drainPending().catch((error: unknown) => {
+      app.log.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        "feedback_drain_failed",
+      );
+    });
+  };
+
+  drain();
+  const timer = setInterval(drain, FEEDBACK_DRAIN_INTERVAL_MS);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 interface SpaOptions {

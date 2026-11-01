@@ -69,6 +69,22 @@ spec:
                 secretKeyRef:
                   name: kticket-secrets
                   key: auth-secret
+            # Optional: without both, feedback is still accepted and queued in
+            # Turso; the next boot with credentials delivers the backlog. A
+            # separate Secret keeps a missing vault entry from blocking the
+            # Turso/auth Secret the app needs to boot.
+            - name: TELEGRAM_FEEDBACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: kticket-feedback-secrets
+                  key: telegram-feedback-bot-token
+                  optional: true
+            - name: TELEGRAM_FEEDBACK_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: kticket-feedback-secrets
+                  key: telegram-feedback-chat-id
+                  optional: true
 
           resources:
             requests:

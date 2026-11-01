@@ -86,6 +86,7 @@ Which calls need the token:
 | --- | --- |
 | `GET /v1/events` | public |
 | `GET /v1/events/{covenant_id}` | public |
+| `POST /v1/feedback` | public, no wallet and no account |
 | `GET /v1/listings`, `GET /v1/events/{covenant_id}/listings` | public |
 | `GET /v1/events?organizer_address=...` | bearer, and the address must match |
 | `GET /v1/tickets` | bearer |
@@ -498,6 +499,34 @@ dropped and the buyer holds a fully usable ticket.
 `/delist/finalize` with `{ template, signed }`. Only the seller can delist, and
 the recorded price is proven against the chain before the template is built.
 
+## Feedback
+
+`POST /v1/feedback` accepts a short note from anyone, with no wallet and no
+account:
+
+```http
+POST /v1/feedback
+Content-Type: application/json
+
+{ "message": "The check-in page worked, but I could not find my ticket." }
+```
+
+```json
+{ "accepted": true, "delivered": true }
+```
+
+The message is trimmed and capped at 1500 characters. The server writes it to a
+durable queue before attempting delivery, so a delivery outage or restart never
+loses it. The response is `202` as soon as the note is stored:
+
+- `delivered: true` means it reached the maintainers.
+- `delivered: false` means it is queued for retry and has **not** been sent yet.
+  A client must not tell the user it was sent in that case.
+
+The endpoint is rate-limited per client (five submissions per ten minutes); a
+refusal is `429` with `retryAfter`, and the note was not stored. Submissions are
+anonymous: do not include secrets, keys, or personal data.
+
 ## Errors
 
 Every failure uses one envelope:
@@ -527,6 +556,7 @@ HTTP status carries the class:
 | `404` | The named resource is not known (or not on chain). |
 | `409` | Conflict — the resource changed while you worked. |
 | `422` | Rejected by a policy (sold out, not the owner, no spendable funds). |
+| `429` | Too many submissions; wait `retryAfter` seconds before retrying. |
 | `502` | The network refused the signed transaction. |
 | `503` | Not available yet — the chain upstream is down, or the transaction's inputs are not spendable yet. Honor `retryAfter`. |
 
