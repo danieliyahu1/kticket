@@ -17,6 +17,7 @@ export type HttpStatusClass = "1xx" | "2xx" | "3xx" | "4xx" | "5xx";
 export type UpstreamOutcome = "success" | "error" | "retry";
 export type WarmupResult = "success" | "partial" | "error";
 export type FlowResult = "success" | "error";
+export type FeedbackOutcome = "delivered" | "queued" | "disabled";
 
 const HTTP_DURATION_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30];
 const UPSTREAM_DURATION_BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
@@ -58,6 +59,7 @@ export class Metrics {
   readonly #warmupDuration: Histogram<string>;
   readonly #warmupLastSuccess: Gauge<string>;
   readonly #eventsRegistered: Counter<string>;
+  readonly #feedback: Counter<"outcome">;
   readonly #buildInfo: Gauge<"version" | "network">;
 
   constructor(registry: Registry = new Registry()) {
@@ -133,6 +135,12 @@ export class Metrics {
       help: "Events registered into the discovery registry.",
       registers,
     });
+    this.#feedback = new Counter({
+      name: "kticket_feedback_total",
+      help: "Anonymous feedback submissions, by delivery outcome.",
+      labelNames: ["outcome"] as const,
+      registers,
+    });
     this.#buildInfo = new Gauge({
       name: "kticket_build_info",
       help: "Build identity of the running API (always 1).",
@@ -166,6 +174,10 @@ export class Metrics {
 
   recordEventRegistered(): void {
     this.#eventsRegistered.inc();
+  }
+
+  recordFeedback(outcome: FeedbackOutcome): void {
+    this.#feedback.inc({ outcome });
   }
 
   setBuildInfo(version: string, network: string): void {

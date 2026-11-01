@@ -167,6 +167,7 @@ describe("published documentation routes (KTK-155 / KTK-157)", () => {
         "/v1/tickets/{ticket_id}/list/prepare",
         "/v1/tickets/{ticket_id}/delist/prepare",
         "/v1/tickets/{ticket_id}/purchase/prepare",
+        "/v1/feedback",
       ]) {
         expect(text, path).toContain(path);
       }

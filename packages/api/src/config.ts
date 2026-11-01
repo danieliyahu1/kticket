@@ -16,6 +16,12 @@ export interface TursoConfig {
   authToken?: string;
 }
 
+/** Telegram delivery for anonymous feedback. Both values are required. */
+export interface TelegramFeedbackConfig {
+  botToken: string;
+  chatId: string;
+}
+
 export interface ApiConfig {
   port: number;
   host: string;
@@ -35,6 +41,11 @@ export interface ApiConfig {
   listingsFilePath: string;
   /** Set when TURSO_DATABASE_URL is configured; otherwise the file store is used. */
   turso?: TursoConfig;
+  /**
+   * Set when both TELEGRAM_FEEDBACK_* values are configured. Feedback is still
+   * accepted and queued when this is absent; it is only delivery that stops.
+   */
+  telegramFeedback?: TelegramFeedbackConfig;
   /** Set when AUTH_SECRET is configured; otherwise the app refuses to boot (fail-closed). */
   auth?: AuthConfig;
   /**
@@ -70,6 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const turso = resolveTurso(env);
   const auth = resolveAuth(env, port);
   const publicOrigin = resolvePublicOrigin(env);
+  const telegramFeedback = resolveTelegramFeedback(env);
 
   return {
     port,
@@ -89,6 +101,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     listingsFilePath: env.LISTINGS_FILE?.trim() || DEFAULT_LISTINGS_FILE,
     ...(tls ? { tls } : {}),
     ...(turso ? { turso } : {}),
+    ...(telegramFeedback ? { telegramFeedback } : {}),
     ...(auth ? { auth } : {}),
   };
 }
@@ -168,6 +181,20 @@ function resolveTurso(env: NodeJS.ProcessEnv): TursoConfig | undefined {
   }
 
   return { url, ...(authToken ? { authToken } : {}) };
+}
+
+/**
+ * Telegram feedback delivery is optional. A half-configured pair stays
+ * disabled (the endpoint still accepts and queues); enabling delivery is a
+ * restart with both values set, and the next drain delivers the backlog.
+ */
+function resolveTelegramFeedback(
+  env: NodeJS.ProcessEnv,
+): TelegramFeedbackConfig | undefined {
+  const botToken = env.TELEGRAM_FEEDBACK_BOT_TOKEN?.trim();
+  const chatId = env.TELEGRAM_FEEDBACK_CHAT_ID?.trim();
+  if (!botToken || !chatId) return undefined;
+  return { botToken, chatId };
 }
 
 /**

@@ -2,6 +2,7 @@
 // area of the wire surface; `buildComponents` is only the composition.
 
 import { MAX_EVENT_CAPACITY } from "@kticket/kit";
+import { FEEDBACK_MAX_MESSAGE } from "./feedback.js";
 import type { JsonObject } from "./json.js";
 import {
   HEX64_PATTERN,
@@ -133,6 +134,40 @@ function authSchemas(): JsonObject {
       properties: {
         token: { type: "string", description: "Bearer token for authenticated routes." },
         expires_in_seconds: { type: "integer", minimum: 0 },
+      },
+    },
+  };
+}
+
+function feedbackSchemas(): JsonObject {
+  return {
+    FeedbackRequest: {
+      type: "object",
+      required: ["message"],
+      properties: {
+        message: {
+          type: "string",
+          minLength: 1,
+          maxLength: FEEDBACK_MAX_MESSAGE,
+          description:
+            "The visitor's note. Whitespace-only messages are rejected; the server trims before storing.",
+        },
+      },
+    },
+    FeedbackResponse: {
+      type: "object",
+      required: ["accepted", "delivered"],
+      properties: {
+        accepted: {
+          type: "boolean",
+          const: true,
+          description: "The note is durably stored.",
+        },
+        delivered: {
+          type: "boolean",
+          description:
+            "`true` only when the note reached the maintainers. `false` means it is queued for retry and has not been sent yet.",
+        },
       },
     },
   };
@@ -754,6 +789,7 @@ export function buildComponents(): JsonObject {
     schemas: {
       ...sharedSchemas(),
       ...authSchemas(),
+      ...feedbackSchemas(),
       ...wireSchemas(),
       ...eventSchemas(),
       ...deploySchemas(),
