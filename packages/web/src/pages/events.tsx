@@ -3,7 +3,9 @@ import { fetchEventsList, ServerError, type EventListItem } from "../api/client"
 import { Empty, OfflineEmpty } from "../components/empty";
 import { EventCard } from "../components/event-card";
 import { HomeIntro } from "../components/home-intro";
+import { KaswareNote } from "../components/kasware-note";
 import { useCreateDialog } from "../components/create-dialog-context";
+import { useWallet } from "../hooks/use-wallet";
 
 function BrowseEmpty() {
   const { openCreate } = useCreateDialog();
@@ -18,6 +20,7 @@ function BrowseEmpty() {
 }
 
 export default function EventsPage() {
+  const { state } = useWallet();
   const [events, setEvents] = useState<EventListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
@@ -71,6 +74,7 @@ export default function EventsPage() {
       ) : (
         <BrowseEmpty />
       )}
+      {state.status === "not-installed" && <KaswareNote />}
     </div>
   );
 }

@@ -5,10 +5,13 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventListItem } from "../api/client";
 import { CreateDialogProvider } from "../components/create-dialog-context";
+import { KASWARE_INSTALL_URL } from "../wallet/kasware";
+import type { WalletState } from "../wallet/types";
 import EventsPage from "./events";
 
 const harness = vi.hoisted(() => ({
   events: [] as EventListItem[],
+  wallet: { status: "not-installed" } as WalletState,
 }));
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -18,6 +21,10 @@ vi.mock("../api/client", async (importOriginal) => {
     fetchEventsList: vi.fn(async () => harness.events),
   };
 });
+
+vi.mock("../hooks/use-wallet", () => ({
+  useWallet: () => ({ state: harness.wallet }),
+}));
 
 function eventListItem(): EventListItem {
   return {
@@ -45,6 +52,7 @@ function renderEvents() {
 
 beforeEach(() => {
   harness.events = [];
+  harness.wallet = { status: "not-installed" };
 });
 
 afterEach(() => {
@@ -77,5 +85,25 @@ describe("home page statement (issue #8)", () => {
     expect(await screen.findByText("Event A")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Tickets on the chain." })).toBeTruthy();
     expect(screen.queryByText("No events yet.")).toBeNull();
+  });
+});
+
+describe("the wallet offer (issue #8)", () => {
+  it("names and explains Kasware only when none is installed", async () => {
+    renderEvents();
+
+    await screen.findByText("No events yet.");
+    expect(screen.getByText(/Kasware is the wallet that signs for you/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Get Kasware" }).getAttribute("href")).toBe(
+      KASWARE_INSTALL_URL,
+    );
+  });
+
+  it("stays out of the way for someone who already has a wallet", async () => {
+    harness.wallet = { status: "disconnected" };
+    renderEvents();
+
+    await screen.findByText("No events yet.");
+    expect(screen.queryByText(/Kasware is the wallet/)).toBeNull();
   });
 });
