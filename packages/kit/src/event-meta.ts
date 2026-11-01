@@ -36,7 +36,7 @@ export interface EventMeta {
 export const SITE_NAME = "kticket";
 export const GENERIC_TITLE = "kticket — tickets on the chain";
 export const GENERIC_DESCRIPTION =
-  "Tickets on the chain. Create an event on Kaspa and let anyone in who holds a ticket.";
+  "Tickets on the chain. Create an event, sell tickets in KAS, and let anyone holding a ticket in. Looking around needs no wallet.";
 
 const MONTHS = [
   "January",

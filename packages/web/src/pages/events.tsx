@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchEventsList, ServerError, type EventListItem } from "../api/client";
 import { Empty, OfflineEmpty } from "../components/empty";
 import { EventCard } from "../components/event-card";
+import { HomeIntro } from "../components/home-intro";
 import { useCreateDialog } from "../components/create-dialog-context";
 
 function BrowseEmpty() {
@@ -9,7 +10,7 @@ function BrowseEmpty() {
   return (
     <Empty
       title="No events yet."
-      sub="Be the first to create one."
+      sub="Events appear here as soon as someone creates one."
       actionLabel="Create an event"
       onAction={openCreate}
     />
@@ -49,6 +50,7 @@ export default function EventsPage() {
 
   return (
     <div>
+      <HomeIntro />
       {loading ? (
         <div className="event-list">
           <p className="note" role="status">

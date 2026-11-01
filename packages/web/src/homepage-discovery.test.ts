@@ -65,11 +65,19 @@ describe("homepage discovery (KTK-152)", () => {
     });
   });
 
-  it("says in the meta description that the API needs no browser", () => {
+  it("describes the product to a human in the meta description", () => {
     const description = metaContent(SHELL, "description") ?? "";
 
-    expect(description).toContain("HTTP API");
-    expect(description).toContain("no browser required");
+    expect(description).toContain("Tickets on the chain");
+    expect(description).toContain("Looking around needs no wallet");
+  });
+
+  it("states what kticket is before the agent surface", () => {
+    const readable = withoutNoscript(SHELL);
+
+    expect(readable).toContain("Tickets on the chain.");
+    expect(readable).toContain("Create an event. Sell tickets in KAS.");
+    expect(readable).toContain("Looking around needs no wallet");
   });
 
   it("explains the product in body markup, not behind noscript", () => {

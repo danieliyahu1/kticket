@@ -149,23 +149,50 @@ button {
   flex: none;
 }
 
-/* ── Static intro ──────────────────────────────────────── */
-/* The pre-hydration explanation in the served shell (GitHub issue #1). */
+/* ── Home statement ────────────────────────────────────── */
+/* The homepage says what kticket is before it asks for
+   anything, and repeats the shell's words so hydration does
+   not change the message (issue #8). */
 
-.static-intro h1 {
-  font-size: 1.6rem;
-  letter-spacing: 0.02em;
-  margin-bottom: var(--space-3);
+.home-intro {
+  padding: 0.5rem 0 2.25rem;
 }
+
+.home-intro-title {
+  font-size: clamp(2rem, 7vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.home-intro-lead {
+  margin-top: var(--space-4);
+  max-width: 34rem;
+  font-size: 1.05rem;
+}
+
+.home-intro-trust {
+  margin-top: var(--space-3);
+  max-width: 34rem;
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+
+.home-intro-reassurance {
+  margin-top: var(--space-5);
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+/* ── Static intro ──────────────────────────────────────── */
+/* The agent entry points in the served shell (GitHub issue
+   #1). The human statement above it uses the app's own
+   classes, so the two renders agree. */
 
 .static-intro h2 {
   font-size: 1rem;
   color: var(--color-text-secondary);
   margin: var(--space-5) 0 var(--space-2);
-}
-
-.static-intro p + p {
-  margin-top: var(--space-3);
 }
 
 .static-intro ul {
