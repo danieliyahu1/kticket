@@ -1,0 +1,3 @@
+# Vendored conformance vector: keep the upstream bytes exact on every checkout,
+# so a refresh can be diffed against kaspanet/kccs without CRLF noise.
+packages/kit/src/runtime/kcc-23-conformance.json -text
