@@ -272,7 +272,7 @@ const OP_EQUAL = 0x87;
 const PUSH32 = 0x20;
 
 /**
- * P2SH script public key for a redeem script (blake3-32 script hash) in the
+ * P2SH script public key for a redeem script (BLAKE2b-256 script hash) in the
  * standard Kaspa form `aa20 <hash> 87` — the shape `payToScriptHashScript`
  * produces on-chain (forge reference). A bare 32-byte hash is not a standard
  * script and the node rejects it.
@@ -304,7 +304,7 @@ export function burnScript(burnArtifact: CompiledContractArtifact): ScriptPublic
  * Hex script hash of an event's burn-owner covenant output — the "burn
  * template" a handover must create (HLD §2.1). The reader (HLD §2.2) compares a
  * handover successor's on-chain `aa20 <hash> 87` script against this to report
- * GONE. This is the blake3-32 P2SH script hash of the burn redeem script (the
+ * GONE. This is the BLAKE2b-256 P2SH script hash of the burn redeem script (the
  * burn artifact's full bytecode) — not the silverscript `template_hash`.
  */
 export function burnTemplateHash(burnArtifact: CompiledContractArtifact): string {

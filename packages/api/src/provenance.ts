@@ -11,7 +11,7 @@
 //      output) must be a P2PK script whose pubkey is the covenant owner — i.e.
 //      the event was deployed by the address that owns the covenant
 //   5. address commitment check: the deploy covenant output script must equal
-//      `P2SH(blake3(redeem))` reconstructed from the recovered constants + state
+//      `P2SH(BLAKE2b-256(redeem))` reconstructed from the recovered constants + state
 //      (this simultaneously recovers capacity by scanning candidate amounts)
 //   6. availability is then computed by the lineage walk (unchanged)
 //

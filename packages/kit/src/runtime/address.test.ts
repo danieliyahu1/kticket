@@ -119,7 +119,7 @@ describe("address derivation", () => {
     expect(availableTicketAddress(EVENT_ARTIFACT, 0, "testnet10")).toMatch(/^kaspatest:/);
   });
 
-  it("payload is the blake3 script hash under the ScriptHash version byte", () => {
+  it("payload is the BLAKE2b-256 script hash under the ScriptHash version byte", () => {
     const redeem = buildRedeemScript(EVENT_ARTIFACT, ticketState(ZERO_OWNER));
     const hash = scriptHash(redeem);
     const expected = encodeAddress(

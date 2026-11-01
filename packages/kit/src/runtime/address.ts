@@ -286,7 +286,7 @@ export function decodeAddress(address: string, expectedPrefix: string): DecodedA
 
 export interface AddressOptions {
   prefix?: string;
-  /** Override the hash used as the P2SH payload (defaults to `scriptHash` = blake3-32). */
+  /** Override the P2SH payload hash (defaults to `scriptHash`, the node's `OP_BLAKE2B`). */
   hash?: (redeemScript: Uint8Array) => Uint8Array;
 }
 
@@ -303,7 +303,7 @@ function p2shPayload(hash: Uint8Array): Uint8Array {
 
 /**
  * Derive the P2SH address for a covenant output. By default the payload is
- * `blake3(redeem_script)` (32 bytes) under the given network prefix.
+ * `blake2b_256(redeem_script)` (32 bytes) under the given network prefix.
  */
 export function addressFor(
   artifact: CompiledContractArtifact,

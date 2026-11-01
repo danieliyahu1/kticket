@@ -1,6 +1,6 @@
 // Event availability — the lineage walk behind the buy flow (KTK-89).
 //
-// The blockDAG stores only `P2SH(blake3(redeem_script))`, not the decoded
+// The blockDAG stores only `P2SH(BLAKE2b-256(redeem_script))`, not the decoded
 // preimage, so there is no on-chain index to discover events from. Availability
 // (sold/left) is derived from the event covenant's `remaining` state by walking
 // its spend lineage: each mint (buy) spends the event covenant and re-creates it

@@ -2,7 +2,7 @@
 // authentic and provably belongs to a known organizer address, purely from
 // on-chain data with no trust in the kticket backend.
 //
-// The chain stores only `P2SH(blake3(redeem_script))` for a covenant output —
+// The chain stores only `P2SH(BLAKE2b-256(redeem_script))` for a covenant output —
 // never the redeem script itself. So verification is *reconstruction*: recompile
 // the per-event artifact from chain-derived facts (authorizing outpoint, funding
 // UTXO owner, KCC-23 metadata payload) and check that the reconstructed P2SH commitment
@@ -68,7 +68,7 @@ export function orgSpkFromPublicKey(publicKeyHex: string): string {
 
 /**
  * The full P2SH output script a covenant output with `state` would have on
- * chain (`aa20 <blake3(redeem)> 87`) — what the deploy output must equal.
+ * chain (`aa20 <BLAKE2b-256(redeem)> 87`) — what the deploy output must equal.
  */
 export function eventOutputScript(artifact: CompiledContractArtifact, state: EventState): string {
   const redeem = injectState(artifact, {
