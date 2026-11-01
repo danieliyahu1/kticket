@@ -136,8 +136,9 @@ export function txIdPreimageV1(tx: UnsignedTransaction): Uint8Array {
 }
 
 /**
- * The payload digest of the transaction payload. The kit never sets a payload
- * (always empty), so this is the `ZERO_PAYLOAD_DIGEST` constant.
+ * The `PayloadDigest` of a transaction payload: the `ZERO_PAYLOAD_DIGEST` when
+ * the template carries none (every kticket template except the KCC-23
+ * preparation tx, which declares the event metadata in its payload).
  */
 export function payloadDigest(payload: Uint8Array = new Uint8Array(0)): Uint8Array {
   return blake3Keyed("PayloadDigest", payload);
@@ -148,12 +149,18 @@ export function payloadDigest(payload: Uint8Array = new Uint8Array(0)): Uint8Arr
  *
  *   id = TransactionV1Id(payload_digest || rest_digest)
  *
- * where `rest_digest` is the `TransactionRest` hash of the id preimage. Returns
- * the 64-hex id. Validated against rusty-kaspa's `hashing/tx.rs` test vectors.
+ * where `payload_digest` commits to `tx.payload` and `rest_digest` is the
+ * `TransactionRest` hash of the id preimage. Both halves are required: a
+ * KCC-23 preparation tx is identified by its payload, so dropping it would
+ * return the id of a different transaction.
+ *
+ * Returns the 64-hex id. Validated against the KCC-23 conformance vector and
+ * rusty-kaspa's `hashing/tx.rs` test vectors.
  */
 export function txIdV1(tx: UnsignedTransaction): string {
   const restDigest = blake3Keyed("TransactionRest", txIdPreimageV1(tx));
-  const id = blake3Keyed("TransactionV1Id", concat([payloadDigest(), restDigest]));
+  const payload = hexToBytes(tx.payload ?? "");
+  const id = blake3Keyed("TransactionV1Id", concat([payloadDigest(payload), restDigest]));
   return bytesToHex(id);
 }
 

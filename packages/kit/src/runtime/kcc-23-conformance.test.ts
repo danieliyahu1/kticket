@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { decodeMetadataFromPayload, isKcc23Payload } from "./builder";
 import { covenantId, type AuthorizedOutput, type Outpoint } from "./covenant";
 import conformance from "./kcc-23-conformance.json";
-import { payloadDigest, txIdPreimageV1 } from "./serialize";
+import { payloadDigest, txIdPreimageV1, txIdV1 } from "./serialize";
 import type { UnsignedTransaction } from "./tx";
 
 const binding = conformance.binding;
@@ -76,6 +76,15 @@ function genesisAuthorizedOutputs(): AuthorizedOutput[] {
   });
 }
 
+/** The payload the `changed_metadata` mutation substitutes. */
+function changedMetadataPayload(): string {
+  const mutation = conformance.binding_mutations.find((m) => m.name === "changed_metadata");
+  if (!mutation) throw new Error("the vector no longer defines the changed_metadata mutation");
+  const payload = mutation.replace["/preparation_transaction/payload_hex"];
+  if (!payload) throw new Error("changed_metadata no longer replaces the preparation payload");
+  return payload;
+}
+
 describe("KCC-23 conformance: the binding vector", () => {
   it("builds the preparation id preimage the spec publishes", () => {
     expect(bytesToHex(txIdPreimageV1(preparationTransaction()))).toBe(expected.rest_preimage_hex);
@@ -85,6 +94,10 @@ describe("KCC-23 conformance: the binding vector", () => {
     expect(bytesToHex(payloadDigest(hexToBytes(preparation.payload_hex)))).toBe(
       expected.payload_digest,
     );
+  });
+
+  it("derives the preparation transaction id the spec publishes", () => {
+    expect(txIdV1(preparationTransaction())).toBe(expected.preparation_transaction_id);
   });
 
   it("derives the covenant id the spec publishes", () => {
@@ -98,6 +111,15 @@ describe("KCC-23 conformance: the commitment is load-bearing", () => {
     const covenant = genesis.outputs[0]?.covenant;
     if (!covenant) throw new Error("the vector's genesis output declares no covenant");
     expect(covenant.covenant_id).toBe(expected.covenant_id);
+  });
+
+  it("changes the preparation tx id when one payload byte changes, breaking the binding", () => {
+    const id = txIdV1(preparationTransaction(changedMetadataPayload()));
+    expect(id).toBe(
+      conformance.binding_mutations.find((m) => m.name === "changed_metadata")
+        ?.expected_preparation_transaction_id,
+    );
+    expect(id).not.toBe(expected.preparation_transaction_id);
   });
 });
 
