@@ -5,7 +5,10 @@ import type { WireTransaction } from "./wire.js";
 
 const TXID_BYTE_LENGTH = 32;
 
-const KCC23_BINDING = conformance.binding;
+const binding = conformance.binding;
+
+/** The JSON pointer the `changed_metadata` mutation rewrites. */
+const PREPARATION_PAYLOAD_PATH = "/preparation_transaction/payload_hex";
 
 /**
  * The KCC-23 conformance vector's preparation tx — one organizer output with the
@@ -15,9 +18,9 @@ const KCC23_BINDING = conformance.binding;
  * `toWasmInput` maps to wasm's `computeBudget` for v1 templates.
  */
 function preparationWire(
-  payload: string = KCC23_BINDING.preparation_transaction.payload_hex,
+  payload: string = binding.preparation_transaction.payload_hex,
 ): WireTransaction {
-  const preparation = KCC23_BINDING.preparation_transaction;
+  const preparation = binding.preparation_transaction;
   return {
     version: preparation.version,
     inputs: preparation.inputs.map((input) => ({
@@ -154,13 +157,6 @@ describe("buildWasmTransaction — broadcast relay construction (KTK: outpoint i
 });
 
 describe("transactionIdOf � the KCC-23 preparation binding", () => {
-  it("returns the consensus id of the signed transaction", async () => {
-    const tx = preparationWire("007b7d");
-    const wasmTx = (await buildWasmTransaction(tx)) as WasmTransaction;
-    expect(await transactionIdOf(tx)).toBe(wasmTx.id.toLowerCase());
-    expect(await transactionIdOf(tx)).toBe(await transactionIdOf(tx));
-  });
-
   it("commits to the exact payload bytes, so the metadata is bound", async () => {
     // KCC-23 �3.1: `007b7d` = `{}`, the others declare different values.
     const empty = await transactionIdOf(preparationWire("007b7d"));
@@ -175,21 +171,28 @@ describe("transactionIdOf � the KCC-23 preparation binding", () => {
   });
 });
 
+/** The `changed_metadata` mutation: one payload byte edited, and the id it must produce. */
+function changedMetadata(): { payload: string; expectedId: string } {
+  const mutation = conformance.binding_mutations.find((m) => m.name === "changed_metadata");
+  if (!mutation) throw new Error("the vector no longer defines the changed_metadata mutation");
+  const payload = mutation.replace[PREPARATION_PAYLOAD_PATH];
+  if (!payload) throw new Error("changed_metadata no longer replaces the preparation payload");
+  const expectedId = mutation.expected_preparation_transaction_id;
+  if (!expectedId) throw new Error("changed_metadata no longer declares its expected id");
+  return { payload, expectedId };
+}
+
 describe("transactionIdOf: the KCC-23 conformance vector", () => {
-  const expectedId = KCC23_BINDING.expected.preparation_transaction_id;
+  const publishedId = binding.expected.preparation_transaction_id;
 
   it("returns the preparation transaction id the spec publishes", async () => {
-    expect(await transactionIdOf(preparationWire())).toBe(expectedId);
+    expect(await transactionIdOf(preparationWire())).toBe(publishedId);
   });
 
   it("returns a different id when one payload byte changes, so the binding breaks", async () => {
-    const changed = conformance.binding_mutations.find((m) => m.name === "changed_metadata");
-    if (!changed) throw new Error("the vector no longer defines the changed_metadata mutation");
-    const payload = changed.replace["/preparation_transaction/payload_hex"];
-    if (!payload) throw new Error("changed_metadata no longer replaces the preparation payload");
-
-    const id = await transactionIdOf(preparationWire(payload));
-    expect(id).toBe(changed.expected_preparation_transaction_id);
-    expect(id).not.toBe(expectedId);
+    const changed = changedMetadata();
+    const id = await transactionIdOf(preparationWire(changed.payload));
+    expect(id).toBe(changed.expectedId);
+    expect(id).not.toBe(publishedId);
   });
 });

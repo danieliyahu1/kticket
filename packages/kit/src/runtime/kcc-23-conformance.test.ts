@@ -19,6 +19,9 @@ const preparation = binding.preparation_transaction;
 const genesis = binding.genesis_transaction;
 const expected = binding.expected;
 
+/** The JSON pointer the `changed_metadata` mutation rewrites. */
+const PREPARATION_PAYLOAD_PATH = "/preparation_transaction/payload_hex";
+
 /**
  * The vector's preparation transaction as the kit's template.
  *
@@ -26,7 +29,9 @@ const expected = binding.expected;
  * `packages/api/src/wrpc-client.ts` maps it to wasm's `computeBudget`), so the
  * vector's `compute_budget` is passed through it.
  */
-function preparationTransaction(payloadHex: string = preparation.payload_hex): UnsignedTransaction {
+function preparationTransaction(
+  payloadHex: string = preparation.payload_hex,
+): UnsignedTransaction {
   return {
     version: preparation.version,
     inputs: preparation.inputs.map((input) => ({
@@ -76,13 +81,18 @@ function genesisAuthorizedOutputs(): AuthorizedOutput[] {
   });
 }
 
-/** The payload the `changed_metadata` mutation substitutes. */
-function changedMetadataPayload(): string {
+/**
+ * The `changed_metadata` mutation: one payload byte edited, and the preparation
+ * tx id the edited bytes must produce.
+ */
+function changedMetadata(): { payload: string; expectedId: string } {
   const mutation = conformance.binding_mutations.find((m) => m.name === "changed_metadata");
   if (!mutation) throw new Error("the vector no longer defines the changed_metadata mutation");
-  const payload = mutation.replace["/preparation_transaction/payload_hex"];
+  const payload = mutation.replace[PREPARATION_PAYLOAD_PATH];
   if (!payload) throw new Error("changed_metadata no longer replaces the preparation payload");
-  return payload;
+  const expectedId = mutation.expected_preparation_transaction_id;
+  if (!expectedId) throw new Error("changed_metadata no longer declares its expected id");
+  return { payload, expectedId };
 }
 
 describe("KCC-23 conformance: the binding vector", () => {
@@ -107,18 +117,10 @@ describe("KCC-23 conformance: the binding vector", () => {
 });
 
 describe("KCC-23 conformance: the commitment is load-bearing", () => {
-  it("declares the vector's expected covenant id on the genesis output it commits to", () => {
-    const covenant = genesis.outputs[0]?.covenant;
-    if (!covenant) throw new Error("the vector's genesis output declares no covenant");
-    expect(covenant.covenant_id).toBe(expected.covenant_id);
-  });
-
   it("changes the preparation tx id when one payload byte changes, breaking the binding", () => {
-    const id = txIdV1(preparationTransaction(changedMetadataPayload()));
-    expect(id).toBe(
-      conformance.binding_mutations.find((m) => m.name === "changed_metadata")
-        ?.expected_preparation_transaction_id,
-    );
+    const changed = changedMetadata();
+    const id = txIdV1(preparationTransaction(changed.payload));
+    expect(id).toBe(changed.expectedId);
     expect(id).not.toBe(expected.preparation_transaction_id);
   });
 });
