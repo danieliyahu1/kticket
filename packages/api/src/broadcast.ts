@@ -1,7 +1,7 @@
 // Broadcast boundary: parse the signed v1 template a client wants relayed and
 // classify an upstream rejection message into the error taxonomy (HLD §2.2).
 
-import { conflictError, invalidError, policyError } from "./errors.js";
+import { type ApiError, conflictError, invalidError, policyError } from "./errors.js";
 import { hex, hex64, int, isRecord, str, uint } from "./validate.js";
 import type { WireInput, WireOutput, WireTransaction } from "./wire.js";
 
@@ -81,16 +81,29 @@ function parseOutputs(value: unknown): WireOutput[] {
 }
 
 /**
- * Classify an upstream rejection message into the taxonomy
- * (invalid / conflict / policy). Always throws — it never returns.
+ * What a node rejection means, named after the condition rather than the prose
+ * the node happens to send.
  */
-export function throwRejectionError(message: string): never {
+export type RejectionKind = "conflict" | "fee-policy" | "other";
+
+/** Read a rejection message as the kind of failure it is. */
+export function classifyRejection(message: string): RejectionKind {
   const m = message.toLowerCase();
-  if (m.includes("double spend") || m.includes("already") || m.includes("orphan")) {
-    throw conflictError("transaction rejected: double spend or already known", { detail: message });
+  if (m.includes("double spend") || m.includes("already") || m.includes("orphan")) return "conflict";
+  if (m.includes("fee") || m.includes("mass")) return "fee-policy";
+  return "other";
+}
+
+/** The error a rejection becomes. */
+export function rejectionError(message: string): ApiError {
+  switch (classifyRejection(message)) {
+    case "conflict":
+      return conflictError("transaction rejected: double spend or already known", {
+        detail: message,
+      });
+    case "fee-policy":
+      return policyError("transaction rejected: fee policy", { detail: message });
+    case "other":
+      return invalidError("transaction rejected", { detail: message });
   }
-  if (m.includes("fee") || m.includes("mass")) {
-    throw policyError("transaction rejected: fee policy", { detail: message });
-  }
-  throw invalidError("transaction rejected", { detail: message });
 }

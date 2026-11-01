@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { rejectionError } from "./broadcast.js";
 import type { KaspaClientLike } from "./kaspa-client";
 import type {
   FeeEstimateResponse,
@@ -7,7 +8,7 @@ import type {
   TxMass,
   TxModel,
 } from "./kaspa-types";
-import { broadcastTransaction, buildTransaction, throwRejectionError, toSubmitModel } from "./tx";
+import { broadcastTransaction, buildTransaction, toSubmitModel } from "./tx";
 
 vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
@@ -478,22 +479,22 @@ describe("broadcastTransaction (KTK-29) — rejection mapping", () => {
   });
 });
 
-describe("throwRejectionError", () => {
+describe("rejectionError", () => {
   it("classifies double-spend / already-known as conflict", () => {
     for (const msg of [
       "Rejected transaction ...: double spend",
       "transaction already exists",
       "orphan transaction",
     ]) {
-      expect(() => throwRejectionError(msg)).toThrow(/double spend or already known/);
+      expect(rejectionError(msg).message).toMatch(/double spend or already known/);
     }
   });
 
   it("classifies fee/mass rejections as policy", () => {
-    expect(() => throwRejectionError("low fee")).toThrow(/fee policy/);
+    expect(rejectionError("low fee").message).toMatch(/fee policy/);
   });
 
   it("classifies everything else as invalid", () => {
-    expect(() => throwRejectionError("script error")).toThrow(/transaction rejected/);
+    expect(rejectionError("script error").message).toMatch(/transaction rejected/);
   });
 });

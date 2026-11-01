@@ -4,10 +4,8 @@
 // relays the template + the wallet's output.
 
 import type { KaspaClientLike } from "./kaspa-client.js";
-import { elapsedSeconds, metrics } from "./metrics.js";
 import { pollUntil, type PollOptions } from "./poll-until.js";
-import { throwRejectionError } from "./broadcast.js";
-import { submitTransactionOverWrpc } from "./wrpc-client.js";
+import { relaySignedTransaction } from "./relay.js";
 import type { WireTransaction } from "./wire.js";
 
 /**
@@ -100,18 +98,7 @@ export async function broadcastAndConfirm(
 ): Promise<BroadcastOutcome> {
   const merged = mergeSignatures(template, signed);
   validate(merged);
-  let txid: string;
-  const broadcastStarted = process.hrtime();
-  try {
-    txid = await submitTransactionOverWrpc(ctx.networkId, merged);
-    metrics.observeUpstream("wrpc_broadcast", "success", elapsedSeconds(broadcastStarted));
-  } catch (err) {
-    metrics.observeUpstream("wrpc_broadcast", "error", elapsedSeconds(broadcastStarted));
-    // Surface the node's raw rejection instead of leaking a generic 500 — the
-    // route handler logs it via the ApiError detail (KTK buy).
-    throwRejectionError(err instanceof Error ? err.message : String(err));
-  }
-  const id = txid.toLowerCase();
+  const id = await relaySignedTransaction(merged, ctx.networkId);
   const status: BroadcastStatus = (await waitForAcceptance(ctx.kaspa, id)) ? "settled" : "pending";
   if (status === "settled") {
     // KTK-115: the accepted tx invalidates cached chain reads (the covenant's
