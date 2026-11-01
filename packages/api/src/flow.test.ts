@@ -1,18 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { broadcastAndConfirm, describeWalletSignatures, waitForAcceptance } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { WireTransaction } from "./wire.js";
 
 const TXID_A = "aa".repeat(32);
 const TXID_B = "bb".repeat(32);
-/** No waiting in tests: the poll runs its first attempt and gives up. */
+/** No waiting in tests: one immediate attempt, then give up. */
 const NO_RETRIES = { maxAttempts: 0, baseDelayMs: 0, maxDelayMs: 0 };
 /** The full acceptance window the flow spends before reporting `pending`. */
 const CONFIRM_WINDOW_MS = 120_000;
 
-vi.mock("./wrpc-client.js", () => ({
-  submitTransactionOverWrpc: async () => "aa".repeat(32),
-}));
+const { submit } = vi.hoisted(() => ({ submit: vi.fn() }));
+
+vi.mock("./wrpc-client.js", () => ({ submitTransactionOverWrpc: submit }));
 
 function template(): WireTransaction {
   return {
@@ -155,12 +155,31 @@ describe("waitForAcceptance", () => {
 describe("broadcastAndConfirm", () => {
   const ctx = (kaspa: KaspaClientLike) => ({ kaspa, networkId: "testnet-10" });
 
+  beforeEach(() => {
+    submit.mockReset();
+    submit.mockResolvedValue(TXID_A);
+  });
+
   it("settles a broadcast the ledger accepted and drops cached reads", async () => {
     const clearCache = vi.fn();
     const kaspa = stubClient({ isTransactionAccepted: async () => true, clearCache });
     const outcome = await broadcastAndConfirm(template(), {}, ctx(kaspa));
     expect(outcome).toEqual({ txid: TXID_A, status: "settled" });
     expect(clearCache).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces an unknown input as a retryable 'not yet', never as a conflict", async () => {
+    // The symptom from issue #7: buy right after a deploy, feeding the buy a
+    // fee output whose parent the node has not accepted yet.
+    submit.mockRejectedValue(
+      new Error(
+        "RPC Server (remote error) -> Rejected transaction 2f90: transaction 2f90 is an orphan where orphan is disallowed",
+      ),
+    );
+    const kaspa = stubClient({ isTransactionAccepted: async () => true });
+    await expect(
+      broadcastAndConfirm(template(), {}, ctx(kaspa), undefined, NO_RETRIES),
+    ).rejects.toMatchObject({ type: "upstream", statusCode: 503, retryable: true });
   });
 
   it("reports a relayed-but-unaccepted broadcast as pending, keeps the cache", async () => {

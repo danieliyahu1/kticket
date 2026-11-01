@@ -481,13 +481,21 @@ describe("broadcastTransaction (KTK-29) — rejection mapping", () => {
 
 describe("rejectionError", () => {
   it("classifies double-spend / already-known as conflict", () => {
-    for (const msg of [
-      "Rejected transaction ...: double spend",
-      "transaction already exists",
-      "orphan transaction",
-    ]) {
+    for (const msg of ["Rejected transaction ...: double spend", "transaction already exists"]) {
       expect(rejectionError(msg).message).toMatch(/double spend or already known/);
     }
+  });
+
+  it("classifies an orphan — an input the node does not have yet — as retryable", () => {
+    const message =
+      "RPC Server (remote error) -> Rejected transaction 2f90: transaction 2f90 is an orphan where orphan is disallowed";
+    expect(rejectionError(message)).toMatchObject({
+      type: "upstream",
+      statusCode: 503,
+      retryable: true,
+      retryAfter: 5,
+      message: "transaction rejected: an input is not spendable yet",
+    });
   });
 
   it("classifies fee/mass rejections as policy", () => {

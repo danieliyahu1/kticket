@@ -3,6 +3,11 @@ import { relaySignedTransaction } from "./relay.js";
 import type { WireTransaction } from "./wire.js";
 
 const TXID = "ab".repeat(32);
+/** No waiting: these tests pin the retry rule, not the clock. */
+const NO_DELAY = { maxAttempts: 2, baseDelayMs: 0, maxDelayMs: 0 };
+/** The node's wording for a fee input whose parent it does not have yet. */
+const ORPHAN =
+  "RPC Server (remote error) -> Rejected transaction 2f90: transaction 2f90 is an orphan where orphan is disallowed";
 
 vi.mock("./wrpc-client.js", () => ({ submitTransactionOverWrpc: vi.fn() }));
 
@@ -33,13 +38,31 @@ describe("relaySignedTransaction", () => {
 
   it("returns the txid in the lowercase form every route reports", async () => {
     submit.mockResolvedValue(TXID.toUpperCase());
-    await expect(relaySignedTransaction(tx(), "testnet-10")).resolves.toBe(TXID);
+    await expect(relaySignedTransaction(tx(), "testnet-10", NO_DELAY)).resolves.toBe(TXID);
   });
 
-  it("reports a clash with another spend as a conflict", async () => {
+  it("re-sends the same bytes while the node does not know an input", async () => {
+    submit.mockRejectedValueOnce(new Error(ORPHAN)).mockResolvedValueOnce(TXID);
+    await expect(relaySignedTransaction(tx(), "testnet-10", NO_DELAY)).resolves.toBe(TXID);
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers a spent retry budget with 'not yet', not with a conflict", async () => {
+    submit.mockRejectedValue(new Error(ORPHAN));
+    await expect(relaySignedTransaction(tx(), "testnet-10", NO_DELAY)).rejects.toMatchObject({
+      type: "upstream",
+      statusCode: 503,
+      retryable: true,
+      retryAfter: 5,
+    });
+    expect(submit).toHaveBeenCalledTimes(NO_DELAY.maxAttempts + 1);
+  });
+
+  it("does not retry a clash with another spend", async () => {
     submit.mockRejectedValue(new Error("Rejected transaction: double spend"));
-    await expect(relaySignedTransaction(tx(), "testnet-10")).rejects.toMatchObject({
+    await expect(relaySignedTransaction(tx(), "testnet-10", NO_DELAY)).rejects.toMatchObject({
       type: "conflict",
     });
+    expect(submit).toHaveBeenCalledTimes(1);
   });
 });
