@@ -7,9 +7,9 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta
       name="description"
-      content="Tickets on the chain. Create an event on Kaspa and let anyone in who holds a ticket. The same flows are available over an HTTP API — no browser required."
+      content="Tickets on the chain. Create an event, sell tickets in KAS, and let anyone holding a ticket in. Looking around needs no wallet."
     />
-    <title>kticket</title>
+    <title>kticket — tickets on the chain</title>
     <!-- The machine-readable contract, so a client that reads the HTML finds the API. -->
     <link rel="alternate" type="text/plain" href="/llms.txt" title="kticket for agents" />
     <link
@@ -27,30 +27,41 @@
   </head>
   <body>
     <!--
-      The product explanation for clients that never run JavaScript (GitHub
-      issue #1). Plain body markup, not <noscript>: readers and sanitizers strip
-      that. main.tsx replaces this block with the app.
+      The homepage statement for clients that never run JavaScript (GitHub
+      issue #1). It uses the app's own classes and words, so hydration swaps the
+      document without changing the message. main.tsx replaces this block with
+      the app.
     -->
     <div id="root">
-      <div id="static-intro" class="app static-intro">
-        <h1>kticket</h1>
-        <p>Tickets on the chain. The browser app is one client of the same HTTP API.</p>
-        <p>
-          Every flow — deploy an event, buy a ticket, list or delist it, check in at the
-          door — works without the UI. No browser is required. Identity is a wallet
-          signature.
-        </p>
-        <h2>For agents</h2>
-        <ul>
-          <li><a href="/llms.txt">/llms.txt</a> — the entry point</li>
-          <li><a href="/docs/agent-guide.md">/docs/agent-guide.md</a> — the flows and rules</li>
-          <li><a href="/openapi.json">/openapi.json</a> — the exact contract</li>
-          <li><a href="/docs/api">/docs/api</a> — the rendered reference</li>
-        </ul>
-        <p>
-          Source:
-          <a href="https://github.com/danieliyahu1/kticket">github.com/danieliyahu1/kticket</a>
-        </p>
+      <div class="app">
+        <section class="home-intro">
+          <h1 class="home-intro-title">Tickets on the chain.</h1>
+          <p class="home-intro-lead">
+            Create an event. Sell tickets in KAS. Anyone holding a ticket gets in.
+          </p>
+          <p class="home-intro-trust">
+            Tickets live on Kaspa — so they can't be copied, and the door can't be fooled.
+          </p>
+          <p class="home-intro-reassurance">Looking around needs no wallet.</p>
+        </section>
+        <div class="static-intro">
+          <h2>For agents</h2>
+          <p>
+            Every flow — deploy an event, buy a ticket, list or delist it, check in at the
+            door — works over the HTTP API with no browser. Identity is a wallet
+            signature. No browser is required.
+          </p>
+          <ul>
+            <li><a href="/llms.txt">/llms.txt</a> — the entry point</li>
+            <li><a href="/docs/agent-guide.md">/docs/agent-guide.md</a> — the flows and rules</li>
+            <li><a href="/openapi.json">/openapi.json</a> — the exact contract</li>
+            <li><a href="/docs/api">/docs/api</a> — the rendered reference</li>
+          </ul>
+          <p>
+            Source:
+            <a href="https://github.com/danieliyahu1/kticket">github.com/danieliyahu1/kticket</a>
+          </p>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

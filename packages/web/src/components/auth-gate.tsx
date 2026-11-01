@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useWallet } from "../hooks/use-wallet";
 import { useAuth } from "../auth/AuthProvider";
+import { KASWARE_INSTALL_URL } from "../wallet/kasware";
 import { Empty } from "./empty";
 
 interface AuthGateProps {
@@ -12,6 +13,7 @@ interface AuthGateProps {
 
 /**
  * Gates a user-specific page on the wallet-identity session:
+ *   not installed   -> what Kasware is, plus the install link
  *   not connected   -> connect prompt
  *   signing in      -> spinner
  *   canceled/failed -> message + retry (never an endless spinner)
@@ -23,6 +25,17 @@ interface AuthGateProps {
 export function AuthGate({ connectTitle, connectSub, children }: AuthGateProps) {
   const { state, connect } = useWallet();
   const auth = useAuth();
+
+  if (state.status === "not-installed") {
+    return (
+      <Empty
+        title={connectTitle}
+        sub="Kasware is the wallet that signs for you. You only need it for this — looking around doesn't."
+        actionLabel="Get Kasware"
+        actionHref={KASWARE_INSTALL_URL}
+      />
+    );
+  }
 
   if (state.status !== "connected") {
     return (

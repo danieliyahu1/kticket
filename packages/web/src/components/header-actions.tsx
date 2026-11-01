@@ -4,8 +4,6 @@ import { useNetworkSwitching } from "../hooks/use-network-switching";
 import { useWallet } from "../hooks/use-wallet";
 import { useCreateDialog } from "./create-dialog-context";
 
-const INSTALL_URL =
-  "https://chromewebstore.google.com/detail/kasware-wallet/hklhheigdmpoolooomdihmhlpjjdbklf";
 const ADDR_KEEP = 6;
 const ADDR_TAIL = 4;
 
@@ -15,17 +13,11 @@ export function HeaderActions() {
   const config = useRuntimeConfig();
   const switching = useNetworkSwitching();
 
-  if (state.status === "not-installed") {
-    return (
-      <a
-        href={INSTALL_URL}
-        className="button button-primary button-sm"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Install Kasware
-      </a>
-    );
+  // Nothing to connect to, and no install pitch in the masthead: the offer
+  // lives where it can explain itself — the home page and the wallet gate
+  // (issue #8). `idle` is the same silence until detection answers.
+  if (state.status === "idle" || state.status === "not-installed") {
+    return null;
   }
 
   if (state.status === "connecting") {
@@ -83,6 +75,7 @@ export function HeaderActions() {
     );
   }
 
+  // disconnected: the wallet is installed, but no account is shared yet.
   return (
     <div className="header-actions">
       <button type="button" className="button button-secondary button-sm" onClick={openCreate}>
