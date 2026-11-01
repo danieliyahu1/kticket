@@ -528,7 +528,7 @@ HTTP status carries the class:
 | `409` | Conflict — the resource changed while you worked. |
 | `422` | Rejected by a policy (sold out, not the owner, no spendable funds). |
 | `502` | The network refused the signed transaction. |
-| `503` | The chain upstream is unavailable; honor `retryAfter`. |
+| `503` | Not available yet — the chain upstream is down, or the transaction's inputs are not spendable yet. Honor `retryAfter`. |
 
 ## Concurrency and safety
 
@@ -545,6 +545,12 @@ HTTP status carries the class:
   amounts/scripts, produces a template the server rejects.
 - `503` is the retryable class: the chain upstream was unavailable. Honor
   `retryAfter`, then repeat the read — or re-prepare if it was a build.
+- A finalize right after a deploy can answer `503` because the fee input spends
+  an output the chain has not accepted yet — the node calls this an *orphan*.
+  Nothing was double spent and the transaction never entered the mempool, so
+  the server re-sends the identical bytes for a few seconds before reporting it.
+  If it still does, wait `retryAfter`, run `prepare` again for fresh UTXOs, and
+  finalize the new template.
 
 ## Where the contract lives
 

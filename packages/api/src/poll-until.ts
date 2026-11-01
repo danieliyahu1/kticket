@@ -12,7 +12,8 @@ export interface PollOptions {
   maxDelayMs: number;
 }
 
-function sleep(ms: number): Promise<void> {
+/** Wait `ms`. Exported so flows with their own retry rule wait the same way. */
+export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 

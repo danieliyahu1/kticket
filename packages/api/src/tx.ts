@@ -20,10 +20,11 @@
 // field. Idempotent: re-broadcasting an already-known tx succeeds.
 
 import { computeFee, computeMassLocal, estimatedSerializedSize } from "@kticket/kit";
-import { parseBroadcastRequest, throwRejectionError } from "./broadcast.js";
+import { parseBroadcastRequest } from "./broadcast.js";
 import { type BuiltTransaction, type PreparedBuild, preparedBuildFor } from "./builders.js";
 import { policyError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
+import { relaySignedTransaction } from "./relay.js";
 import { signingTemplate } from "./signing.js";
 import {
   type BroadcastResult,
@@ -34,9 +35,7 @@ import {
   type WireTransaction,
   type WireUtxoMeta,
 } from "./wire.js";
-import { submitTransactionOverWrpc } from "./wrpc-client.js";
 
-export { throwRejectionError } from "./broadcast.js";
 export {
   type BroadcastResult,
   type BuildRequest,
@@ -214,10 +213,5 @@ export async function signingTemplateFor(
 
 export async function broadcastTransaction(raw: unknown, ctx: TxContext): Promise<BroadcastResult> {
   const tx: WireTransaction = parseBroadcastRequest(raw);
-  try {
-    const txid = await submitTransactionOverWrpc(ctx.networkId, tx);
-    return { txid: txid.toLowerCase() };
-  } catch (err) {
-    throwRejectionError(err instanceof Error ? err.message : String(err));
-  }
+  return { txid: await relaySignedTransaction(tx, ctx.networkId) };
 }

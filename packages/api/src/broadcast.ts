@@ -1,7 +1,13 @@
 // Broadcast boundary: parse the signed v1 template a client wants relayed and
 // classify an upstream rejection message into the error taxonomy (HLD §2.2).
 
-import { conflictError, invalidError, policyError } from "./errors.js";
+import {
+  type ApiError,
+  conflictError,
+  invalidError,
+  policyError,
+  upstreamError,
+} from "./errors.js";
 import { hex, hex64, int, isRecord, str, uint } from "./validate.js";
 import type { WireInput, WireOutput, WireTransaction } from "./wire.js";
 
@@ -81,16 +87,44 @@ function parseOutputs(value: unknown): WireOutput[] {
 }
 
 /**
- * Classify an upstream rejection message into the taxonomy
- * (invalid / conflict / policy). Always throws — it never returns.
+ * What a node rejection means, named after the condition rather than the prose
+ * the node happens to send. `unknown-input` is the "not yet" case: the
+ * transaction spends an output the node does not have, so nothing has been
+ * double spent and waiting is what fixes it.
  */
-export function throwRejectionError(message: string): never {
+export type RejectionKind = "unknown-input" | "conflict" | "fee-policy" | "other";
+
+/** Read a rejection message as the kind of failure it is. */
+export function classifyRejection(message: string): RejectionKind {
   const m = message.toLowerCase();
-  if (m.includes("double spend") || m.includes("already") || m.includes("orphan")) {
-    throw conflictError("transaction rejected: double spend or already known", { detail: message });
+  // Checked first: an orphan is a missing parent, not a clash with another spend.
+  if (m.includes("orphan")) return "unknown-input";
+  if (m.includes("double spend") || m.includes("already")) return "conflict";
+  if (m.includes("fee") || m.includes("mass")) return "fee-policy";
+  return "other";
+}
+
+/** How long a client should wait before rebuilding after `unknown-input`. */
+const UNKNOWN_INPUT_RETRY_AFTER_S = 5;
+
+/**
+ * The error a rejection becomes. An unknown input is a retryable "not yet"; a
+ * clash with another spend is final; the rest keep their previous classes.
+ */
+export function rejectionError(message: string): ApiError {
+  switch (classifyRejection(message)) {
+    case "unknown-input":
+      return upstreamError("transaction rejected: an input is not spendable yet", {
+        retryAfter: UNKNOWN_INPUT_RETRY_AFTER_S,
+        detail: message,
+      });
+    case "conflict":
+      return conflictError("transaction rejected: double spend or already known", {
+        detail: message,
+      });
+    case "fee-policy":
+      return policyError("transaction rejected: fee policy", { detail: message });
+    case "other":
+      return invalidError("transaction rejected", { detail: message });
   }
-  if (m.includes("fee") || m.includes("mass")) {
-    throw policyError("transaction rejected: fee policy", { detail: message });
-  }
-  throw invalidError("transaction rejected", { detail: message });
 }
