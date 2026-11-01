@@ -183,11 +183,16 @@ Runtime contract:
   exposed only through the `kticket-metrics` Service and discovered by the
   `kticket` `VMServiceScrape`. A Grafana overview dashboard (`kticket-dashboard`)
   is delivered as a ConfigMap in the `observability` namespace.
-- **Secrets** — `deploy/externalsecret.yaml` maps three OCI Vault entries
-  (`k3s-01-kticket-turso-url`, `k3s-01-kticket-turso-token`,
+- **Secrets** - `deploy/externalsecret.yaml` maps the three required OCI Vault
+  entries (`k3s-01-kticket-turso-url`, `k3s-01-kticket-turso-token`,
   `k3s-01-kticket-auth-secret`) through the `oci-vault` `ClusterSecretStore`
-  into the `kticket-secrets` Secret. Those key names must match what is created
-  in OCI Vault; the repository only ever stores the names, never the values.
+  into `kticket-secrets`. `deploy/feedback-externalsecret.yaml` maps the two
+  optional feedback entries
+  (`k3s-01-kticket-telegram-feedback-bot-token`,
+  `k3s-01-kticket-telegram-feedback-chat-id`) into a separate
+  `kticket-feedback-secrets`, so a missing feedback value cannot block boot.
+  Those key names must match what is created in OCI Vault; the repository only
+  ever stores the names, never the values.
 - **Scaling** — one replica. Wallet sign-in nonces and the in-process index
   mirrors are process-local, so horizontal scaling would need shared state
   first.
@@ -204,7 +209,8 @@ Configuration comes from the compose `.env` (see `example.env`); when a value is
 unset or invalid, every host falls back to `testnet10`.
 
 - **API** reads `KASPANET` (and `PORT`, `HOST`, `METRICS_PORT`, `TLS_KEY`,
-  `TLS_CERT`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `PUBLIC_ORIGIN`) from the
+  `TLS_CERT`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `PUBLIC_ORIGIN`,
+  `TELEGRAM_FEEDBACK_BOT_TOKEN`, `TELEGRAM_FEEDBACK_CHAT_ID`) from the
   environment set by `compose.yaml`.
 - **Web** loads the runtime identity from `GET /v1/config` at boot, so one
   build works against whichever network the API serves. `VITE_KASPANET` is only
@@ -234,6 +240,23 @@ nonce store is in-memory (single-instance deploy). Configuration:
 - `AUTH_ORIGIN` — the origin the SPA is served from; the signed claim's `URI`
   must match it (default `http://localhost:3000`).
 - `AUTH_SESSION_TTL_MS` — JWT lifetime in ms (default 15 minutes).
+
+## Anonymous feedback
+
+`POST /v1/feedback` accepts `{ "message": "..." }` from any visitor, with no
+wallet and no account. The note is trimmed and capped at 1500 characters, then
+written to the Turso `feedback_outbox` **before** delivery is attempted, so a
+Telegram outage or a rollout never loses it. Delivery is optional:
+
+- `TELEGRAM_FEEDBACK_BOT_TOKEN` and `TELEGRAM_FEEDBACK_CHAT_ID` enable delivery
+  to a private chat. With either missing, the endpoint still accepts and queues.
+- The response is `202 { "accepted": true, "delivered": true|false }`.
+  `delivered: false` means the note is queued for retry, not sent; the browser
+  says that instead of claiming it was sent.
+- The route is rate-limited per client (five submissions per ten minutes) and
+  returns `429` with `retryAfter` when the window is exhausted.
+- The Turso queue is required in deployment. Without `TURSO_DATABASE_URL`, local
+  development uses an in-memory queue that a restart drops.
 
 ## Support
 
