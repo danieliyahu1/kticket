@@ -1,8 +1,44 @@
 import { describe, expect, it } from "vitest";
+import conformance from "../../kit/src/runtime/kcc-23-conformance.json";
 import { buildWasmTransaction, transactionIdOf } from "./wrpc-client.js";
 import type { WireTransaction } from "./wire.js";
 
 const TXID_BYTE_LENGTH = 32;
+
+const KCC23_BINDING = conformance.binding;
+
+/**
+ * The KCC-23 conformance vector's preparation tx â€” one organizer output with the
+ * metadata declaration in the payload â€” in the API's wire shape.
+ *
+ * The vector's `compute_budget` rides the wire's `sig_op_count`, which is what
+ * `toWasmInput` maps to wasm's `computeBudget` for v1 templates.
+ */
+function preparationWire(
+  payload: string = KCC23_BINDING.preparation_transaction.payload_hex,
+): WireTransaction {
+  const preparation = KCC23_BINDING.preparation_transaction;
+  return {
+    version: preparation.version,
+    inputs: preparation.inputs.map((input) => ({
+      previous_outpoint: input.previous_outpoint,
+      signature_script: input.signature_script_hex,
+      sequence: input.sequence,
+      sig_op_count: input.compute_budget,
+    })),
+    outputs: preparation.outputs.map((output) => ({
+      value: output.value,
+      script_public_key: {
+        version: output.script_public_key.version,
+        script: output.script_public_key.script_hex,
+      },
+      // The vector's preparation output is not a covenant output.
+      covenant: null,
+    })),
+    lock_time: preparation.lock_time,
+    payload,
+  };
+}
 
 const WASM = (await import("../vendor/kaspa-wasm/kaspa.js")) as {
   Transaction: new (
@@ -117,31 +153,7 @@ describe("buildWasmTransaction â€” broadcast relay construction (KTK: outpoint i
   });
 });
 
-describe("transactionIdOf — the KCC-23 preparation binding", () => {
-  /** A preparation tx: one organizer output, metadata in the payload. */
-  function preparationWire(payload: string): WireTransaction {
-    return {
-      version: 1,
-      inputs: [
-        {
-          previous_outpoint: { transaction_id: "11".repeat(TXID_BYTE_LENGTH), index: 0 },
-          signature_script: "",
-          sequence: 0,
-          sig_op_count: 0,
-        },
-      ],
-      outputs: [
-        {
-          value: 100_000_000,
-          script_public_key: { version: 0, script: "51" },
-          covenant: null,
-        },
-      ],
-      lock_time: 0,
-      payload,
-    };
-  }
-
+describe("transactionIdOf ï¿½ the KCC-23 preparation binding", () => {
   it("returns the consensus id of the signed transaction", async () => {
     const tx = preparationWire("007b7d");
     const wasmTx = (await buildWasmTransaction(tx)) as WasmTransaction;
@@ -150,7 +162,7 @@ describe("transactionIdOf — the KCC-23 preparation binding", () => {
   });
 
   it("commits to the exact payload bytes, so the metadata is bound", async () => {
-    // KCC-23 §3.1: `007b7d` = `{}`, the others declare different values.
+    // KCC-23 ï¿½3.1: `007b7d` = `{}`, the others declare different values.
     const empty = await transactionIdOf(preparationWire("007b7d"));
     const decimals8 = await transactionIdOf(
       preparationWire("007b22646563696d616c73223a387d"),
@@ -160,5 +172,24 @@ describe("transactionIdOf — the KCC-23 preparation binding", () => {
     );
     expect(empty).not.toBe(decimals8);
     expect(decimals8).not.toBe(decimals9);
+  });
+});
+
+describe("transactionIdOf: the KCC-23 conformance vector", () => {
+  const expectedId = KCC23_BINDING.expected.preparation_transaction_id;
+
+  it("returns the preparation transaction id the spec publishes", async () => {
+    expect(await transactionIdOf(preparationWire())).toBe(expectedId);
+  });
+
+  it("returns a different id when one payload byte changes, so the binding breaks", async () => {
+    const changed = conformance.binding_mutations.find((m) => m.name === "changed_metadata");
+    if (!changed) throw new Error("the vector no longer defines the changed_metadata mutation");
+    const payload = changed.replace["/preparation_transaction/payload_hex"];
+    if (!payload) throw new Error("changed_metadata no longer replaces the preparation payload");
+
+    const id = await transactionIdOf(preparationWire(payload));
+    expect(id).toBe(changed.expected_preparation_transaction_id);
+    expect(id).not.toBe(expectedId);
   });
 });
