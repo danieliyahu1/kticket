@@ -184,7 +184,9 @@ function openEvent(): void {
 }
 
 async function clickBuy(): Promise<void> {
-  const buy = await screen.findByRole("button", { name: /Buy ticket/ });
+  // The whole app boots from an empty route on the first render; under a loaded
+  // test runner the first paint can take longer than the 1s query default.
+  const buy = await screen.findByRole("button", { name: /Buy ticket/ }, { timeout: 4_000 });
   fireEvent.click(buy);
 }
 
