@@ -1,12 +1,12 @@
-// Buy flow (POST /v1/events/{covenantId}/buy/prepare + /buy/finalize) — two
+// Buy flow (POST /v1/events/{covenantId}/buy/prepare + /buy/finalize) â€” two
 // stateless calls, all logic on the backend:
 //
-//   prepare  — backend verifies the event from the chain, computes
+//   prepare  â€” backend verifies the event from the chain, computes
 //              availability, fetches the buyer's UTXOs itself, and builds the
 //              unsigned buy template -> what the wallet must sign. Issues a
 //              `buy_id` the client echoes on finalize so ops can spot
 //              abandoned prepares (a prepared buy whose finalize never came).
-//   finalize — backend merges the wallet's signatures, validates it is a buy,
+//   finalize â€” backend merges the wallet's signatures, validates it is a buy,
 //              broadcasts, waits for acceptance -> { txid, status }.
 //
 // The frontend only relays: the covenant id + the buyer's pubkey/address, then
@@ -44,12 +44,12 @@ export interface BuyContext {
 
 export interface BuyPrepareRequest {
   publicKey: string;
-  /** The buyer's bech32 address — the backend fetches its UTXOs itself. */
+  /** The buyer's bech32 address â€” the backend fetches its UTXOs itself. */
   address: string;
 }
 
 export interface BuyFinalizeRequest {
-  /** Correlation id issued by prepare — lets ops detect abandoned prepares. */
+  /** Correlation id issued by prepare â€” lets ops detect abandoned prepares. */
   buy_id: string;
   template: WireTransaction;
   signed: unknown;
@@ -65,10 +65,10 @@ export interface BuyPrepareResult {
   /** Ticket price in sompi (from the verified event) for the confirm dialog. */
   price: number;
   /** Value carried inside the new ticket (included in `price`, not extra). */
-  ticket_deposit: number;
+  ticket_value: number;
   /** Network fee taken out of `price` (sompi). */
   network_fee: number;
-  /** What the organizer receives: `price - ticket_deposit - network_fee`. */
+  /** What the organizer receives: `price - ticket_value - network_fee`. */
   organizer_proceeds: number;
 }
 
@@ -144,7 +144,7 @@ function validateBuy(covenantId: string): (tx: WireTransaction) => void {
 
 /**
  * prepare: verify the event, check availability, fetch the buyer's UTXOs, build
- * the unsigned buy template. The backend trusts only itself — it derives the
+ * the unsigned buy template. The backend trusts only itself â€” it derives the
  * buyer pkh / change script from the public key.
  */
 export async function buyPrepare(
@@ -162,7 +162,7 @@ export async function buyPrepare(
   }
   const availability = await eventAvailability(verified, ctx.kaspa, ctx.network);
   if (availability.left <= 0) {
-    throw policyError("sold out — no tickets left");
+    throw policyError("sold out â€” no tickets left");
   }
 
   const buyer = organizerPkh(req.publicKey);
@@ -215,7 +215,7 @@ export async function buyPrepare(
     template: result.template,
     sign_inputs: result.template.inputs.slice(1).map((_, i) => ({ index: i + 1 })),
     price: verified.price,
-    ticket_deposit: TICKET_DUST,
+    ticket_value: TICKET_DUST,
     network_fee: networkFee,
     organizer_proceeds: verified.legacy
       ? verified.price

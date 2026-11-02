@@ -1,5 +1,5 @@
 // Trustless resale endpoints (KTK-151). Three two-call flows over the same
-// stateless pattern as buy/use — the backend builds and validates, the wallet
+// stateless pattern as buy/use â€” the backend builds and validates, the wallet
 // signs, the chain judges:
 //
 //   list     holder re-points the ticket at a listed state (sale_price = P) and
@@ -13,7 +13,7 @@
 //
 // The listings store is an INDEX only. Every read verifies the listing against
 // the chain: the live ticket UTXO's address must equal the derived
-// `listedStateAddress` for (seller, price) — only then is the listing proven.
+// `listedStateAddress` for (seller, price) â€” only then is the listing proven.
 
 import { randomUUID } from "node:crypto";
 import {
@@ -53,7 +53,7 @@ export interface ResaleContext {
   network: KaspaNetwork;
   /** Resolve the registry pointer for a covenant id (may be undefined). */
   byCovenantId: (covenantId: string) => { deployTxId: string } | undefined;
-  /** The listings index (discovery only — the chain stays the source of truth). */
+  /** The listings index (discovery only â€” the chain stays the source of truth). */
   listings: ListingStore;
 }
 
@@ -268,7 +268,7 @@ function parseSignedTemplateWithPrice(raw: unknown): {
 }
 
 /**
- * Assert the finalize's input 0 spends the requested ticket — the caller cannot
+ * Assert the finalize's input 0 spends the requested ticket â€” the caller cannot
  * swap in a different covenant spend than the route names.
  */
 function assertInputZeroIsTicket(
@@ -402,7 +402,7 @@ export async function listFinalize(
   const holderSig = signatureFor(sigs, txid, index, "holder");
 
   // Input 0's sig-script: push(sig_holder) || push(price) || push(dispatch_tag) ||
-  // push(redeem) — pure kit assembly, byte-exact with the Rust golden tests.
+  // push(redeem) â€” pure kit assembly, byte-exact with the Rust golden tests.
   const redeem = injectState(verified.artifact, {
     owner,
     identifierType: 0,
@@ -427,7 +427,7 @@ export async function listFinalize(
   }
 
   const outcome = await broadcastAndConfirm(merged, {}, ctx, () => {});
-  // The listed UTXO now lives at the NEW outpoint (<final txid>:0 — buildList
+  // The listed UTXO now lives at the NEW outpoint (<final txid>:0 â€” buildList
   // always puts the covenant output first). Index THAT, not the spent one:
   // every later read proves the live coin against its listed-state address, so
   // a pending broadcast that never settles leaves a row the reads simply
@@ -515,7 +515,7 @@ export async function delistFinalize(
   const owner = ownerFromChangeOutput(req.template);
 
   // The ticket being spent is the LISTED coin, so the reveal must carry the
-  // listing's asking price — the listed P2SH address commits to it. Revealing
+  // listing's asking price â€” the listed P2SH address commits to it. Revealing
   // the unlisted (sale_price 0) state instead would hash to a different P2SH
   // and the node rejects the spend.
   const stored = ctx.listings.get(verified.covenant_id, `${txid}:${index}`);
@@ -560,11 +560,11 @@ export interface PurchasePrepareResult {
   purchase_id: string;
   signing_template: string;
   template: WireTransaction;
-  /** Only the buyer's fee inputs need signatures — input 0 is signatureless. */
+  /** Only the buyer's fee inputs need signatures â€” input 0 is signatureless. */
   sign_inputs: { index: number }[];
   price: number;
-  /** Fresh deposit funded by the buyer and carried by the replacement ticket. */
-  ticket_deposit: number;
+  /** Value carried inside the ticket; included in `price`, not an extra charge. */
+  ticket_value: number;
   /** What the seller receives: the asking price minus the network fee. */
   seller_proceeds: number;
   /** Network fee taken out of the asking price (sompi). */
@@ -587,7 +587,7 @@ export async function purchasePrepare(
   assertPaidListing(stored.price);
 
   // Prove the listing on-chain: the live ticket UTXO's address must be the
-  // listed-state address for (seller, price). This is the whole trust model —
+  // listed-state address for (seller, price). This is the whole trust model â€”
   // the API's index could lie; the chain cannot.
   const actual = await liveTicketAddress(txid, index, ctx);
   const expected = listedStateAddress(
@@ -637,7 +637,7 @@ export async function purchasePrepare(
     template: result.template,
     sign_inputs: result.template.inputs.slice(1).map((_, i) => ({ index: i + 1 })),
     price: stored.price,
-    ticket_deposit: TICKET_DUST,
+    ticket_value: TICKET_DUST,
     seller_proceeds: verified.legacy
       ? stored.price + TICKET_DUST
       : stored.price - networkFee,
@@ -699,7 +699,7 @@ export interface ListingSummary {
  * All live listings for one event (or every event when no covenant id is
  * given), each proven on-chain: the ticket UTXO still exists and sits on the
  * exact listed-state address for its recorded (seller, price). Entries that
- * fail are skipped silently — stale index rows are expected after off-path
+ * fail are skipped silently â€” stale index rows are expected after off-path
  * spends (the ticket was handed over or checked in outside the flow).
  */
 export async function listingsDirectory(

@@ -79,7 +79,7 @@ const BROADCAST_STATUS_SCHEMA: JsonObject = {
   type: "string",
   enum: ["settled", "pending"],
   description:
-    "`settled` — the ledger accepted the transaction, so every output it declares exists (the ticket exists, the payment settled). `pending` — the transaction was relayed and is not accepted yet; it may still settle. A pending response is not a failure: do not re-broadcast, and read the chain to learn the outcome.",
+    "`settled` â€” the ledger accepted the transaction, so every output it declares exists (the ticket exists, the payment settled). `pending` â€” the transaction was relayed and is not accepted yet; it may still settle. A pending response is not a failure: do not re-broadcast, and read the chain to learn the outcome.",
 };
 
 function finalizeResultSchema(): JsonObject {
@@ -491,7 +491,7 @@ function buySchemas(): JsonObject {
         "template",
         "sign_inputs",
         "price",
-        "ticket_deposit",
+        "ticket_value",
         "network_fee",
         "organizer_proceeds",
       ],
@@ -501,7 +501,7 @@ function buySchemas(): JsonObject {
         template: jsonRef("WireTransaction"),
         sign_inputs: {
           type: "array",
-          description: "Inputs the wallet must sign — all but the covenant spend at index 0.",
+          description: "Inputs the wallet must sign â€” all but the covenant spend at index 0.",
           items: jsonRef("InputIndex"),
         },
         price: {
@@ -509,7 +509,7 @@ function buySchemas(): JsonObject {
           minimum: MIN_TICKET_PRICE_SOMPI,
           description: `Ticket price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS). This is exactly what the buyer pays.`,
         },
-        ticket_deposit: {
+        ticket_value: {
           type: "integer",
           minimum: 0,
           description:
@@ -523,7 +523,7 @@ function buySchemas(): JsonObject {
         organizer_proceeds: {
           type: "integer",
           minimum: 0,
-          description: "What the organizer receives: `price - ticket_deposit - network_fee`.",
+          description: "What the organizer receives: `price - ticket_value - network_fee`.",
         },
       },
     },
@@ -731,7 +731,7 @@ function purchaseSchemas(): JsonObject {
         "template",
         "sign_inputs",
         "price",
-        "ticket_deposit",
+        "ticket_value",
         "seller_proceeds",
         "network_fee",
         "seller_pkh",
@@ -751,7 +751,7 @@ function purchaseSchemas(): JsonObject {
           minimum: MIN_TICKET_PRICE_SOMPI,
           description: `Asking price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS). This is exactly what the buyer pays.`,
         },
-        ticket_deposit: {
+        ticket_value: {
           type: "integer",
           minimum: 0,
           description: "Value carried inside the ticket, in sompi. Included in `price`.",

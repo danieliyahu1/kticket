@@ -45,7 +45,7 @@ interface KaspaWasm {
 const PRIVATE_KEY_HEX = "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29";
 
 describe("headless client uses the published contract alone (KTK-152 whole-issue)", () => {
-  it("docs → session → events → prepared buy", async () => {
+  it("docs â†’ session â†’ events â†’ prepared buy", async () => {
     const kaspa = new FakeKaspa();
     seedBaseChain(kaspa);
     const app = await buildAppWith(kaspa);
@@ -77,7 +77,7 @@ describe("headless client uses the published contract alone (KTK-152 whole-issue
       const health = await app.inject({ method: "GET", url: "/health" });
       expect(health.json()).toEqual({ status: "ok", network: NETWORK });
 
-      // --- 2. Authenticate: challenge → sign → session ---------------------
+      // --- 2. Authenticate: challenge â†’ sign â†’ session ---------------------
       const wasm = (await import("../vendor/kaspa-wasm/kaspa.js")) as unknown as KaspaWasm;
       const privateKey = new wasm.PrivateKey(PRIVATE_KEY_HEX);
       const address = privateKey.toAddress("testnet-10").toString();
@@ -135,7 +135,7 @@ describe("headless client uses the published contract alone (KTK-152 whole-issue
         template: { inputs: unknown[]; outputs: unknown[] };
         sign_inputs: { index: number }[];
         price: number;
-        ticket_deposit: number;
+        ticket_value: number;
         network_fee: number;
         organizer_proceeds: number;
       };
@@ -152,7 +152,7 @@ describe("headless client uses the published contract alone (KTK-152 whole-issue
       // The buyer pays exactly the price; the split adds up to it.
       expect(buy.network_fee).toBeGreaterThan(0);
       expect(buy.organizer_proceeds).toBeGreaterThan(0);
-      expect(buy.ticket_deposit + buy.network_fee + buy.organizer_proceeds).toBe(
+      expect(buy.ticket_value + buy.network_fee + buy.organizer_proceeds).toBe(
         buy.price,
       );
 

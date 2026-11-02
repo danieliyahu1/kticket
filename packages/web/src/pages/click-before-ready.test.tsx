@@ -164,7 +164,7 @@ function mockApi(calls: ApiCall[]): void {
           template: { version: 0, inputs: [], outputs: [], lock_time: 0 },
           sign_inputs: [{ index: 1 }],
           price: 500_000_000,
-          ticket_deposit: 50_000_000,
+          ticket_value: 50_000_000,
         });
       }
       if (path === `/v1/events/${COVENANT_ID}/buy/finalize`) {

@@ -312,14 +312,14 @@ fetches the buyer's UTXOs, and returns:
   "template": { "version": 0, "inputs": [...], "outputs": [...], "lock_time": 0 },
   "sign_inputs": [{ "index": 1 }],
   "price": 100000000,
-  "ticket_deposit": 50000000,
+  "ticket_value": 50000000,
   "network_fee": 2000000,
   "organizer_proceeds": 48000000
 }
 ```
 
 `price` is exactly what the buyer pays. The ticket's own value
-(`ticket_deposit`) and the `network_fee` come out of that price; the organizer
+(`ticket_value`) and the `network_fee` come out of that price; the organizer
 receives `organizer_proceeds`. Nothing is charged on top.
 
 Sign every index in `sign_inputs`. Input 0 is the event covenant spend; the
@@ -499,7 +499,7 @@ The server re-proves the listing on chain, then returns a template where input
 0 is the signatureless ticket spend and `sign_inputs` covers only the buyer's
 fee inputs. The buyer pays exactly the listing `price`; the response reports
 `network_fee` (taken from that price) and `seller_proceeds` (what the seller
-receives), plus `ticket_deposit` — the value already inside the ticket, which
+receives), plus `ticket_value` — the value already inside the ticket, which
 travels with it to the buyer. `seller_pkh` lets a client verify the payout
 address.
 

@@ -2,14 +2,14 @@
 //
 // Three black-box flows through the API over a seeded FakeKaspa:
 //
-//   list      holder prepare → holder signs ALL inputs → finalize assembles
+//   list      holder prepare â†’ holder signs ALL inputs â†’ finalize assembles
 //             input 0's sig-script, proves the listed-state commitment and
 //             records the listing in the index.
-//   delist    holder prepare (index + chain must agree) → sign → finalize
+//   delist    holder prepare (index + chain must agree) â†’ sign â†’ finalize
 //             clears back to the unlisted address and drops the index row.
 //   purchase  ANYONE prepares (no seller online); input 0 arrives pre-stamped,
 //             the buyer signs only their fee inputs; finalize relays and clears
-//             the index. The chain — not the API's index — is proven first.
+//             the index. The chain â€” not the API's index â€” is proven first.
 //
 // The listings directory is also tested against stale rows: an entry whose
 // recorded price no longer matches the chain is hidden, never served.
@@ -222,7 +222,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
       expect(finalize.statusCode).toBe(HTTP_OK);
       expect(finalize.json()).toEqual({ txid: USED_TXID, status: "settled" });
 
-      // Input 0's script is pure kit assembly — byte-exact with the golden VM.
+      // Input 0's script is pure kit assembly â€” byte-exact with the golden VM.
       const broadcastArg = mockedSubmit.mock.calls[0]?.[1] as {
         inputs: { signature_script: string }[];
       };
@@ -420,7 +420,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
       expect(prepare.statusCode).toBe(HTTP_OK);
       const body = prepare.json();
       expect(body.price).toBe(LIST_PRICE);
-      expect(body.ticket_deposit).toBe(50_000_000);
+      expect(body.ticket_value).toBe(50_000_000);
       // The buyer pays exactly the asking price; the fee comes out of it.
       expect(body.network_fee).toBeGreaterThan(0);
       expect(body.seller_proceeds).toBe(LIST_PRICE - body.network_fee);
@@ -522,7 +522,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
       const kaspa = new FakeKaspa();
       seedListedChain(kaspa, LIST_PRICE);
       const store = new ListingStoreFile();
-      // Index claims a different price than the chain shows → not provable.
+      // Index claims a different price than the chain shows â†’ not provable.
       await store.upsert({
         covenantId: TEST_COVENANT_ID,
         ticketId: LISTED_TICKET_ID,
@@ -582,7 +582,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
       };
     }
 
-    it("list → trustless purchase → the BUYER walks through the door", async () => {
+    it("list â†’ trustless purchase â†’ the BUYER walks through the door", async () => {
       const kaspa = new FakeKaspa();
       seedBaseChain(kaspa);
       seedBuyerFunds(kaspa);
@@ -611,7 +611,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
       });
       expect(listFinalize.json()).toEqual({ txid: LIST_TXID, status: "settled" });
 
-      // 2. Anyone buys it — no seller interaction at all.
+      // 2. Anyone buys it â€” no seller interaction at all.
       mockedSubmit.mockResolvedValueOnce(PURCHASE_TXID);
       const buyPrepare = await app.inject({
         method: "POST",
@@ -642,7 +642,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
       const directory = await app.inject({ method: "GET", url: "/v1/listings" });
       expect(directory.json()).toEqual([]);
 
-      // 3. The buyer checks in at the door with THEIR key — the resale
+      // 3. The buyer checks in at the door with THEIR key â€” the resale
       //    handoff produced a fully usable ticket.
       mockedSubmit.mockResolvedValueOnce(USED_TXID);
       kaspa.transactions.set(USED_TXID, { transaction_id: USED_TXID, inputs: [], outputs: [] });
@@ -700,7 +700,7 @@ describe("resale flow end-to-end (KTK-151)", () => {
     });
   });
 
-  // v3: the door accepts a LISTED ticket — check-in absorbs the sale. The
+  // v3: the door accepts a LISTED ticket â€” check-in absorbs the sale. The
   // reveal must commit to the listed state (the asking price), which only
   // works when prepare's ownership proof and finalize's redeem both accept the
   // listed address via the index.
