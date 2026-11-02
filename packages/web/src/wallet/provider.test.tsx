@@ -8,7 +8,6 @@ import { useWallet } from "../hooks/use-wallet";
 import { WalletProvider } from "./provider";
 import type { KaswareProvider } from "./types";
 
-const ADDRESS_TESTNET = "kaspatest:qqqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszapw00vun";
 const ADDRESS_MAINNET = "kaspa:qqqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszapw00vun";
 
 function fakeWallet(options: {

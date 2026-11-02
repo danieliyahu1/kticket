@@ -12,7 +12,6 @@ import {
   encodeAddress,
   injectState,
   p2pkAddress,
-  pushData,
   readStateFromRedeem,
   scriptHash,
 } from "./address";
@@ -21,8 +20,6 @@ const HASH_LENGTH = 32;
 const SCRIPT_HASH_VERSION_BYTE = 8;
 const OVERLONG_HASH = HASH_LENGTH + 1;
 const OWNER_FILL = 0x42;
-const OTHER_OWNER_FILL = 0x01;
-const ZERO_BYTE = 0x00;
 
 const OWNER = new Uint8Array(HASH_LENGTH).fill(OWNER_FILL);
 const ZERO_OWNER = new Uint8Array(HASH_LENGTH);

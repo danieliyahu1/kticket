@@ -17,7 +17,7 @@ import { blake2b } from "@noble/hashes/blake2.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import type { CompiledContractArtifact } from "../contracts/artifact.js";
 import type { DecodedConstants, DecodedState } from "./preimage.js";
-import { decodeState, encodeState, PreimageError, rawStateBytes } from "./preimage.js";
+import { decodeState, encodeState, PreimageError } from "./preimage.js";
 
 export const P2SH_ADDRESS_VERSION = 8; // AddressVersion.ScriptHash
 

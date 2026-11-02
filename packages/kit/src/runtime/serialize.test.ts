@@ -6,7 +6,6 @@ import { estimatedSerializedSize, txIdPreimageV1, txIdV1 } from "./serialize";
 import type { ScriptPublicKey, UnsignedTransaction } from "./tx";
 
 const HASH_LENGTH = 32;
-const EVENT_ID_SEED = 0xab;
 const ORG_FILL = 0x01;
 const BUYER_FILL = 0x02;
 const VERSION_1 = 0x01;

@@ -79,7 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 
   const tls = resolveTls(env);
   const turso = resolveTurso(env);
-  const auth = resolveAuth(env, port);
+  const auth = resolveAuth(env);
   const publicOrigin = resolvePublicOrigin(env);
   const telegramFeedback = resolveTelegramFeedback(env);
 
@@ -202,7 +202,7 @@ function resolveTelegramFeedback(
  * and `buildApp` refuses to boot (fail-closed). `AUTH_ORIGIN` is the expected
  * `URI` field of the signed claim; it defaults to the local dev origin.
  */
-function resolveAuth(env: NodeJS.ProcessEnv, port: number): AuthConfig | undefined {
+function resolveAuth(env: NodeJS.ProcessEnv): AuthConfig | undefined {
   const secret = env.AUTH_SECRET?.trim();
   if (!secret) return undefined;
   return {

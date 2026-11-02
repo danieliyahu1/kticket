@@ -411,7 +411,7 @@ function groupByEvent(tickets: TicketEntry[]): { eventName: string; eventTickets
       map.set(t.covenant_id, [t]);
     }
   }
-  return Array.from(map.entries()).map(([covenantId, eventTickets]) => ({
+  return Array.from(map.entries()).map(([, eventTickets]) => ({
     eventName: eventTickets[0]?.event_name ?? "",
     eventTickets,
   }));

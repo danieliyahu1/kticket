@@ -3,17 +3,6 @@ export interface WireOutpoint {
   index: number;
 }
 
-export interface WireUtxo extends WireOutpoint {
-  value: number;
-}
-
-export interface WireUtxoMeta extends WireUtxo {
-  script_public_key: WireScriptPublicKey;
-  block_daa_score: number;
-  is_coinbase: boolean;
-  address?: string;
-}
-
 export interface WireScriptPublicKey {
   version: number;
   script: string;
@@ -44,13 +33,6 @@ export interface WireTransaction {
   lock_time: number;
   /** Hex-encoded payload (KCC-23 metadata on the preparation tx). */
   payload?: string;
-}
-
-export interface BuildResult {
-  template: WireTransaction;
-  /** Unsigned tx in the kaspa-wasm safe-JSON shape Kasware's `signPskt` signs. */
-  signing_template?: string;
-  event_covenant_id?: string;
 }
 
 export interface BroadcastResult {

@@ -212,10 +212,6 @@ describe("decodePreimage", () => {
   });
 
   it("throws on a truncated preimage rather than guessing (DEC-12)", () => {
-    const preimage = encodePreimage(
-      { owner: new Uint8Array(HASH_LENGTH), identifierType: 0, amount: 1, isMinter: false, used: false, salePrice: 0 },
-      CONSTANTS,
-    );
     expect(() => decodePreimage(new Uint8Array(10))).toThrow(PreimageError);
   });
 });

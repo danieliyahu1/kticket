@@ -15,7 +15,6 @@
 import { randomUUID } from "node:crypto";
 import {
   MAX_BUY_UTXOS,
-  MAX_EVENT_CAPACITY,
   maxFeeForInputs,
   organizerPkh,
   orgSpkFromPublicKey,
@@ -31,7 +30,7 @@ import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
 import { verifyEventFromChain } from "./provenance.js";
 import { buildTransaction } from "./tx.js";
-import { isRecord, int, str, uint } from "./validate.js";
+import { isRecord, str } from "./validate.js";
 import type { WireTransaction, WireUtxo, WireUtxoMeta } from "./wire.js";
 
 export interface BuyContext {

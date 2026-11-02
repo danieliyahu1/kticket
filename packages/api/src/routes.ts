@@ -558,10 +558,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   // --- resale (KTK-151) ------------------------------------------------------
 
-  app.get<{ Params: { covenantId?: string } }>(
-    "/v1/listings",
-    async (req) => listingsDirectory(undefined, resaleCtx(ctx)),
-  );
+  app.get("/v1/listings", async () => listingsDirectory(undefined, resaleCtx(ctx)));
 
   app.get<{ Params: { covenantId: string } }>(
     "/v1/events/:covenantId/listings",

@@ -128,7 +128,7 @@ function statusSort(a: string, b: string): number {
   return (first === -1 ? 99 : first) - (second === -1 ? 99 : second);
 }
 
-function renderResponses(document: JsonObject, operation: JsonObject): string {
+function renderResponses(operation: JsonObject): string {
   const responses = operation.responses;
   if (!isJsonObject(responses)) return "";
   const rows = Object.keys(responses)
@@ -179,7 +179,7 @@ function renderOperation(context: OperationContext): string {
     secured ? '<p class="auth"><strong>Auth:</strong> bearer token.</p>' : "",
     renderParameters(operation),
     renderRequestBody(context.document, operation),
-    renderResponses(context.document, operation),
+    renderResponses(operation),
     "</article>",
   ].join("\n");
 }
