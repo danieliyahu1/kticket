@@ -377,7 +377,7 @@ export default function TicketsPage() {
     if (publicKey && auth.status === "ready") {
       load();
     }
-  }, [publicKey, auth.status, load]);
+  }, [publicKey, auth.status, load, retryKey]);
 
   return (
     <AuthGate
