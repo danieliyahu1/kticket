@@ -26,6 +26,7 @@ import {
   decodeMetadataFromPayload,
   kasToSompi,
   MAX_EVENT_CAPACITY,
+  MIN_TICKET_PRICE_KAS,
   organizerPkh,
   orgSpkFromPublicKey,
 } from "@kticket/kit";
@@ -58,7 +59,7 @@ export interface DeployContext extends TxContext {
 
 export interface DeployPrepareRequest {
   capacity: number;
-  /** Ticket price in KAS (the backend converts KAS → sompi itself). */
+  /** Ticket price in KAS (the backend converts KAS → sompi itself; minimum 1 KAS). */
   price_kas: number;
   /** Compressed (66-hex) or bare x-coordinate (64-hex) organizer public key. */
   publicKey: string;
@@ -175,8 +176,12 @@ function parsePrepare(raw: unknown): DeployPrepareRequest {
   if (capacity < 0 || capacity > MAX_EVENT_CAPACITY) {
     throw invalidError(`capacity must be 0..${MAX_EVENT_CAPACITY}`);
   }
-  if (typeof raw.price_kas !== "number" || !Number.isFinite(raw.price_kas) || raw.price_kas < 0) {
-    throw invalidError("price_kas must be a non-negative number");
+  if (
+    typeof raw.price_kas !== "number" ||
+    !Number.isFinite(raw.price_kas) ||
+    raw.price_kas < MIN_TICKET_PRICE_KAS
+  ) {
+    throw invalidError(`price_kas must be at least ${MIN_TICKET_PRICE_KAS} KAS`);
   }
   const publicKey = validatePublicKey(raw.publicKey);
   const address = str(raw.address, "address");

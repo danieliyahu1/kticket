@@ -29,6 +29,8 @@ export interface StoredEvent {
  */
 export interface EventRegistry {
   register(event: StoredEvent): Promise<void>;
+  /** Drop a discovery pointer (paid-only policy removes unpriced events). */
+  remove(covenantId: string): Promise<void>;
   byCovenantId(covenantId: string): StoredEvent | undefined;
   byDeployTxId(deployTxId: string): StoredEvent | undefined;
   list(organizerAddress?: string): readonly StoredEvent[];
@@ -140,6 +142,16 @@ export class EventStore implements EventRegistry {
       this.#byCovenantId.set(normalized.covenantId, normalized);
       this.#byDeployTxId.set(normalized.deployTxId, normalized);
     }
+    this.#saveIds();
+  }
+
+  async remove(covenantId: string): Promise<void> {
+    const key = covenantId.toLowerCase();
+    const existing = this.#byCovenantId.get(key);
+    if (!existing) return;
+    this.#byCovenantId.delete(key);
+    this.#byDeployTxId.delete(existing.deployTxId);
+    this.#events = this.#events.filter((event) => event !== existing);
     this.#saveIds();
   }
 

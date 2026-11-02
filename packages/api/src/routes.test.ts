@@ -67,7 +67,7 @@ const BURN_TEMPLATE_HASH = bytesToHex(
 const EVENT_NAME = "Testnet Rave";
 const EVENT_DATE = "2026-12-31";
 const EVENT_TIME = "20:00";
-const EVENT_PRICE = 1_000;
+const EVENT_PRICE = 100_000_000;
 const EVENT_CAPACITY = 2;
 
 function eventArtifact() {
@@ -831,7 +831,16 @@ describe("POST /v1/events/{covenantId}/buy/finalize", () => {
   });
 
   it("rejects a finalize that is not a buy (no covenant output)", async () => {
-    const app = await txApp();
+    const kaspa = new FakeKaspa();
+    seedVerifiedEvent(kaspa);
+    const app = await buildApp(config(), {
+      kaspa,
+      events: makeEventStore(),
+      network: NETWORK,
+      networkId: "testnet-10",
+      verified: new VerifiedEventCache(),
+      listings: new ListingStoreFile(),
+    });
     const res = await app.inject({
       method: "POST",
       url: `/v1/events/${TEST_COVENANT_ID}/buy/finalize`,
@@ -1483,6 +1492,18 @@ describe("POST /v1/events/deploy/prepare + /genesis", () => {
       method: "POST",
       url: "/v1/events/deploy/prepare",
       payload: { ...PREPARE_BODY, decimals: 300 },
+    });
+    expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
+    expect(res.json().error.type).toBe("invalid");
+    await app.close();
+  });
+
+  it("rejects a free ticket price on the deploy prepare body", async () => {
+    const app = await txApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/events/deploy/prepare",
+      payload: { ...PREPARE_BODY, price_kas: 0.5 },
     });
     expect(res.statusCode).toBe(HTTP_BAD_REQUEST);
     expect(res.json().error.type).toBe("invalid");

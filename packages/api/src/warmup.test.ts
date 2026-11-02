@@ -27,10 +27,11 @@ const BURN_TEMPLATE_HASH = bytesToHex(
   Uint8Array.from(compileBurnArtifact(AUTH_TXID).template_hash),
 );
 
-function deployModel(): TxModel {
+function deployModel(priceKAS = 1): TxModel {
+  const price = Math.round(priceKAS * 100_000_000);
   const artifact = compileEventArtifact({
     authorizingTxId: AUTH_TXID,
-    price: 1_000,
+    price,
     orgSpk: ORG_SPK_HEX,
     burnTemplateHash: BURN_TEMPLATE_HASH,
   });
@@ -62,18 +63,18 @@ function deployModel(): TxModel {
       covenant_authorizing_input: output.covenant?.authorizingInput ?? null,
       covenant_id: output.covenant?.covenantId ?? null,
     })),
-    payload: legacyMetadataPayload(),
+    payload: legacyMetadataPayload(priceKAS),
   };
 }
 
-function legacyMetadataPayload(): string {
+function legacyMetadataPayload(priceKAS = 1): string {
   return bytesToHex(
     new TextEncoder().encode(
       JSON.stringify({
         name: "Testnet Rave",
         date: "2026-12-31",
         time: "20:00",
-        priceKAS: 1_000 / 100_000_000,
+        priceKAS,
         orgSpk: ORG_SPK_HEX,
       }),
     ),
@@ -171,5 +172,24 @@ describe("warmVerifiedEvents", () => {
     await expect(verified.verify(kaspa, NETWORK, G_ID)).resolves.toMatchObject({
       deploy_txid: G_ID,
     });
+  });
+
+  it("removes an unpaid event from the registry", async () => {
+    const kaspa = new FakeKaspa(deployModel(0));
+    const events = new EventStore();
+    await events.register({ deployTxId: G_ID, covenantId: "aa", organizerAddress: "org" });
+    const verified = new VerifiedEventCache();
+
+    await warmVerifiedEvents({
+      kaspa,
+      events,
+      verified,
+      listings: new ListingStoreFile(),
+      network: NETWORK,
+      networkId: "testnet-10",
+    });
+
+    expect(events.list()).toHaveLength(0);
+    expect(events.byCovenantId("aa")).toBeUndefined();
   });
 });

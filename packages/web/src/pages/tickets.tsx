@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { MIN_TICKET_PRICE_KAS } from "@kticket/kit";
 import { useWallet } from "../hooks/use-wallet";
 import { useAuth } from "../auth/AuthProvider";
 import {
@@ -19,7 +20,7 @@ import { QrCode } from "../components/qr-code";
 /** The sell dialog collects KAS; the backend wants sompi. */
 function kasToSompi(input: string): number | null {
   const value = Number.parseFloat(input);
-  if (!Number.isFinite(value) || value <= 0) return null;
+  if (!Number.isFinite(value) || value < MIN_TICKET_PRICE_KAS) return null;
   return Math.round(value * 100_000_000);
 }
 
@@ -253,7 +254,7 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
                   <input
                     className="input mono"
                     type="number"
-                    min="0"
+                    min={MIN_TICKET_PRICE_KAS}
                     step="any"
                     placeholder="1.5"
                     value={priceInput}

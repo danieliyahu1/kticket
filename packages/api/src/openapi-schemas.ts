@@ -1,7 +1,7 @@
 // Component schemas for the OpenAPI document (KTK-154). Each builder owns one
 // area of the wire surface; `buildComponents` is only the composition.
 
-import { MAX_EVENT_CAPACITY } from "@kticket/kit";
+import { MAX_EVENT_CAPACITY, MIN_TICKET_PRICE_KAS, MIN_TICKET_PRICE_SOMPI } from "@kticket/kit";
 import { FEEDBACK_MAX_MESSAGE } from "./feedback.js";
 import type { JsonObject } from "./json.js";
 import {
@@ -277,7 +277,11 @@ function eventSchemas(): JsonObject {
           description: "https:// or ipfs:// URI; empty when absent.",
         },
         image_hash: { type: "string", description: "Lowercase hex; empty when absent." },
-        price: { type: "integer", minimum: 0, description: "Ticket price in sompi." },
+        price: {
+          type: "integer",
+          minimum: MIN_TICKET_PRICE_SOMPI,
+          description: `Ticket price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
+        },
         capacity: { type: "integer", minimum: 0, maximum: MAX_EVENT_CAPACITY },
         organizer_address: { type: "string", description: "The event's trust anchor." },
         verified: { type: "boolean", const: true },
@@ -318,7 +322,7 @@ function eventSchemas(): JsonObject {
           type: "object",
           required: ["price", "org_spk", "burn_template_hash"],
           properties: {
-            price: { type: "integer", minimum: 0 },
+            price: { type: "integer", minimum: MIN_TICKET_PRICE_SOMPI },
             org_spk: { type: "string", pattern: HEX_PATTERN },
             burn_template_hash: { type: "string", pattern: HEX64_PATTERN },
           },
@@ -370,8 +374,8 @@ function deploySchemas(): JsonObject {
     },
     price_kas: {
       type: "number",
-      minimum: 0,
-      description: "Ticket price in KAS (not sompi).",
+      minimum: MIN_TICKET_PRICE_KAS,
+      description: `Ticket price in KAS (not sompi). Minimum ${MIN_TICKET_PRICE_KAS} KAS; free events are not supported.`,
     },
     publicKey: PUBLIC_KEY_SCHEMA,
     address: ADDRESS_SCHEMA,
@@ -498,7 +502,11 @@ function buySchemas(): JsonObject {
           description: "Inputs the wallet must sign — all but the covenant spend at index 0.",
           items: jsonRef("InputIndex"),
         },
-        price: { type: "integer", minimum: 0, description: "Ticket price in sompi." },
+        price: {
+          type: "integer",
+          minimum: MIN_TICKET_PRICE_SOMPI,
+          description: `Ticket price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
+        },
         ticket_deposit: {
           type: "integer",
           minimum: 0,
@@ -608,7 +616,11 @@ function listingSchemas(): JsonObject {
       ],
       properties: {
         ticket_id: { type: "string", pattern: TICKET_ID_PATTERN },
-        price: { type: "integer", minimum: 1, description: "Asking price in sompi." },
+        price: {
+          type: "integer",
+          minimum: MIN_TICKET_PRICE_SOMPI,
+          description: `Asking price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
+        },
         seller_pkh: { type: "string", pattern: HEX64_PATTERN },
         event_name: { type: "string" },
         event_date: { type: "string" },
@@ -629,8 +641,8 @@ function listSchemas(): JsonObject {
         address: ADDRESS_SCHEMA,
         price: {
           type: "integer",
-          minimum: 1,
-          description: "Asking price in sompi (positive).",
+          minimum: MIN_TICKET_PRICE_SOMPI,
+          description: `Asking price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
         },
       },
     },
@@ -642,7 +654,7 @@ function listSchemas(): JsonObject {
         signing_template: { type: "string" },
         template: jsonRef("WireTransaction"),
         sign_inputs: { type: "array", items: jsonRef("InputIndex") },
-        price: { type: "integer", minimum: 1 },
+        price: { type: "integer", minimum: MIN_TICKET_PRICE_SOMPI },
         event: jsonRef("EventRef"),
       },
     },
@@ -652,7 +664,11 @@ function listSchemas(): JsonObject {
       properties: {
         template: jsonRef("WireTransaction"),
         signed: jsonRef("SigningOutput"),
-        price: { type: "integer", minimum: 1, description: "The same price sent to prepare." },
+        price: {
+          type: "integer",
+          minimum: MIN_TICKET_PRICE_SOMPI,
+          description: `The same price sent to prepare (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
+        },
       },
     },
   };
@@ -716,7 +732,11 @@ function purchaseSchemas(): JsonObject {
           description: "Only the buyer's fee inputs; input 0 is signatureless.",
           items: jsonRef("InputIndex"),
         },
-        price: { type: "integer", minimum: 1, description: "Asking price in sompi." },
+        price: {
+          type: "integer",
+          minimum: MIN_TICKET_PRICE_SOMPI,
+          description: `Asking price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
+        },
         ticket_deposit: { type: "integer", minimum: 0 },
         seller_proceeds: { type: "integer", minimum: 0 },
         seller_pkh: { type: "string", pattern: HEX64_PATTERN },

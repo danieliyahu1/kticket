@@ -8,6 +8,7 @@
 
 import type { KaspaNetwork } from "@kticket/kit";
 import { isApiError } from "./errors.js";
+import { isPaidEvent } from "./event-policy.js";
 import type { EventRegistry, StoredEvent } from "./eventstore.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { VerifiedEvent } from "./provenance.js";
@@ -31,7 +32,11 @@ export async function verifyAll(
   ctx: VerificationContext,
 ): Promise<VerifiedEvent[]> {
   const outcomes = await Promise.all(entries.map((entry) => verifyIfValid(entry, ctx)));
-  return outcomes.filter(isVerifiedEvent);
+  return outcomes.filter(isPaidVerifiedEvent);
+}
+
+function isPaidVerifiedEvent(event: VerifiedEvent | undefined): event is VerifiedEvent {
+  return event !== undefined && isPaidEvent(event);
 }
 
 async function verifyIfValid(
@@ -44,8 +49,4 @@ async function verifyIfValid(
     if (isApiError(err) && err.type === "invalid") return undefined;
     throw err;
   }
-}
-
-function isVerifiedEvent(event: VerifiedEvent | undefined): event is VerifiedEvent {
-  return event !== undefined;
 }

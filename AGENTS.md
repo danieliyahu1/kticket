@@ -57,6 +57,9 @@ linking or listing what it should.
   bearer token. Everything else is public or proven by the signed transaction.
 - **The docs are self-contained.** `/docs/api` has no scripts and no external
   network calls; it renders the same JSON contract the server already has.
+- **No free tickets.** Every event must carry a paid ticket price of at least
+  1 KAS. The API rejects cheaper deploys and registrations, discovery hides
+  unpaid events, and the boot warm-up removes them from the registry.
 - **Error shape is stable.** Every failure is `{ error: { type, message,
   retryable, retryAfter?, detail? } }`; clients branch on `type`, not prose.
 

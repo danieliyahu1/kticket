@@ -1,6 +1,6 @@
 import type { EventFormData } from "./event-validate";
 import { capacityLabel, priceLabel, whenLabel } from "../lib/format";
-import { MAX_EVENT_CAPACITY } from "@kticket/kit";
+import { MAX_EVENT_CAPACITY, MIN_TICKET_PRICE_KAS } from "@kticket/kit";
 
 export type { EventFormData };
 
@@ -111,12 +111,17 @@ function CapacityField({ initial, errors, onChange }: EventFormProps) {
 
 function PriceField({ initial, errors, onChange }: EventFormProps) {
   return (
-    <Field label="Price" htmlFor="event-price" hint="In KAS." error={errors.price}>
+    <Field
+      label="Price"
+      htmlFor="event-price"
+      hint={`In KAS, at least ${MIN_TICKET_PRICE_KAS}.`}
+      error={errors.price}
+    >
       <input
         id="event-price"
         className="input"
         type="number"
-        min={0}
+        min={MIN_TICKET_PRICE_KAS}
         step="any"
         value={initial.price}
         onChange={(e) => onChange({ ...initial, price: toNum(e.target.value) })}

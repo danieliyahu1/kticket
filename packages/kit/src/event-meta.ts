@@ -105,7 +105,6 @@ function eventDescription(name: string, when: string, price: number): string {
 }
 
 function ticketPriceSentence(price: number): string {
-  if (price === 0) return "Free entry";
   const label = eventPriceLabel(price);
   return label.length > 0 ? `${label} per ticket` : "";
 }
@@ -152,10 +151,9 @@ function parseClock(time: string | undefined): string | undefined {
   return match === null ? undefined : `${match[1]}:${match[2]}`;
 }
 
-/** Format a sompi price as KAS; `Free` when the price is zero. */
+/** Format a sompi price as KAS; empty when the price is not a paid ticket price. */
 export function eventPriceLabel(price: number): string {
-  if (!Number.isFinite(price) || price < 0) return "";
-  if (price === 0) return "Free";
+  if (!Number.isFinite(price) || price <= 0) return "";
   const kas = price / SOMPI_PER_KAS;
   const fixed = kas.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
   return `${fixed} KAS`;

@@ -46,8 +46,10 @@ describe("buildEventMeta (KTK-160)", () => {
     expect(meta.description).toContain("Verified on-chain");
   });
 
-  it("treats a zero price as free entry", () => {
-    expect(buildEventMeta(facts({ price: 0 }), ORIGIN).description).toContain("Free entry");
+  it("omits the price sentence for a non-positive price", () => {
+    const description = buildEventMeta(facts({ price: 0 }), ORIGIN).description;
+    expect(description).not.toContain("per ticket");
+    expect(description).not.toContain("Free");
   });
 
   it("resolves IPFS images through a gateway and drops unusable ones", () => {
@@ -114,7 +116,7 @@ describe("eventPriceLabel", () => {
   });
 
   it("handles free and invalid prices", () => {
-    expect(eventPriceLabel(0)).toBe("Free");
+    expect(eventPriceLabel(0)).toBe("");
     expect(eventPriceLabel(-1)).toBe("");
     expect(eventPriceLabel(Number.NaN)).toBe("");
   });

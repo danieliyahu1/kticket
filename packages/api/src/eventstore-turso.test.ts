@@ -102,6 +102,22 @@ describe("TursoEventStore", () => {
     expect(store.byDeployTxId(DEPLOY)).toBeUndefined();
   });
 
+  it("remove() deletes the row and both indexes", async () => {
+    const store = openStore();
+    await store.init();
+    await store.register({
+      deployTxId: DEPLOY,
+      covenantId: COVENANT,
+      organizerAddress: ORGANIZER,
+    });
+
+    await store.remove(COVENANT.toUpperCase());
+
+    expect(store.list()).toHaveLength(0);
+    expect(store.byCovenantId(COVENANT)).toBeUndefined();
+    expect(store.byDeployTxId(DEPLOY)).toBeUndefined();
+  });
+
   it("persists across a reconnect: a fresh store init() sees prior rows", async () => {
     const path = tempDbPath();
     const first = openStore(path);

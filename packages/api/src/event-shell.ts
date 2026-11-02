@@ -17,6 +17,7 @@ import { buildEventMeta, buildGenericMeta, type EventMeta } from "@kticket/kit";
 import type { FastifyInstance } from "fastify";
 import { SHELL_CACHE_CONTROL } from "./docs-paths.js";
 import { injectEventMeta } from "./event-preview-html.js";
+import { isPaidEvent } from "./event-policy.js";
 import type { EventRegistry } from "./eventstore.js";
 import type { VerificationContext } from "./verified-events.js";
 
@@ -84,6 +85,7 @@ export async function resolveEventMeta(
       ctx.verified.verify(ctx.kaspa, ctx.network, entry.deployTxId),
       deadlineMs,
     );
+    if (!isPaidEvent(verified)) return buildGenericMeta(origin);
     return buildEventMeta(verified, origin);
   } catch (err) {
     logger?.warn(

@@ -1,3 +1,4 @@
+import { MIN_TICKET_PRICE_KAS } from "@kticket/kit";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
@@ -6,7 +7,13 @@ import { DeployStatus } from "./deploy-dialog";
 import { validate } from "./event-validate";
 import { usePendingAction } from "../hooks/use-pending-action";
 
-const EMPTY_FORM: EventFormData = { name: "", date: "", time: "", capacity: 0, price: 0 };
+const EMPTY_FORM: EventFormData = {
+  name: "",
+  date: "",
+  time: "",
+  capacity: 0,
+  price: MIN_TICKET_PRICE_KAS,
+};
 
 export function CreateEventDialog({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);

@@ -2,7 +2,7 @@
 // `buildOperations` is only the composition. Request/response examples share
 // named ids so prepare and finalize read as one story.
 
-import { TICKET_DUST } from "@kticket/kit";
+import { MIN_TICKET_PRICE_KAS, MIN_TICKET_PRICE_SOMPI, TICKET_DUST } from "@kticket/kit";
 import { FEEDBACK_MAX_MESSAGE } from "./feedback.js";
 import type { JsonObject } from "./json.js";
 import {
@@ -244,7 +244,7 @@ function eventOperations(): DocumentedOperation[] {
               metadata_txid: EXAMPLE_AUTHORIZING_TXID,
               maker_address: EXAMPLE_ORGANIZER,
               decoded_constants: {
-                price: 1_000,
+                price: MIN_TICKET_PRICE_SOMPI,
                 org_spk: EXAMPLE_ORG_SPK,
                 burn_template_hash: EXAMPLE_AUTHORIZING_TXID,
               },
@@ -262,7 +262,7 @@ function eventOperations(): DocumentedOperation[] {
 function deployOperations(): DocumentedOperation[] {
   const prepareExample = {
     capacity: 2,
-    price_kas: 0.00001,
+    price_kas: MIN_TICKET_PRICE_KAS,
     ...EXAMPLE_WALLET,
     name: "Testnet Rave",
     date: "2026-12-31",
@@ -452,7 +452,7 @@ function listingReadOperations(): DocumentedOperation[] {
             [
               {
                 ticket_id: EXAMPLE_TICKET_ID,
-                price: 2_000,
+                price: 2 * MIN_TICKET_PRICE_SOMPI,
                 seller_pkh: EXAMPLE_SELLER_PKH,
                 event_name: EVENT_EXAMPLE.name,
                 event_date: EVENT_EXAMPLE.date,
@@ -591,11 +591,11 @@ function listOperations(): DocumentedOperation[] {
         tag: "resale",
         summary: "Prepare a resale listing",
         description:
-          "The holder commits an asking price in sompi into the ticket covenant state. Ownership, unused status, and listing status are all proven on chain before the template is built.",
+          "The holder commits an asking price in sompi into the ticket covenant state. The asking price must be at least 1 KAS (no free tickets). Ownership, unused status, and listing status are all proven on chain before the template is built.",
         parameters: [TICKET_ID_PARAMETER],
         body: jsonRequestBody(jsonRef("ListPrepareRequest"), {
           ...EXAMPLE_WALLET,
-          price: 2_000,
+          price: 2 * MIN_TICKET_PRICE_SOMPI,
         }),
         responses: {
           200: jsonResponse("The unsigned listing template.", jsonRef("ListPrepareResult"), {
@@ -603,7 +603,7 @@ function listOperations(): DocumentedOperation[] {
             signing_template: SIGNING_TEMPLATE_EXAMPLE,
             template: WIRE_TRANSACTION_EXAMPLE,
             sign_inputs: [{ index: 0 }, { index: 1 }],
-            price: 2_000,
+            price: 2 * MIN_TICKET_PRICE_SOMPI,
             event: EVENT_REF_EXAMPLE,
           }),
           400: errorResponse(400),
@@ -625,7 +625,7 @@ function listOperations(): DocumentedOperation[] {
         body: jsonRequestBody(jsonRef("ListFinalizeRequest"), {
           template: WIRE_TRANSACTION_EXAMPLE,
           signed: signedInput(0, "ac"),
-          price: 2_000,
+          price: 2 * MIN_TICKET_PRICE_SOMPI,
         }),
         responses: {
           200: jsonResponse("The listing transaction and whether it settled.", jsonRef("FinalizeResult"), {
@@ -715,9 +715,9 @@ function purchaseOperations(): DocumentedOperation[] {
             signing_template: SIGNING_TEMPLATE_EXAMPLE,
             template: WIRE_TRANSACTION_EXAMPLE,
             sign_inputs: [{ index: 1 }],
-            price: 2_000,
+            price: 2 * MIN_TICKET_PRICE_SOMPI,
             ticket_deposit: TICKET_DUST,
-            seller_proceeds: 2_000 + TICKET_DUST,
+            seller_proceeds: 2 * MIN_TICKET_PRICE_SOMPI + TICKET_DUST,
             seller_pkh: EXAMPLE_SELLER_PKH,
             event: EVENT_REF_EXAMPLE,
           }),

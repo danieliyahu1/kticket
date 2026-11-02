@@ -37,7 +37,7 @@ export interface Kcc20State {
 
 export interface Kcc20Constants {
   authorizingTxId: Uint8Array;
-  /** Price per ticket in sompi (0 = free). */
+  /** Price per ticket in sompi. The product accepts only paid events (at least 1 KAS). */
   price: number;
   orgSpk: Uint8Array;
   /** Script hash of the event's burn-owner covenant template. */

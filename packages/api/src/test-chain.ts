@@ -6,6 +6,7 @@
 import {
   buildBuy,
   buildDeploy,
+  MIN_TICKET_PRICE_SOMPI,
   p2pkAddress,
   type UnsignedTransaction,
 } from "@kticket/kit";
@@ -41,7 +42,7 @@ export const BURN_TEMPLATE_HASH = cannedBurnTemplateHash;
 
 export const EVENT_NAME = "Testnet Rave";
 export const EVENT_DATE = "2026-12-31";
-export const EVENT_PRICE = 1_000;
+export const EVENT_PRICE = MIN_TICKET_PRICE_SOMPI;
 export const EVENT_CAPACITY = 2;
 
 /** The ticket holder — the seller once resale enters the picture. */

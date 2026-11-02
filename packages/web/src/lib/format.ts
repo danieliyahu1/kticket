@@ -27,7 +27,7 @@ export function whenLabel(date: string, time?: string): string {
 }
 
 export function priceLabel(price: number): string {
-  if (price === 0) return "Free";
+  if (!Number.isFinite(price) || price <= 0) return "";
   const kas = price >= 100000000 ? price / 100000000 : price;
   return `${kas} KAS`;
 }

@@ -46,6 +46,7 @@ import type { AuthConfig } from "./auth/auth.js";
 import { invalidError, isApiError, notFoundError, rateLimitedError, toErrorEnvelope, unauthorizedError } from "./errors.js";
 import { describeWalletSignatures } from "./flow.js";
 import { deployFinalize, deployGenesis, deployPrepare } from "./deploy.js";
+import { isPaidEvent, UNPAID_EVENT_MESSAGE } from "./event-policy.js";
 import type { EventRegistry } from "./eventstore.js";
 import type { FeedbackService } from "./feedback.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
@@ -320,6 +321,9 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       const deployTxId = parseRegisterEventBody(req.body);
 
       const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, deployTxId);
+      if (!isPaidEvent(verified)) {
+        throw invalidError(UNPAID_EVENT_MESSAGE);
+      }
 
       await ctx.events.register({
         deployTxId: verified.deploy_txid,
@@ -342,6 +346,9 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (!entry) throw notFoundError(`event ${id} not found`);
 
     const verified = await ctx.verified.verify(ctx.kaspa, ctx.network, entry.deployTxId);
+    if (!isPaidEvent(verified)) {
+      throw notFoundError(`event ${id} not found`);
+    }
 
     return {
       event: toEventSummary(verified),
@@ -530,7 +537,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     async (req) => {
       logSignatureOutcome(req, "buy finalize", req.body as FinalizeBody);
       try {
-        const result = await buyFinalize(req.body, buyCtx);
+        const result = await buyFinalize(req.params.covenantId, req.body, buyCtx);
         req.log.info(
           {
             buy_id: (req.body as { buy_id?: unknown })?.buy_id,

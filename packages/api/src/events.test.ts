@@ -36,7 +36,7 @@ const BURN_TEMPLATE_HASH = bytesToHex(
 const NAME = "Testnet Rave";
 const DATE = "2026-12-31";
 const TIME = "20:00";
-const PRICE = 1_000;
+const PRICE = 100_000_000;
 const CAPACITY = 3;
 
 function outpointBytes(txIdHex: string, index: number) {

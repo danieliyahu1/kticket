@@ -174,7 +174,7 @@ export async function buildApp(
   if (options.warmup) {
     // Fire-and-forget: never blocks startup or the first request. Failures are
     // swallowed by the warm-up itself; the request path re-verifies on demand.
-    void warmVerifiedEvents(ctx);
+    void warmVerifiedEvents(ctx, app.log);
   }
 
   return app;

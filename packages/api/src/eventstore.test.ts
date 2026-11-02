@@ -104,6 +104,25 @@ describe("EventStore", () => {
     }
   });
 
+  it("remove() drops the event from both indexes and from disk", async () => {
+    const idsPath = tempIdsPath();
+    try {
+      const store = new EventStore(idsPath);
+      const deployTxId = "dd".repeat(32);
+      const covenantId = "ee".repeat(32);
+      await store.register({ deployTxId, covenantId, organizerAddress: "kaspatest:qremove" });
+
+      await store.remove(covenantId.toUpperCase());
+
+      expect(store.list()).toHaveLength(0);
+      expect(store.byCovenantId(covenantId)).toBeUndefined();
+      expect(store.byDeployTxId(deployTxId)).toBeUndefined();
+      expect(new EventStore(idsPath).list()).toHaveLength(0);
+    } finally {
+      cleanupTemp(idsPath);
+    }
+  });
+
   it("tolerates a corrupt registry file and starts empty", () => {
     const idsPath = tempIdsPath();
     try {

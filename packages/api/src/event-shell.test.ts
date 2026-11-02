@@ -170,7 +170,7 @@ function craftedEvent(): VerifiedEvent {
     decimals: 0,
     image: "",
     image_hash: "",
-    price: 1_000,
+    price: 100_000_000,
     capacity: 2,
     organizer_address: "kaspatest:org",
     owner_pkh: ORG_PKH_HEX,

@@ -22,7 +22,9 @@ import {
   assembleDelistSigScript,
   assembleListSigScript,
   injectState,
+  isPaidTicketPrice,
   listedStateAddress,
+  MIN_TICKET_PRICE_KAS,
   organizerPkh,
   orgSpkFromPublicKey,
   p2pkScriptFromPubkey,
@@ -32,6 +34,7 @@ import {
 } from "@kticket/kit";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { invalidError, notFoundError, policyError } from "./errors.js";
+import { isPaidEvent, UNPAID_EVENT_MESSAGE } from "./event-policy.js";
 import { broadcastAndConfirm, type BroadcastOutcome } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
@@ -128,6 +131,9 @@ async function verifiedTicketEvent(
   const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, entry.deployTxId);
   if (verified.covenant_id !== covenantId) {
     throw invalidError("ticket does not belong to the verified event");
+  }
+  if (!isPaidEvent(verified)) {
+    throw policyError(UNPAID_EVENT_MESSAGE);
   }
   return verified;
 }
@@ -254,7 +260,8 @@ function parseSignedTemplateWithPrice(raw: unknown): {
   price: number;
 } {
   const base = parseSignedTemplate(raw);
-  return { ...base, price: uint((raw as Record<string, unknown>).price, "price") };
+  const price = uint((raw as Record<string, unknown>).price, "price");
+  return { ...base, price: assertPaidAskingPrice(price) };
 }
 
 /**
@@ -296,6 +303,21 @@ function constantsOf(verified: VerifiedEvent) {
   };
 }
 
+/** Every ticket sale is paid: the asking price must clear the product floor. */
+function assertPaidAskingPrice(price: number): number {
+  if (!isPaidTicketPrice(price)) {
+    throw invalidError(`price must be at least ${MIN_TICKET_PRICE_KAS} KAS`);
+  }
+  return price;
+}
+
+/** A stored listing below the floor is no longer sellable. */
+function assertPaidListing(price: number): void {
+  if (!isPaidTicketPrice(price)) {
+    throw policyError(`this listing is below the ${MIN_TICKET_PRICE_KAS} KAS minimum`);
+  }
+}
+
 // --- list --------------------------------------------------------------------
 
 export interface ListPrepareResult {
@@ -314,8 +336,7 @@ export async function listPrepare(
 ): Promise<ListPrepareResult> {
   const holder = parseHolderRequest(raw);
   const priceRaw = isRecord(raw) ? raw.price : undefined;
-  const price = uint(priceRaw, "price");
-  if (price <= 0) throw invalidError("price must be a positive number of sompi");
+  const price = assertPaidAskingPrice(uint(priceRaw, "price"));
 
   const { txid, index } = parseTicketId(ticketIdValue);
   const verified = await verifiedTicketEvent(txid, index, ctx);
@@ -556,6 +577,7 @@ export async function purchasePrepare(
 
   const stored = ctx.listings.get(verified.covenant_id, `${txid}:${index}`);
   if (!stored) throw notFoundError(`ticket ${txid}:${index} is not listed for resale`);
+  assertPaidListing(stored.price);
 
   // Prove the listing on-chain: the live ticket UTXO's address must be the
   // listed-state address for (seller, price). This is the whole trust model —
@@ -618,6 +640,7 @@ export async function purchaseFinalize(
   const verified = await verifiedTicketEvent(txid, index, ctx);
   const stored = ctx.listings.get(verified.covenant_id, `${txid}:${index}`);
   if (!stored) throw notFoundError(`ticket ${txid}:${index} is not listed for resale`);
+  assertPaidListing(stored.price);
 
   // Validate the fixed escrow outputs before relaying. The covenant enforces
   // these rules too, but rejecting malformed templates here gives the buyer a
@@ -670,6 +693,7 @@ export async function listingsDirectory(
   const summaries = await Promise.all(
     candidates.map(async (listing): Promise<ListingSummary | undefined> => {
       try {
+        if (!isPaidTicketPrice(listing.price)) return undefined;
         const { txid, index } = parseTicketId(listing.ticketId);
         const verified = await verifiedTicketEvent(txid, index, ctx);
         const actual = await liveTicketAddress(txid, index, ctx);

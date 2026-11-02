@@ -57,6 +57,7 @@ import {
 } from "./event-meta.js";
 import { covenantId } from "./runtime/covenant.js";
 import { computeFee, kasToSompi, relayFloor, requiredInput, SOMPI_PER_KAS } from "./runtime/fee.js";
+import { isPaidTicketPrice, MIN_TICKET_PRICE_KAS, MIN_TICKET_PRICE_SOMPI } from "./policy.js";
 import { eventCommitmentMatches, eventOutputScript, organizerAddressFromPubkeyHex, organizerPkh, orgSpkFromPublicKey, recoverEventCapacity } from "./runtime/provenance.js";
 import {
   decodeConstants,
@@ -217,10 +218,13 @@ export {
   injectState,
   isKaspaNetwork,
   isKcc23Payload,
+  isPaidTicketPrice,
   kasToSompi,
   KASPA_NETWORK_IDS,
   KCC23_JSON_CODEC,
   MAX_EVENT_CAPACITY,
+  MIN_TICKET_PRICE_KAS,
+  MIN_TICKET_PRICE_SOMPI,
   NETWORKS,
   organizerAddressFromPubkeyHex,
   organizerPkh,

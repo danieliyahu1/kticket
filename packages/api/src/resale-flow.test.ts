@@ -285,6 +285,25 @@ describe("resale flow end-to-end (KTK-151)", () => {
       expect(prepare.statusCode).toBe(HTTP_BAD_REQUEST);
       await app.close();
     });
+
+    it("rejects an asking price below 1 KAS (400)", async () => {
+      const kaspa = new FakeKaspa();
+      seedBaseChain(kaspa);
+      const app = await buildAppWith(kaspa);
+
+      const prepare = await app.inject({
+        method: "POST",
+        url: `/v1/tickets/${TICKET_ID}/list/prepare`,
+        payload: {
+          publicKey: OWNER_PUBKEY_HEX,
+          address: OWNER_ADDRESS,
+          price: 99_999_999,
+        },
+      });
+      expect(prepare.statusCode).toBe(HTTP_BAD_REQUEST);
+      expect(prepare.json().error.message).toContain("at least 1 KAS");
+      await app.close();
+    });
   });
 
   describe("delist", () => {

@@ -101,6 +101,19 @@ export class TursoEventStore implements EventRegistry {
     this.#mirror(normalized);
   }
 
+  async remove(covenantId: string): Promise<void> {
+    const key = covenantId.toLowerCase();
+    const existing = this.#byCovenantId.get(key);
+    if (!existing) return;
+    await this.#client.execute({
+      sql: "DELETE FROM events WHERE covenant_id = ?",
+      args: [key],
+    });
+    this.#byCovenantId.delete(key);
+    this.#byDeployTxId.delete(existing.deployTxId);
+    this.#events = this.#events.filter((event) => event !== existing);
+  }
+
   byCovenantId(covenantId: string): StoredEvent | undefined {
     return this.#byCovenantId.get(covenantId.toLowerCase());
   }

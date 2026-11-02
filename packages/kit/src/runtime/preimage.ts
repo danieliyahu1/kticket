@@ -39,7 +39,7 @@ export interface DecodedState {
 
 export interface DecodedConstants {
   authorizingTxId: Uint8Array;
-  /** Price per ticket in sompi (0 = free). */
+  /** Price per ticket in sompi. The product accepts only paid events (at least 1 KAS). */
   price: number;
   /** Organizer payout script (the `org_spk` payout output on a buy). */
   orgSpk: Uint8Array;

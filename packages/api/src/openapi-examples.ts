@@ -2,6 +2,8 @@
 // runtime data: the docs render them, and the tests validate each one against
 // the schema it illustrates.
 
+import { MIN_TICKET_PRICE_KAS, MIN_TICKET_PRICE_SOMPI } from "@kticket/kit";
+
 const DEPLOY_TXID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const COVENANT_ID = "234f446748ff76774c8ca9c99531a34111066f902daa95663a399f4a2893a3ba";
 const ORGANIZER =
@@ -57,7 +59,7 @@ export const PREPARATION_TRANSACTION_EXAMPLE = {
         name: "Testnet Rave",
         date: "2026-12-31",
         time: "20:00",
-        priceKAS: 0.00001,
+        priceKAS: MIN_TICKET_PRICE_KAS,
         orgSpk: ORG_SPK,
       }),
       "utf8",
@@ -75,7 +77,7 @@ export const OPENAPI_EXAMPLES = {
     decimals: 0,
     image: "",
     image_hash: "",
-    price: 1_000,
+    price: MIN_TICKET_PRICE_SOMPI,
     capacity: 2,
     organizer_address: ORGANIZER,
     verified: true,

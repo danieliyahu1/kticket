@@ -553,7 +553,7 @@ export interface BuyInput {
   changeScript: ScriptPublicKey;
   /** Current `remaining` on the event covenant (must be > 0). */
   remaining: number;
-  /** Price per ticket in sompi (0 = free). */
+  /** Price per ticket in sompi. The product accepts only paid events (at least 1 KAS). */
   price: number;
   network: AddressNetwork;
   /** Network fee in sompi (paid by the buyer). */

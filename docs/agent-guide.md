@@ -113,7 +113,7 @@ registry claims:
     "decimals": 0,
     "image": "",
     "image_hash": "",
-    "price": 1000,
+    "price": 100000000,
     "capacity": 2,
     "organizer_address": "kaspatest:...",
     "verified": true
@@ -121,7 +121,8 @@ registry claims:
 ]
 ```
 
-`price` is sompi. `GET /v1/events/{covenant_id}` adds `raw_chain`: the deploy
+`price` is sompi and is at least 100000000 (1 KAS): only paid events are listed.
+`GET /v1/events/{covenant_id}` adds `raw_chain`: the deploy
 txid, authorizing txid, maker address, decoded constants, decoded state, and the
 raw payload. Use `raw_chain` if you need to re-check a displayed value yourself.
 
@@ -209,7 +210,7 @@ Content-Type: application/json
 
 {
   "capacity": 2,
-  "price_kas": 0.00001,
+  "price_kas": 1,
   "publicKey": "02...",
   "address": "kaspatest:...",
   "name": "Testnet Rave",
@@ -219,7 +220,8 @@ Content-Type: application/json
 ```
 
 - `capacity` is 0–100 tickets.
-- `price_kas` is the ticket price in KAS (the server converts to sompi).
+- `price_kas` is the ticket price in KAS (the server converts to sompi). Every
+  event is paid: the minimum is 1 KAS, and free events are not supported.
 - `publicKey` is compressed (66 hex) or bare x-coordinate (64 hex).
 - `address` is where the server fetches funding UTXOs; it must hold spendable
   funds.
@@ -309,7 +311,7 @@ fetches the buyer's UTXOs, and returns:
   "signing_template": "{...}",
   "template": { "version": 0, "inputs": [...], "outputs": [...], "lock_time": 0 },
   "sign_inputs": [{ "index": 1 }],
-  "price": 1000,
+  "price": 100000000,
   "ticket_deposit": 50000000
 }
 ```
@@ -437,18 +439,18 @@ before a template is built.
 POST /v1/tickets/{ticket_id}/list/prepare
 Content-Type: application/json
 
-{ "publicKey": "02...", "address": "kaspatest:...", "price": 2000 }
+{ "publicKey": "02...", "address": "kaspatest:...", "price": 200000000 }
 ```
 
-`price` is the asking price in **sompi** and must be positive. The price is
-committed into the covenant state, so the chain — not the index — is the source
-of truth. Sign `sign_inputs`, then finalize with the same price:
+`price` is the asking price in **sompi** and must be at least 100000000 (1 KAS).
+The price is committed into the covenant state, so the chain — not the index —
+is the source of truth. Sign `sign_inputs`, then finalize with the same price:
 
 ```http
 POST /v1/tickets/{ticket_id}/list/finalize
 Content-Type: application/json
 
-{ "template": { ... }, "signed": { ... }, "price": 2000 }
+{ "template": { ... }, "signed": { ... }, "price": 200000000 }
 ```
 
 The server proves ownership and unlisted state on chain before building the
@@ -466,7 +468,7 @@ and price. Stale index rows are omitted rather than served.
 ```json
 {
   "ticket_id": "bbbb...:0",
-  "price": 2000,
+  "price": 200000000,
   "seller_pkh": "02...",
   "event_name": "Testnet Rave",
   "event_date": "2026-12-31",

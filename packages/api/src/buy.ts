@@ -17,6 +17,7 @@ import { MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey, TICKET_DUST } fr
 import type { KaspaNetwork } from "@kticket/kit";
 import { invalidError, policyError } from "./errors.js";
 import { eventAvailability } from "./events.js";
+import { isPaidEvent, UNPAID_EVENT_MESSAGE } from "./event-policy.js";
 import { broadcastAndConfirm, type BroadcastOutcome } from "./flow.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
@@ -117,11 +118,16 @@ function toWireUtxoMeta(u: UtxoResponse): WireUtxoMeta {
   };
 }
 
-/** validate the buy template after merge: it must carry the ticket + covenant outputs. */
-function validateBuy(tx: WireTransaction): void {
-  if (!tx.outputs.some((o) => o.covenant !== null)) {
-    throw invalidError("template is not a buy (no covenant output)");
-  }
+/** validate the buy template after merge: it must carry this event's covenant output. */
+function validateBuy(covenantId: string): (tx: WireTransaction) => void {
+  return (tx) => {
+    const matches = tx.outputs.some(
+      (output) => output.covenant?.covenant_id?.toLowerCase() === covenantId.toLowerCase(),
+    );
+    if (!matches) {
+      throw invalidError("template is not a buy for this event");
+    }
+  };
 }
 
 /**
@@ -139,6 +145,9 @@ export async function buyPrepare(
   if (!entry) throw invalidError(`event ${covenantId} not found`);
 
   const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, entry.deployTxId);
+  if (!isPaidEvent(verified)) {
+    throw policyError(UNPAID_EVENT_MESSAGE);
+  }
   const availability = await eventAvailability(verified, ctx.kaspa, ctx.network);
   if (availability.left <= 0) {
     throw policyError("sold out — no tickets left");
@@ -190,11 +199,19 @@ export async function buyPrepare(
   };
 }
 
-/** finalize: merge, validate it is a buy, broadcast, wait for acceptance. */
+/** finalize: re-check the paid event, merge, validate it is a buy, broadcast. */
 export async function buyFinalize(
+  covenantId: string,
   raw: unknown,
   ctx: BuyContext,
 ): Promise<BuyFinalizeResult> {
   const req = parseFinalize(raw);
-  return broadcastAndConfirm(req.template, req.signed, ctx, validateBuy);
+  const entry = ctx.byCovenantId(covenantId);
+  if (!entry) throw invalidError(`event ${covenantId} not found`);
+
+  const verified = await verifyEventFromChain(ctx.kaspa, ctx.network, entry.deployTxId);
+  if (!isPaidEvent(verified)) {
+    throw policyError(UNPAID_EVENT_MESSAGE);
+  }
+  return broadcastAndConfirm(req.template, req.signed, ctx, validateBuy(verified.covenant_id));
 }

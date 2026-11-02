@@ -1,4 +1,4 @@
-import { MAX_EVENT_CAPACITY } from "@kticket/kit";
+import { MAX_EVENT_CAPACITY, MIN_TICKET_PRICE_KAS } from "@kticket/kit";
 
 export interface EventFormData {
   name: string;
@@ -16,8 +16,12 @@ export function validate(data: EventFormData): Partial<Record<keyof EventFormDat
   if (!Number.isInteger(data.capacity) || data.capacity < 0 || data.capacity > MAX_EVENT_CAPACITY) {
     errors.capacity = `Capacity must be 0–${MAX_EVENT_CAPACITY}`;
   }
-  if (typeof data.price !== "number" || data.price < 0 || !Number.isFinite(data.price)) {
-    errors.price = "Price must be 0 or greater";
+  if (
+    typeof data.price !== "number" ||
+    !Number.isFinite(data.price) ||
+    data.price < MIN_TICKET_PRICE_KAS
+  ) {
+    errors.price = `Price must be at least ${MIN_TICKET_PRICE_KAS} KAS`;
   }
   return errors;
 }
