@@ -156,9 +156,9 @@ describe("buildWasmTransaction — broadcast relay construction (KTK: outpoint i
   });
 });
 
-describe("transactionIdOf � the KCC-23 preparation binding", () => {
+describe("transactionIdOf — the KCC-23 preparation binding", () => {
   it("commits to the exact payload bytes, so the metadata is bound", async () => {
-    // KCC-23 �3.1: `007b7d` = `{}`, the others declare different values.
+    // KCC-23 §3.1: `007b7d` = `{}`, the others declare different values.
     const empty = await transactionIdOf(preparationWire("007b7d"));
     const decimals8 = await transactionIdOf(
       preparationWire("007b22646563696d616c73223a387d"),

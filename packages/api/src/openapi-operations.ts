@@ -106,7 +106,7 @@ function authOperations(options: OpenApiOptions): DocumentedOperation[] {
         tag: "auth",
         summary: "Ask for a sign-in challenge",
         description:
-          "Returns a single-use nonce and the exact message to sign. The message names the server's network id â€” never choose a network yourself.",
+          "Returns a single-use nonce and the exact message to sign. The message names the server's network id — never choose a network yourself.",
         body: jsonRequestBody(jsonRef("ChallengeRequest"), {
           address: EXAMPLE_ORGANIZER,
         }),
@@ -398,7 +398,7 @@ function buyOperations(): DocumentedOperation[] {
         tag: "events",
         summary: "Finalize a primary ticket purchase",
         description:
-          "Merges signatures, validates the template is a buy (it must carry the ticket covenant output), broadcasts, and waits for the ledger to accept the mint. `status: \"settled\"` means the ticket exists; `\"pending\"` means the purchase was relayed but acceptance is not established yet â€” keep the txid and read `GET /v1/tickets` rather than re-broadcasting.",
+          "Merges signatures, validates the template is a buy (it must carry the ticket covenant output), broadcasts, and waits for the ledger to accept the mint. `status: \"settled\"` means the ticket exists; `\"pending\"` means the purchase was relayed but acceptance is not established yet — keep the txid and read `GET /v1/tickets` rather than re-broadcasting.",
         parameters: [COVENANT_ID_PARAMETER],
         body: jsonRequestBody(jsonRef("BuyFinalizeRequest"), {
           buy_id: BUY_ID,
@@ -480,7 +480,7 @@ function ticketOperations(): DocumentedOperation[] {
         tag: "tickets",
         summary: "List the signed-in wallet's tickets",
         description:
-          "Returns the tickets held by the bearer token's wallet, including listed ones with their asking price. Any `owner_pkh` query is ignored â€” the wallet proof is authoritative.",
+          "Returns the tickets held by the bearer token's wallet, including listed ones with their asking price. Any `owner_pkh` query is ignored — the wallet proof is authoritative.",
         security: BEARER_SECURITY,
         responses: {
           200: jsonResponse(

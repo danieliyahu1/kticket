@@ -79,7 +79,7 @@ const BROADCAST_STATUS_SCHEMA: JsonObject = {
   type: "string",
   enum: ["settled", "pending"],
   description:
-    "`settled` â€” the ledger accepted the transaction, so every output it declares exists (the ticket exists, the payment settled). `pending` â€” the transaction was relayed and is not accepted yet; it may still settle. A pending response is not a failure: do not re-broadcast, and read the chain to learn the outcome.",
+    "`settled` — the ledger accepted the transaction, so every output it declares exists (the ticket exists, the payment settled). `pending` — the transaction was relayed and is not accepted yet; it may still settle. A pending response is not a failure: do not re-broadcast, and read the chain to learn the outcome.",
 };
 
 function finalizeResultSchema(): JsonObject {
@@ -501,7 +501,7 @@ function buySchemas(): JsonObject {
         template: jsonRef("WireTransaction"),
         sign_inputs: {
           type: "array",
-          description: "Inputs the wallet must sign â€” all but the covenant spend at index 0.",
+          description: "Inputs the wallet must sign — all but the covenant spend at index 0.",
           items: jsonRef("InputIndex"),
         },
         price: {

@@ -61,7 +61,7 @@ export type PreparedBuild = {
   /** The covenant's fee ceiling for this transaction, in sompi. */
   maxFee?: number;
   /**
-   * Full prev-output metadata for every spending input, in input order â€” the
+   * Full prev-output metadata for every spending input, in input order — the
     * wallet needs these to sign (`signTx` safe-JSON carries `utxo` per input).
    */
   inputUtxoMetas: WireUtxoMeta[];

@@ -21,7 +21,7 @@ export class ApiError extends Error {
   }
 }
 
-/** The server could not complete the request â€” unreachable, or it failed (any 5xx). */
+/** The server could not complete the request — unreachable, or it failed (any 5xx). */
 export class ServerError extends Error {
   constructor() {
     super("The server isn't responding.");
@@ -112,7 +112,7 @@ async function request<T>(method: string, url: string, body: unknown): Promise<T
   let res = await run();
   const hadToken = authToken !== null;
   if (res.status === 401 && hadToken && reauthHandler) {
-    devLog(`[api] 401 ${url} â€” re-signing`);
+    devLog(`[api] 401 ${url} — re-signing`);
     setAuthToken(null);
     try {
       await reauthHandler();
@@ -120,10 +120,10 @@ async function request<T>(method: string, url: string, body: unknown): Promise<T
       // Re-auth failed; surface the original 401.
     }
     if (authToken !== null) {
-      devLog(`[api] reauth ok â€” retrying ${url}`);
+      devLog(`[api] reauth ok — retrying ${url}`);
       res = await run();
     } else {
-      devLog(`[api] reauth failed â€” keeping 401 for ${url}`);
+      devLog(`[api] reauth failed — keeping 401 for ${url}`);
       if (!sessionExpiredNotified) {
         sessionExpiredNotified = true;
         sessionExpiredHandler?.();
@@ -289,7 +289,7 @@ export interface TicketEntry {
   event_time: string;
   /** Present only when the ticket is currently listed for resale. */
   listed?: true;
-  /** Asking price in sompi â€” only on listed entries. */
+  /** Asking price in sompi — only on listed entries. */
   price?: number;
 }
 
@@ -299,7 +299,7 @@ export function fetchMyTickets(ownerPkh: string): Promise<TicketEntry[]> {
 }
 
 export interface UsePrepareResult {
-  /** Correlation id stored in the QR â€” a fresh prepare invalidates prior QRs. */
+  /** Correlation id stored in the QR — a fresh prepare invalidates prior QRs. */
   use_id: string;
   signing_template: string;
   /** The unsigned mark_used template the owner pre-signs. */
@@ -353,12 +353,12 @@ export interface ListingSummary {
   verified: true;
 }
 
-/** Live listings for one event â€” every row is proven on-chain before serving. */
+/** Live listings for one event — every row is proven on-chain before serving. */
 export function fetchEventListings(covenantId: string): Promise<ListingSummary[]> {
   return apiGet<ListingSummary[]>(`/v1/events/${encodeURIComponent(covenantId)}/listings`);
 }
 
-/** Every live listing across all events â€” the marketplace directory. */
+/** Every live listing across all events — the marketplace directory. */
 export function fetchAllListings(): Promise<ListingSummary[]> {
   return apiGet<ListingSummary[]>("/v1/listings");
 }
@@ -406,7 +406,7 @@ export interface PurchasePrepareResult {
   purchase_id: string;
   signing_template: string;
   template: WireTransaction;
-  /** Only the buyer's fee inputs need signatures â€” input 0 is signatureless. */
+  /** Only the buyer's fee inputs need signatures — input 0 is signatureless. */
   sign_inputs: { index: number }[];
   price: number;
   ticket_value: number;

@@ -1,4 +1,4 @@
-// TursoFeedbackOutbox �?" real SQL through libsql's local file: mode. The
+// TursoFeedbackOutbox — real SQL through libsql's local file: mode. The
 // write-ahead property and the lease are what the endpoint depends on.
 
 import { mkdtempSync, rmSync } from "node:fs";

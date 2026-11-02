@@ -145,6 +145,20 @@ describe("published documentation routes (KTK-155 / KTK-157)", () => {
     });
   });
 
+  it("serves valid UTF-8: no mojibake, no replacement characters", async () => {
+    await withApp(async (app) => {
+      // A CP1252-saved em dash arrives as "â€”"; a lost byte arrives as U+FFFD.
+      // Both corrupt the published contract for every client that reads it.
+      const CORRUPTED = /\u00e2[\u20ac\u2020]|\uFFFD/;
+
+      for (const path of [OPENAPI_PATH, API_DOCS_PATH, AGENT_GUIDE_PATH, LLMS_TXT_PATH]) {
+        const response = await app.inject({ method: "GET", url: path });
+        expect(response.statusCode, path).toBe(200);
+        expect(response.body, path).not.toMatch(CORRUPTED);
+      }
+    });
+  });
+
   it("serves llms.txt as plain text with resolvable links", async () => {
     await withApp(async (app) => {
       const response = await app.inject({ method: "GET", url: LLMS_TXT_PATH });

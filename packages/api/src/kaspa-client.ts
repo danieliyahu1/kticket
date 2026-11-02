@@ -1,4 +1,4 @@
-// Typed HTTP client for the Kaspa public REST API (HLD v0.23 §2.2 — "reads via
+// Typed HTTP client for the Kaspa public REST API (HLD v0.23 Â§2.2 â€” "reads via
 // api-tn10.kaspa.org"). Upstream handling per KTK-5:
 //   - 503 / 429  ? retry with exponential backoff (honouring `Retry-After`),
 //     then 503 `upstream` error (retryable).
@@ -31,7 +31,7 @@ import { isRecord } from "./validate.js";
 
 const UPSTREAM_HOST = "api-tn10.kaspa.org";
 
-/** Public surface used by the routes — makes clients injectable in tests. */
+/** Public surface used by the routes â€” makes clients injectable in tests. */
 export interface KaspaClientLike {
   getUtxos(address: string): Promise<UtxoResponse[]>;
   getUtxosForAddresses(addresses: string[]): Promise<UtxoResponse[]>;
@@ -49,7 +49,7 @@ export interface KaspaClientLike {
   broadcastTransaction(tx: SubmitTxModel): Promise<SubmitTransactionResponse>;
   /**
    * Drop every cached upstream response. A confirmed broadcast changes chain
-   * state, so cached reads (UTXOs, tx lists) may be stale — callers invoke this
+   * state, so cached reads (UTXOs, tx lists) may be stale â€” callers invoke this
    * after a tx confirms so the next read refetches from the chain (KTK-115).
    */
   clearCache(): void;

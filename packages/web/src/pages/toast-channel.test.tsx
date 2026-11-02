@@ -99,7 +99,7 @@ function mockApi(options: { failPrepare?: boolean } = {}): void {
       if (path === `/v1/events/${COVENANT_ID}/buy/prepare`) {
         if (options.failPrepare) {
           return json(
-            { error: { type: "policy", message: "sold out â€” no tickets left", retryable: false } },
+            { error: { type: "policy", message: "sold out — no tickets left", retryable: false } },
             422,
           );
         }
@@ -154,10 +154,10 @@ describe("one accessible message per outcome", () => {
 
     const alerts = await screen.findAllByRole("alert");
     expect(alerts).toHaveLength(1);
-    expect(alerts[0]?.textContent).toContain("sold out â€” no tickets left");
+    expect(alerts[0]?.textContent).toContain("sold out — no tickets left");
     expect(screen.queryByText("No ticket was issued.")).toBeNull();
     expect(getToast()?.tone).toBe("error");
-    expect(getToast()?.message).toBe("sold out â€” no tickets left");
+    expect(getToast()?.message).toBe("sold out — no tickets left");
 
     // The recoverable affordance is back: the same button, no second click.
     expect(await screen.findByRole("button", { name: /Buy ticket/ })).toBeTruthy();

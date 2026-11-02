@@ -292,7 +292,7 @@ describe("buildMetadataPrep (KCC-23 preparation transaction)", () => {
 
     expect(tx.version).toBe(1);
     expect(tx.inputs).toHaveLength(1);
-    expect(tx.outputs).toHaveLength(1); // the output genesis spends � no change
+    expect(tx.outputs).toHaveLength(1); // the output genesis spends — no change
     const [output] = tx.outputs;
     expect(output?.value).toBe(DUST_INPUT - PREP_FEE);
     expect(output?.scriptPublicKey).toEqual(ownerSpk);
