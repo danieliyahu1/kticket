@@ -155,7 +155,7 @@ export default function EventDetailPage() {
             onClick={handleBuy}
             disabled={buying || buyFlow.running}
           >
-            {buying || buyFlow.running ? "Buying…" : `Buy ticket · ${priceLabel(event.event.price)} + 0.5 KAS deposit`}
+            {buying || buyFlow.running ? "Buying…" : `Buy ticket · ${priceLabel(event.event.price)}`}
           </button>
         )}
       </div>
@@ -285,7 +285,7 @@ function ListingRow({
             onClick={handleBuy}
             disabled={busy || purchase.running}
           >
-             Buy · {priceLabel(listing.price)} + 0.5 KAS deposit
+             Buy · {priceLabel(listing.price)}
           </button>
         )}
       </div>

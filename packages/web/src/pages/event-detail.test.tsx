@@ -5,14 +5,17 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailPage from "./event-detail";
 
-const { fetchEventMock } = vi.hoisted(() => ({ fetchEventMock: vi.fn() }));
+const { fetchEventMock, fetchListingsMock } = vi.hoisted(() => ({
+  fetchEventMock: vi.fn(),
+  fetchListingsMock: vi.fn(),
+}));
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
   return {
     ...actual,
     fetchEvent: fetchEventMock,
-    fetchEventListings: vi.fn().mockResolvedValue([]),
+    fetchEventListings: fetchListingsMock,
   };
 });
 
@@ -21,6 +24,19 @@ vi.mock("../hooks/use-wallet", () => ({
 }));
 
 const COVENANT_ID = "ab".repeat(32);
+
+/** A live resale listing for the event, priced in sompi. */
+function listing(price: number) {
+  return {
+    ticket_id: "cd".repeat(32),
+    price,
+    seller_pkh: "42".repeat(32),
+    event_name: "Event A",
+    event_date: "2026-12-31",
+    covenant_id: COVENANT_ID,
+    verified: true as const,
+  };
+}
 
 function eventDetail() {
   return {
@@ -52,6 +68,8 @@ beforeEach(() => {
   document.title = "kticket";
   fetchEventMock.mockReset();
   fetchEventMock.mockResolvedValue(eventDetail());
+  fetchListingsMock.mockReset();
+  fetchListingsMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -88,5 +106,34 @@ describe("EventDetailPage metadata (KTK-162)", () => {
       "generic",
     );
     expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+  });
+});
+
+// Issue #12: the button quotes the exact debit. The price already includes the
+// ticket's value and the network fee, so no extra deposit may be advertised.
+describe("EventDetailPage purchase copy", () => {
+  function renderPage() {
+    return render(
+      <MemoryRouter initialEntries={[`/events/${COVENANT_ID}`]}>
+        <Routes>
+          <Route path="/events/:covenantId" element={<EventDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it("quotes the inclusive price on the primary buy button", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: "Buy ticket · 5 KAS" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /deposit/i })).toBeNull();
+  });
+
+  it("quotes the inclusive price on a resale buy button", async () => {
+    fetchListingsMock.mockResolvedValue([listing(200_000_000)]);
+    renderPage();
+
+    expect(await screen.findByRole("button", { name: "Buy · 2 KAS" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /deposit/i })).toBeNull();
   });
 });
