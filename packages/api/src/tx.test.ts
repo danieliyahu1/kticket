@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { computeMass, estimatedSerializedSize, type UnsignedTransaction } from "@kticket/kit";
 import { rejectionError } from "./broadcast.js";
 import type { KaspaClientLike } from "./kaspa-client";
 import type {
@@ -8,7 +9,13 @@ import type {
   TxMass,
   TxModel,
 } from "./kaspa-types";
-import { broadcastTransaction, buildTransaction, toSubmitModel } from "./tx";
+import {
+  broadcastTransaction,
+  buildTransaction,
+  toSubmitModel,
+  withSignaturePlaceholders,
+} from "./tx";
+import type { WireTransaction } from "./wire.js";
 
 vi.mock("./wrpc-client.js", () => ({
   submitTransactionOverWrpc: vi.fn(),
@@ -166,6 +173,37 @@ function buyRequest(constants = CONSTANTS, buyerUtxos = [BUYER_UTXO]) {
   };
 }
 
+/** The built template back in the kit's shape, so the test can price it itself. */
+function toUnsigned(tx: WireTransaction): UnsignedTransaction {
+  return {
+    version: tx.version,
+    inputs: tx.inputs.map((input) => ({
+      previousOutpoint: {
+        txId: input.previous_outpoint.transaction_id,
+        index: input.previous_outpoint.index,
+      },
+      signatureScript: input.signature_script,
+      sequence: input.sequence,
+      sigOpCount: input.sig_op_count,
+    })),
+    outputs: tx.outputs.map((output) => ({
+      value: output.value,
+      scriptPublicKey: output.script_public_key,
+      covenant: output.covenant
+        ? {
+            authorizingInput: output.covenant.authorizing_input,
+            covenantId: output.covenant.covenant_id,
+          }
+        : null,
+    })),
+    lockTime: tx.lock_time,
+    ...(tx.payload ? { payload: tx.payload } : {}),
+  };
+}
+
+/** The organizer UTXO as `utxoMetaOf` presents it when the client sends no metas. */
+const ORGANIZER_MASS_INPUT = { value: UTXO_VALUE, script: "", covenant: false };
+
 describe("toSubmitModel", () => {
   it("maps the wire template to the upstream SubmitTxModel shape", () => {
     const model = toSubmitModel({
@@ -311,6 +349,59 @@ describe("buildTransaction (KTK-28) — buy", () => {
       type: "policy",
       message: expect.stringContaining("too small a change"),
     });
+  });
+});
+
+describe("withSignaturePlaceholders (KTK-197)", () => {
+  const TX: UnsignedTransaction = {
+    version: 1,
+    inputs: [
+      {
+        previousOutpoint: { txId: "aa".repeat(TXID_BYTE_LENGTH), index: 0 },
+        signatureScript: "",
+        sequence: 0,
+        sigOpCount: 50,
+      },
+    ],
+    outputs: [{ value: 1_000, scriptPublicKey: { version: 0, script: "51" }, covenant: null }],
+    lockTime: 0,
+  };
+
+  it("prices a 66-byte signature script on the input the wallet will sign", () => {
+    expect(estimatedSerializedSize(withSignaturePlaceholders(TX))).toBe(
+      estimatedSerializedSize(TX) + 66,
+    );
+  });
+
+  it("keeps an input whose script is already in the template", () => {
+    const assembled: UnsignedTransaction = {
+      ...TX,
+      inputs: [{ ...TX.inputs[0]!, signatureScript: "20" + "42".repeat(TXID_BYTE_LENGTH) }],
+    };
+    expect(estimatedSerializedSize(withSignaturePlaceholders(assembled))).toBe(
+      estimatedSerializedSize(assembled),
+    );
+  });
+});
+
+describe("buildTransaction (KTK-197) — the fee covers the signed transaction", () => {
+  it("charges the relay floor of the signed tx, not of the unsigned template", async () => {
+    const kaspa = new FakeKaspa();
+    // A feerate below the floor: the node then enforces the floor exactly.
+    kaspa.feeEstimate = {
+      ...FEE_ESTIMATE,
+      priorityBucket: { feerate: 1, estimatedSeconds: 1 },
+    };
+    const result = await buildTransaction(deployRequest(EVENT_CAPACITY), ctx(kaspa));
+
+    const template = toUnsigned(result.template);
+    const unsignedFloor = 100 * computeMass(template, [ORGANIZER_MASS_INPUT]).computeMass;
+    const signedFloor =
+      100 * computeMass(withSignaturePlaceholders(template), [ORGANIZER_MASS_INPUT]).computeMass;
+
+    // The production rejection: fee 573100 vs 579700 required — short by 100 × 66.
+    expect(result.network_fee).toBe(signedFloor);
+    expect(result.network_fee).toBe(unsignedFloor + 6_600);
   });
 });
 

@@ -4,12 +4,14 @@
 // unsigned v1 template, fee-aware:
 //
 //   1. build a provisional template (fee = 0) to learn the structure;
-//   2. compute mass + compute_mass locally (the consensus formula — the public
+//   2. add the wallet's signature script to every input it will still sign, so
+//      the mass belongs to the transaction the node will see, not the template;
+//   3. compute mass + compute_mass locally (the consensus formula — the public
 //      `/transactions/mass` divides by output amount and 500s on the covenant
 //      outputs every kticket tx carries);
-//   3. `GET /info/fee-estimate` → priority bucket feerate (sompi/gram);
-//   4. fee = max(feerate × mass, 100 × max(compute_mass, 2 × sizeBytes));
-//   5. rebuild with the real fee so the change output sets `inputs − outputs = fee`.
+//   4. `GET /info/fee-estimate` → priority bucket feerate (sompi/gram);
+//   5. fee = max(feerate × mass, 100 × max(compute_mass, 2 × sizeBytes));
+//   6. rebuild with the real fee so the change output sets `inputs − outputs = fee`.
 //
 // The wallet supplies its own UTXOs (it knows its balance — the API never holds
 // keys); the API validates they cover the payouts + fee, then returns the
@@ -26,6 +28,7 @@ import {
   MAX_STORAGE_MASS,
   type MassBreakdown,
   type MassInput,
+  type UnsignedTransaction,
 } from "@kticket/kit";
 import { parseBroadcastRequest } from "./broadcast.js";
 import { type BuiltTransaction, type PreparedBuild, preparedBuildFor } from "./builders.js";
@@ -76,6 +79,33 @@ function toMassInputs(metas: readonly WireUtxoMeta[]): MassInput[] {
   }));
 }
 
+/**
+ * Bytes a wallet adds when it signs a P2PK input: `0x41` (push 65) + the 64-byte
+ * Schnorr signature + its sighash type byte.
+ */
+const WALLET_SIGNATURE_SCRIPT_BYTES = 66;
+
+/**
+ * The transaction as the node will see it. An input the wallet has not signed
+ * yet carries an empty `signatureScript` in the template; at broadcast it has a
+ * 66-byte signature. The node prices that signed transaction, so pricing the
+ * template undercharges the relay floor by 100 sompi per missing byte and the
+ * broadcast is rejected as underpaid (KTK-197: 573100 fees vs 579700 required).
+ */
+export function withSignaturePlaceholders(tx: UnsignedTransaction): UnsignedTransaction {
+  return {
+    ...tx,
+    inputs: tx.inputs.map((input) =>
+      input.signatureScript === ""
+        ? {
+            ...input,
+            signatureScript: "00".repeat(WALLET_SIGNATURE_SCRIPT_BYTES),
+          }
+        : input,
+    ),
+  };
+}
+
 /** The covenant redeem script is part of the real transaction's size. */
 function applyCovenantScript(built: BuiltTransaction): void {
   if (built.covenantRedeemScript && built.tx.inputs[0]) {
@@ -114,10 +144,13 @@ async function buildFeeAware(
   applyCovenantScript(provisional);
 
   const massInputs = toMassInputs(prepared.inputUtxoMetas);
-  const sizeBytes = estimatedSerializedSize(provisional.tx);
+  // Price the signed transaction: the wallet's signatures are part of the mass
+  // the node charges for, even though they do not exist yet in the template.
+  const pricedTx = withSignaturePlaceholders(provisional.tx);
+  const sizeBytes = estimatedSerializedSize(pricedTx);
   let mass: MassBreakdown;
   try {
-    mass = computeMass(provisional.tx, massInputs);
+    mass = computeMass(pricedTx, massInputs);
   } catch (err) {
     throwPolicy(err, "cannot price the transaction");
   }
