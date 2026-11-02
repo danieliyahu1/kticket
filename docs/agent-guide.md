@@ -324,6 +324,9 @@ receives `organizer_proceeds`. Nothing is charged on top.
 
 Sign every index in `sign_inputs`. Input 0 is the event covenant spend; the
 server has already prepared its redeem script, so `sign_inputs` omits it.
+The server also chooses the buyer's UTXOs: if the leftover change would be dust
+(KIP-9 storage mass), prepare answers `policy` and asks for more funds or a
+different UTXO instead of building a transaction the network would reject.
 Finalize with:
 
 ```http

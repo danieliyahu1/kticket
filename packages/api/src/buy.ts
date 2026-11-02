@@ -26,6 +26,7 @@ import { invalidError, policyError } from "./errors.js";
 import { eventAvailability } from "./events.js";
 import { isPaidEvent, UNPAID_EVENT_MESSAGE } from "./event-policy.js";
 import { broadcastAndConfirm, type BroadcastOutcome } from "./flow.js";
+import { selectFundingUtxos } from "./funding.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
 import { verifyEventFromChain } from "./provenance.js";
@@ -173,22 +174,11 @@ export async function buyPrepare(
     throw policyError("no spendable UTXOs on the buyer address");
   }
   // The buyer pays exactly the price; the covenant inspects at most MAX_ITEMS
-  // inputs, so select the fewest largest UTXOs that cover the price.
+  // inputs, and the change must not be dust (KIP-9 storage mass).
   const required = verified.legacy
     ? verified.price + TICKET_DUST + maxFeeForInputs(MAX_BUY_UTXOS + 1)
     : verified.price;
-  const buyerUtxos: typeof spendable = [];
-  let covered = 0;
-  for (const utxo of spendable) {
-    if (covered >= required || buyerUtxos.length >= MAX_BUY_UTXOS) break;
-    buyerUtxos.push(utxo);
-    covered += Number(utxo.utxoEntry.amount);
-  }
-  if (covered < required) {
-    throw policyError(
-      `buyer funds ${covered} cannot cover the ticket price ${required} (max ${MAX_BUY_UTXOS} UTXOs)`,
-    );
-  }
+  const buyerUtxos = selectFundingUtxos(spendable, required, MAX_BUY_UTXOS);
 
   const result = await buildTransaction(
     {

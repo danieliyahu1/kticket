@@ -94,6 +94,7 @@ export function estimatedSerializedSize(tx: UnsignedTransaction): number {
   size += U64_LENGTH; // gas (u64)
   size += HASH_SIZE; // payload hash
   size += U64_LENGTH; // payload length (u64)
+  size += tx.payload ? tx.payload.length / 2 : 0;
   return size;
 }
 
@@ -164,12 +165,7 @@ export function txIdV1(tx: UnsignedTransaction): string {
   return bytesToHex(id);
 }
 
-// --- mass (KIP-9 / HLD §2.2) -------------------------------------------------
-
-/** Consensus mass constants (mass.rs / kaspa-rest-server mass_calculation). */
-const MASS_PER_TX_BYTE = 1;
-const MASS_PER_SCRIPT_PUB_KEY_BYTE = 10;
-const MASS_PER_SIG_OP = 1_000;
+// --- compressed sigop counts -------------------------------------------------
 
 /**
  * Decode a compressed signature-op count. For v0 txs the value is used
@@ -179,63 +175,4 @@ const MASS_PER_SIG_OP = 1_000;
 export function decodeSigOpCount(txVersion: number, encoded: number): number {
   if (txVersion === 0 || encoded <= SIG_OP_DIRECT_MAX) return encoded;
   return SIG_OP_DIRECT_MAX + (encoded - SIG_OP_DIRECT_MAX) * SIG_OP_EXPANDED_STEP;
-}
-
-export interface LocalMass {
-  mass: number;
-  storage_mass: number;
-  compute_mass: number;
-}
-
-/**
- * The serialized-size term of the endpoint's compute-mass formula. This mirrors
- * `tx_serialized_size` from kaspa-rest-server's `mass_calculation_compute.py`
- * exactly — note it does NOT add the 2-byte compute_budget per v1 input (the
- * endpoint's quirk), so local results match what `/transactions/mass` returns.
- */
-function endpointTxSize(tx: UnsignedTransaction): number {
-  let size = 2; // version (u16)
-  size += U64_LENGTH; // number of inputs (u64)
-  for (const input of tx.inputs) {
-    size += HASH_SIZE + U32_LENGTH; // outpoint (txid + index)
-    size += U64_LENGTH; // signature_script length (u64)
-    size += input.signatureScript.length / 2;
-    size += U64_LENGTH; // sequence (u64)
-  }
-  size += U64_LENGTH; // number of outputs (u64)
-  for (const output of tx.outputs) {
-    size += U64_LENGTH; // value (u64)
-    size += 2; // spk version (u16)
-    size += U64_LENGTH; // script length (u64)
-    size += output.scriptPublicKey.script.length / 2;
-  }
-  size += U64_LENGTH; // lock_time (u64)
-  size += SUBNETWORK_ID_SIZE; // subnetwork id
-  size += U64_LENGTH; // gas (u64)
-  size += HASH_SIZE; // payload hash
-  size += U64_LENGTH; // payload length (u64)
-  return size;
-}
-
-/**
- * Compute the transaction's mass locally, replicating the consensus
- * `calc_compute_mass` that api-tn10.kaspa.org's `/transactions/mass` implements.
- *
- * The public endpoint is unusable for kticket templates: its storage-mass
- * formula divides by output amount (`P = Σ C//o`) and raises ZeroDivisionError
- * → HTTP 500 on the 0-value covenant outputs every ticket transaction carries
- * (verified on api-tn10.kaspa.org). The compute mass is
- * purely structural and deterministic, so the build endpoint derives it here.
- */
-export function computeMassLocal(tx: UnsignedTransaction): LocalMass {
-  const size = endpointTxSize(tx);
-  const sizeMass = size * MASS_PER_TX_BYTE;
-  const scriptPublicKeyMass =
-    MASS_PER_SCRIPT_PUB_KEY_BYTE *
-    tx.outputs.reduce((acc, output) => acc + 2 + output.scriptPublicKey.script.length / 2, 0);
-  const sigOpsMass =
-    MASS_PER_SIG_OP *
-    tx.inputs.reduce((acc, input) => acc + decodeSigOpCount(tx.version, input.sigOpCount), 0);
-  const computeMass = Math.round(sizeMass + scriptPublicKeyMass + sigOpsMass);
-  return { mass: computeMass, storage_mass: 0, compute_mass: computeMass };
 }

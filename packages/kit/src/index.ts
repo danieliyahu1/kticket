@@ -62,6 +62,7 @@ import {
   MAX_BUY_UTXOS,
   MAX_FEE_PER_INPUT_SOMPI,
   maxFeeForInputs,
+  MIN_CHANGE_SOMPI,
   MIN_TICKET_PRICE_KAS,
   MIN_TICKET_PRICE_SOMPI,
 } from "./policy.js";
@@ -77,7 +78,14 @@ import {
   encodeVarint,
 } from "./runtime/preimage.js";
 import {
-  computeMassLocal,
+  computeMass,
+  MAX_STORAGE_MASS,
+  type MassBreakdown,
+  type MassInput,
+  storageMassOf,
+  utxoPlurality,
+} from "./runtime/mass.js";
+import {
   decodeSigOpCount,
   estimatedSerializedSize,
   payloadDigest,
@@ -196,7 +204,7 @@ export {
   GENERIC_TITLE,
   SITE_NAME,
   computeFee,
-  computeMassLocal,
+  computeMass,
   covenantId,
   decodeConstants,
   decodeMetadataFromPayload,
@@ -232,7 +240,9 @@ export {
   MAX_BUY_UTXOS,
   MAX_EVENT_CAPACITY,
   MAX_FEE_PER_INPUT_SOMPI,
+  MAX_STORAGE_MASS,
   maxFeeForInputs,
+  MIN_CHANGE_SOMPI,
   MIN_TICKET_PRICE_KAS,
   MIN_TICKET_PRICE_SOMPI,
   NETWORKS,
@@ -255,7 +265,11 @@ export {
   resolveNetwork,
   scriptHash,
   SOMPI_PER_KAS,
+  storageMassOf,
   TICKET_ARTIFACT,
   txIdPreimageV1,
   txIdV1,
+  utxoPlurality,
 };
+
+export type { MassBreakdown, MassInput };

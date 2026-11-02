@@ -64,7 +64,9 @@ linking or listing what it should.
   the network fee come out of that price; the organizer receives the rest.
   Nothing is charged on top. The covenant enforces the split on chain by
   reading the transaction's real fee (`OpTxInputAmount`), and a per-input fee
-  ceiling keeps a buyer from burning the organizer's payout.
+  ceiling keeps a buyer from burning the organizer's payout. The builder prices
+  the transaction on its KIP-9 effective mass (compute, transient, storage) and
+  refuses a dust change, which would exceed the network's storage-mass limit.
 - **Error shape is stable.** Every failure is `{ error: { type, message,
   retryable, retryAfter?, detail? } }`; clients branch on `type`, not prose.
 

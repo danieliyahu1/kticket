@@ -17,7 +17,20 @@ export function isPaidTicketPrice(priceSompi: number): boolean {
  * committed compute budget, which is per input, so the covenant's allowance is
  * per input too.
  */
-export const MAX_FEE_PER_INPUT_SOMPI = 15_000_000;
+export const MAX_FEE_PER_INPUT_SOMPI = 20_000_000;
+
+/** The covenant's per-input fee ceiling for a transaction with `inputs` inputs. */
+export function maxFeeForInputs(inputs: number): number {
+  return MAX_FEE_PER_INPUT_SOMPI * Math.max(1, inputs);
+}
+
+/**
+ * The smallest change a buy or purchase may produce. KIP-9's storage mass is
+ * `C / amount` per output, so a smaller change would exceed the mempool lane
+ * limit and the node would reject the transaction. The buyer's UTXO selection
+ * extends until the change is zero or at least this much.
+ */
+export const MIN_CHANGE_SOMPI = 5_000_000;
 
 /**
  * `MAX_ITEMS` in `contracts/event.sil` bounds the covenant's input/output scan.
@@ -25,8 +38,3 @@ export const MAX_FEE_PER_INPUT_SOMPI = 15_000_000;
  * join a buy or purchase.
  */
 export const MAX_BUY_UTXOS = 7;
-
-/** The covenant's per-input fee ceiling for a transaction with `inputs` inputs. */
-export function maxFeeForInputs(inputs: number): number {
-  return MAX_FEE_PER_INPUT_SOMPI * Math.max(1, inputs);
-}

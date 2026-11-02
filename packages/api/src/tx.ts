@@ -19,7 +19,14 @@
 // preserving covenant bindings — the public REST submit model has no covenant
 // field. Idempotent: re-broadcasting an already-known tx succeeds.
 
-import { computeFee, computeMassLocal, estimatedSerializedSize } from "@kticket/kit";
+import {
+  computeFee,
+  computeMass,
+  estimatedSerializedSize,
+  MAX_STORAGE_MASS,
+  type MassBreakdown,
+  type MassInput,
+} from "@kticket/kit";
 import { parseBroadcastRequest } from "./broadcast.js";
 import { type BuiltTransaction, type PreparedBuild, preparedBuildFor } from "./builders.js";
 import { policyError } from "./errors.js";
@@ -60,6 +67,39 @@ function throwPolicy(err: unknown, fallback: string): never {
   throw policyError(err instanceof Error ? err.message : fallback);
 }
 
+/** Map the wallet's previous outputs into the shape the KIP-9 mass model needs. */
+function toMassInputs(metas: readonly WireUtxoMeta[]): MassInput[] {
+  return metas.map((meta) => ({
+    value: meta.value,
+    script: meta.script_public_key.script,
+    covenant: meta.covenant_id !== undefined,
+  }));
+}
+
+/** The covenant redeem script is part of the real transaction's size. */
+function applyCovenantScript(built: BuiltTransaction): void {
+  if (built.covenantRedeemScript && built.tx.inputs[0]) {
+    built.tx.inputs[0].signatureScript = built.covenantRedeemScript;
+  }
+}
+
+/**
+ * A dust change output makes the transaction's KIP-9 storage mass explode; the
+ * node rejects it. Catch it here with a useful error instead of relaying a
+ * transaction that cannot be accepted.
+ */
+function assertStorageMassFits(
+  storageMass: number,
+  prepared: PreparedBuild,
+): void {
+  if (!hasCompleteUtxoMetas(prepared.inputUtxoMetas)) return;
+  if (storageMass > MAX_STORAGE_MASS) {
+    throw policyError(
+      `change is too small: storage mass ${storageMass} exceeds the network limit ${MAX_STORAGE_MASS}`,
+    );
+  }
+}
+
 async function buildFeeAware(
   prepared: PreparedBuild,
   kaspa: KaspaClientLike,
@@ -70,15 +110,23 @@ async function buildFeeAware(
   } catch (err) {
     throwPolicy(err, "inputs cannot cover the payouts");
   }
+  applyCovenantScript(provisional);
 
+  const massInputs = toMassInputs(prepared.inputUtxoMetas);
   const sizeBytes = estimatedSerializedSize(provisional.tx);
-  const massResult = computeMassLocal(provisional.tx);
+  let mass: MassBreakdown;
+  try {
+    mass = computeMass(provisional.tx, massInputs);
+  } catch (err) {
+    throwPolicy(err, "cannot price the transaction");
+  }
+  assertStorageMassFits(mass.storageMass, prepared);
   const feerate = (await kaspa.getFeeEstimate()).priorityBucket.feerate;
 
   let fee: number;
   try {
     fee = computeFee({
-      mass: massResult.mass,
+      mass: mass.mass,
       sizeBytes,
       feerateSompiPerGram: feerate,
       inputTotal: prepared.inputTotal,
@@ -86,7 +134,7 @@ async function buildFeeAware(
       // include it; the builder validates that split.
       payouts: prepared.feeFromPayout ? [] : prepared.payouts,
       allowNegativeChange: prepared.feeFromPayout === true,
-      computeMass: massResult.compute_mass,
+      computeMass: mass.computeMass,
     }).fee;
   } catch (err) {
     throwPolicy(err, "inputs cannot cover payouts + fee");
@@ -104,6 +152,9 @@ async function buildFeeAware(
   } catch (err) {
     throwPolicy(err, "inputs cannot cover payouts + fee");
   }
+  applyCovenantScript(built);
+  // The final amounts (payout after the fee) are what the node will validate.
+  assertStorageMassFits(computeMass(built.tx, massInputs).storageMass, prepared);
 
   return { built, fee };
 }

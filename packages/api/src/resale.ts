@@ -38,6 +38,7 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { invalidError, notFoundError, policyError } from "./errors.js";
 import { isPaidEvent, UNPAID_EVENT_MESSAGE } from "./event-policy.js";
 import { broadcastAndConfirm, type BroadcastOutcome } from "./flow.js";
+import { selectFundingUtxos } from "./funding.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import type { UtxoResponse } from "./kaspa-types.js";
 import type { ListingStore } from "./listings.js";
@@ -109,27 +110,6 @@ async function fundingUtxos(ctx: ResaleContext, address: string): Promise<UtxoRe
     throw policyError("no spendable UTXOs on the funding address");
   }
   return utxos;
-}
-
-/** The fewest largest UTXOs that cover `required`, capped at `max`. */
-function coverFunding(
-  utxos: readonly UtxoResponse[],
-  required: number,
-  max: number,
-): UtxoResponse[] {
-  const selected: UtxoResponse[] = [];
-  let covered = 0;
-  for (const utxo of utxos) {
-    if (covered >= required || selected.length >= max) break;
-    selected.push(utxo);
-    covered += Number(utxo.utxoEntry.amount);
-  }
-  if (covered < required) {
-    throw policyError(
-      `funding ${covered} cannot cover ${required} (max ${max} UTXOs)`,
-    );
-  }
-  return selected;
 }
 
 /**
@@ -624,7 +604,11 @@ export async function purchasePrepare(
   const required = verified.legacy
     ? stored.price + TICKET_DUST + maxFeeForInputs(MAX_BUY_UTXOS + 1)
     : stored.price;
-  const utxos = coverFunding(await fundingUtxos(ctx, buyer.address), required, MAX_BUY_UTXOS);
+  const utxos = selectFundingUtxos(
+    await fundingUtxos(ctx, buyer.address),
+    required,
+    MAX_BUY_UTXOS,
+  );
 
   const result = await buildTransaction(
     {

@@ -38,6 +38,23 @@ const EVENT_ID = "ab".repeat(TXID_BYTE_LENGTH);
 const ORG_X_HEX = "01".repeat(TXID_BYTE_LENGTH);
 const ORG_SPK_HEX = `20${ORG_X_HEX}ac`;
 
+/** A 0.5 KAS event covenant output for the buy fixtures. */
+function eventTxModel(amount = 500_000_000): TxModel {
+  return {
+    transaction_id: EVENT_ID,
+    accepting_block_blue_score: 50,
+    inputs: [],
+    outputs: [
+      {
+        transaction_id: EVENT_ID,
+        index: 0,
+        amount,
+        script_public_key: ORG_SPK_HEX,
+      },
+    ],
+  };
+}
+
 const CHANGE_SPK = { version: 0, script: "51" };
 const ORGANIZER_UTXO = {
   transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
@@ -227,6 +244,7 @@ describe("buildTransaction (KTK-28) — deploy", () => {
 describe("buildTransaction (KTK-28) — buy", () => {
   it("builds a buy template where the buyer pays exactly the ticket price", async () => {
     const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTxModel();
     const result = await buildTransaction(buyRequest(), ctx(kaspa));
 
     expect(result.template.outputs).toHaveLength(BUY_OUTPUTS); // ticket + remaining + payout + change
@@ -250,6 +268,7 @@ describe("buildTransaction (KTK-28) — buy", () => {
 
   it("rejects a network fee above the covenant's per-input ceiling", async () => {
     const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTxModel();
     kaspa.feeEstimate = {
       ...FEE_ESTIMATE,
       priorityBucket: { feerate: 1_000_000, estimatedSeconds: 1 },
@@ -257,6 +276,38 @@ describe("buildTransaction (KTK-28) — buy", () => {
     await expect(buildTransaction(buyRequest(), ctx(kaspa))).rejects.toMatchObject({
       type: "policy",
       message: expect.stringContaining("fee ceiling"),
+    });
+  });
+
+  it("rejects a dust change before it reaches the network", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.transaction = eventTxModel();
+    const buyerValue = TICKET_PRICE + 1_000;
+    const buyer = {
+      transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
+      index: 0,
+      value: buyerValue,
+    };
+    await expect(
+      buildTransaction(
+        {
+          ...buyRequest(CONSTANTS, [buyer]),
+          input_utxo_metas: [
+            {
+              transaction_id: "cc".repeat(TXID_BYTE_LENGTH),
+              index: 0,
+              value: buyerValue,
+              script_public_key: { version: 0, script: ORG_SPK_HEX },
+              block_daa_score: 0,
+              is_coinbase: false,
+            },
+          ],
+        },
+        ctx(kaspa),
+      ),
+    ).rejects.toMatchObject({
+      type: "policy",
+      message: expect.stringContaining("storage mass"),
     });
   });
 });

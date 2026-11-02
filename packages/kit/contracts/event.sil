@@ -19,7 +19,7 @@ contract Event(
     // overpays the miners would silently shrink the organizer's payout; this
     // bounds it. The fee tracks the committed compute budget, which is per
     // input, so the allowance is per input too.
-    int constant MAX_FEE_PER_INPUT = 15000000;
+    int constant MAX_FEE_PER_INPUT = 20000000;
 
     // Mint/purchase transactions are bounded so the covenant can inspect every
     // input and output without an unbounded loop. The API selects at most this
