@@ -29,7 +29,7 @@ import {
 } from "@kticket/kit";
 import { parseBroadcastRequest } from "./broadcast.js";
 import { type BuiltTransaction, type PreparedBuild, preparedBuildFor } from "./builders.js";
-import { policyError } from "./errors.js";
+import { feeMarketError, policyError } from "./errors.js";
 import type { KaspaClientLike } from "./kaspa-client.js";
 import { relaySignedTransaction } from "./relay.js";
 import { signingTemplate } from "./signing.js";
@@ -95,7 +95,8 @@ function assertStorageMassFits(
   if (!hasCompleteUtxoMetas(prepared.inputUtxoMetas)) return;
   if (storageMass > MAX_STORAGE_MASS) {
     throw policyError(
-      `change is too small: storage mass ${storageMass} exceeds the network limit ${MAX_STORAGE_MASS}`,
+      "The selected funds would leave too small a change. Add funds or use a different coin.",
+      { storageMass, limit: MAX_STORAGE_MASS },
     );
   }
 }
@@ -141,8 +142,10 @@ async function buildFeeAware(
   }
 
   if (prepared.maxFee !== undefined && fee > prepared.maxFee) {
-    throw policyError(
-      `network fee ${fee} exceeds the event's fee ceiling ${prepared.maxFee}`,
+    throw feeMarketError(
+      "The network fee is temporarily too high for this event. Try again in a minute.",
+      60,
+      { fee, maxFee: prepared.maxFee },
     );
   }
 

@@ -25,13 +25,16 @@ export function selectFundingUtxos(
     covered += Number(utxo.utxoEntry.amount);
   }
   if (covered < required) {
-    throw policyError(
-      `funding ${covered} cannot cover ${required} (max ${maxInputs} UTXOs)`,
-    );
+    throw policyError("You don't have enough funds to buy this ticket.", {
+      covered,
+      required,
+      maxInputs,
+    });
   }
   if (!leavesCleanChange(covered, required)) {
     throw policyError(
-      `change ${covered - required} would be dust; add funds or use a different UTXO`,
+      "The selected funds would leave too small a change. Add funds or use a different coin.",
+      { change: covered - required, minimum: MIN_CHANGE_SOMPI },
     );
   }
   return selected;

@@ -275,7 +275,9 @@ describe("buildTransaction (KTK-28) — buy", () => {
     };
     await expect(buildTransaction(buyRequest(), ctx(kaspa))).rejects.toMatchObject({
       type: "policy",
-      message: expect.stringContaining("fee ceiling"),
+      retryable: true,
+      retryAfter: 60,
+      message: expect.stringContaining("temporarily too high"),
     });
   });
 
@@ -307,7 +309,7 @@ describe("buildTransaction (KTK-28) — buy", () => {
       ),
     ).rejects.toMatchObject({
       type: "policy",
-      message: expect.stringContaining("storage mass"),
+      message: expect.stringContaining("too small a change"),
     });
   });
 });

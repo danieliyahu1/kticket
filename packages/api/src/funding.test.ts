@@ -40,13 +40,13 @@ describe("selectFundingUtxos", () => {
 
   it("rejects a dust change when no further UTXO is available", () => {
     expect(() => selectFundingUtxos([utxo(REQUIRED + 1)], REQUIRED, 7)).toThrow(
-      /dust/,
+      /too small a change/,
     );
   });
 
   it("rejects when the funding cannot cover the amount", () => {
     expect(() => selectFundingUtxos([utxo(REQUIRED - 1)], REQUIRED, 7)).toThrow(
-      /cannot cover/,
+      /enough funds/,
     );
   });
 
@@ -54,6 +54,6 @@ describe("selectFundingUtxos", () => {
     const halves = Array.from({ length: 10 }, (_, index) =>
       utxo(REQUIRED / 2 - 1, index),
     );
-    expect(() => selectFundingUtxos(halves, REQUIRED, 2)).toThrow(/cannot cover/);
+    expect(() => selectFundingUtxos(halves, REQUIRED, 2)).toThrow(/enough funds/);
   });
 });

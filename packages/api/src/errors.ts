@@ -67,6 +67,25 @@ export function policyError(message: string, detail?: unknown): ApiError {
   });
 }
 
+/**
+ * A temporary fee-market condition: the same request can succeed once the
+ * network fee drops, so the client may retry after `retryAfter` seconds.
+ */
+export function feeMarketError(
+  message: string,
+  retryAfter: number,
+  detail?: unknown,
+): ApiError {
+  return new ApiError({
+    type: "policy",
+    message,
+    statusCode: HTTP_UNPROCESSABLE_ENTITY,
+    retryable: true,
+    retryAfter,
+    detail,
+  });
+}
+
 export function networkError(message: string, detail?: unknown): ApiError {
   return new ApiError({ type: "network", message, statusCode: HTTP_BAD_GATEWAY, detail });
 }
