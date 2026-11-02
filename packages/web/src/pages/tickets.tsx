@@ -247,8 +247,8 @@ function TicketCard({ ticket, onChanged }: { ticket: TicketEntry; onChanged: () 
                 <h3 className="dialog-title">Sell your ticket to {ticket.event_name}?</h3>
                 <p className="dialog-copy">
                   Your ticket goes into covenant escrow. Anyone can buy it at this asking price
-                  and pays exactly that; you receive the asking price minus the network fee. The
-                  ticket's 0.5 KAS value travels with it to the buyer.
+                  and pays exactly that; the gas fee is included and you receive the rest. The
+                  platform fee stays inside the ticket and moves to the buyer.
                 </p>
                 <label className="field">
                   <span className="field-label">Asking price (KAS)</span>

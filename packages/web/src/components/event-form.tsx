@@ -114,7 +114,7 @@ function PriceField({ initial, errors, onChange }: EventFormProps) {
     <Field
       label="Price"
       htmlFor="event-price"
-      hint={`In KAS, at least ${MIN_TICKET_PRICE_KAS}. The buyer pays this exact amount; the ticket's 0.5 KAS value and the network fee come out of it.`}
+      hint={`In KAS, at least ${MIN_TICKET_PRICE_KAS}. The buyer pays this exact amount; the gas fee and the platform fee are included in the price.`}
       error={errors.price}
     >
       <input
