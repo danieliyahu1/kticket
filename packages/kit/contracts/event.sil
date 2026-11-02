@@ -11,6 +11,21 @@ contract Event(
         int count;
     }
 
+    // 0.5 KAS is carved into every covenant output — the ticket's own value.
+    int constant TICKET_DUST = 50000000;
+
+    // The most the network may take out of a ticket price, per input. The
+    // covenant can read the real fee (inputs minus outputs), but a buyer who
+    // overpays the miners would silently shrink the organizer's payout; this
+    // bounds it. The fee tracks the committed compute budget, which is per
+    // input, so the allowance is per input too.
+    int constant MAX_FEE_PER_INPUT = 15000000;
+
+    // Mint/purchase transactions are bounded so the covenant can inspect every
+    // input and output without an unbounded loop. The API selects at most this
+    // many buyer UTXOs.
+    int constant MAX_ITEMS = 8;
+
     // State slot — the deploy fills `owner` (organizer) and `amount` (capacity)
     // by injecting bytes into `state_layout`; `is_minter` stays false (fixed
     // supply). `used` tracks the door: a ticket marked used at the door can
@@ -27,29 +42,56 @@ contract Event(
     byte used = 0x00;
     int sale_price = 0;
 
-    // True when the tx pays `org_spk` exactly `price` sompi (FR-18). Free
-    // events (price = 0) skip the payout requirement.
-    function hasPayout() : bool {
-        bool found = false;
-        for(i, 0, tx.outputs.length, 100) {
-            if (tx.outputs[i].scriptPubKey == org_spk && tx.outputs[i].value == price) {
-                found = true;
+    // Three sums in one pass each:
+    //   fee    = inputs - outputs (the network fee the tx actually pays),
+    //   payer  = every input except the covenant input being spent,
+    //   change = every output that is neither a covenant continuation nor a
+    //            payout to the organizer/seller.
+    // Kaspa has no fee field, but the script can read every input's amount
+    // (KIP-10 `OpTxInputAmount`), so the covenant verifies the fee the API
+    // calculated instead of trusting a fixed floor.
+    function totals(int keepA, int keepB, byte[] payout_spk) : (int, int, int) {
+        int fee = 0;
+        int payer = 0;
+        int change = 0;
+        for (i, 0, tx.inputs.length, MAX_ITEMS) {
+            fee = fee + tx.inputs[i].value;
+            if (i != this.activeInputIndex) {
+                payer = payer + tx.inputs[i].value;
             }
         }
-        return found;
+        for (j, 0, tx.outputs.length, MAX_ITEMS) {
+            fee = fee - tx.outputs[j].value;
+            if (j != keepA && j != keepB && tx.outputs[j].scriptPubKey != payout_spk) {
+                change = change + tx.outputs[j].value;
+            }
+        }
+        return (fee, payer, change);
+    }
+
+    // The fee ceiling scales with the number of inputs, because the committed
+    // compute budget (and therefore the fee) does too.
+    function feeAllowed(int fee) : bool {
+        return fee <= MAX_FEE_PER_INPUT * tx.inputs.length;
     }
 
     // Mint-on-sale (FR-8/27): the event covenant splits into a ticket
     // (amount = 1, owner = buyer) and the remaining event (amount - 1).
     // The covenant is the authority: anyone who pays the price mints — no
     // organizer co-signature needed (the deploy already committed the supply).
+    // The buyer pays exactly `price`: the ticket's 0.5 KAS and the network fee
+    // come out of that price, and the organizer receives the rest.
     // Oversell is rejected.
     #[covenant(binding = auth, from = 1, to = 2, mode = transition)]
     function mint(State prev_state, byte[32] buyer_pkh) : State[] {
         require(prev_state.amount > 0);
-        if (price > 0) {
-            require(hasPayout());
-        }
+        int ticket_out = OpAuthOutputIdx(this.activeInputIndex, 0);
+        int event_out = OpAuthOutputIdx(this.activeInputIndex, 1);
+        require(tx.outputs[ticket_out].value == TICKET_DUST);
+        require(tx.outputs[event_out].value == TICKET_DUST);
+        (int fee, int payer, int change) = totals(ticket_out, event_out, org_spk);
+        require(change == payer - price);
+        require(feeAllowed(fee));
         return(State[] {
             State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: 0x00, sale_price: 0 },
             State { owner: prev_state.owner, identifier_type: prev_state.identifier_type, amount: prev_state.amount - 1, is_minter: false, used: prev_state.used, sale_price: 0 }
@@ -86,30 +128,23 @@ contract Event(
     }
 
     // Resale — purchase (trustless): NO seller signature. The covenant is the
-    // escrow — the tx must pay the asking price plus the ticket deposit to the
-    // seller's P2PK script (`20 || seller_pubkey || ac`, version-prefixed to
-    // match output introspection), and the ticket re-keys to `buyer_pkh` with
-    // the listing cleared. The buyer funds a fresh ticket deposit while the
-    // old deposit is returned to the seller. The authorizing input (the
-    // buyer's fee UTXO) binds the continuation output; whoever builds + funds
-    // the tx names their own pkh, so payment and delivery are atomic.
+    // escrow. The buyer pays exactly the listing price; the network fee comes
+    // out of that price and the seller receives the rest. The ticket's existing
+    // 0.5 KAS stays inside the ticket and becomes the buyer's, so the buyer
+    // funds no extra deposit. The authorizing input (the buyer's fee UTXO)
+    // binds the continuation output; whoever builds + funds the tx names their
+    // own pkh, so payment and delivery are atomic.
     #[covenant(binding = auth, from = 1, to = 1, mode = transition)]
     function purchase(State prev_state, byte[32] buyer_pkh) : State {
         require(prev_state.amount == 1);
         require(prev_state.sale_price > 0);
         require(prev_state.used == 0x00);
         int ticket_output = OpAuthOutputIdx(this.activeInputIndex, 0);
-        require(tx.outputs[ticket_output].value == 50000000);
+        require(tx.outputs[ticket_output].value == TICKET_DUST);
         byte[36] seller_lock = new ScriptPubKeyP2PK(pubkey(prev_state.owner));
-        bool paid = false;
-        for(i, 0, tx.outputs.length, 100) {
-            if (tx.outputs[i].value == prev_state.sale_price + 50000000) {
-                if (tx.outputs[i].scriptPubKey == byte[](seller_lock)) {
-                    paid = true;
-                }
-            }
-        }
-        require(paid);
+        (int fee, int payer, int change) = totals(ticket_output, -1, byte[](seller_lock));
+        require(change == payer - prev_state.sale_price);
+        require(feeAllowed(fee));
         return State { owner: buyer_pkh, identifier_type: prev_state.identifier_type, amount: 1, is_minter: false, used: prev_state.used, sale_price: 0 };
     }
 

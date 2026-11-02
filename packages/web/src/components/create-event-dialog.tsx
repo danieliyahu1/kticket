@@ -1,4 +1,3 @@
-import { MIN_TICKET_PRICE_KAS } from "@kticket/kit";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type DeployParams, type DeployState, executeDeploy } from "../api/deploy-machine";
@@ -12,7 +11,7 @@ const EMPTY_FORM: EventFormData = {
   date: "",
   time: "",
   capacity: 0,
-  price: MIN_TICKET_PRICE_KAS,
+  price: 10,
 };
 
 export function CreateEventDialog({ onClose }: { onClose: () => void }) {

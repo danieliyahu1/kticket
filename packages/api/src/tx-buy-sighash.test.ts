@@ -24,7 +24,7 @@ const ORG_X_HEX = "01".repeat(TXID_BYTE_LENGTH);
 const EVENT_SPK = `20${ORG_X_HEX}ac`;
 const EVENT_VALUE = 500_000_000;
 const UTXO_VALUE = 1_000_000_000;
-const TICKET_PRICE = 1_000;
+const TICKET_PRICE = 100_000_000;
 
 const BUYER_META = {
   transaction_id: "cc".repeat(TXID_BYTE_LENGTH),

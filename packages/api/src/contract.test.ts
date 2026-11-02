@@ -135,6 +135,9 @@ describe("headless client uses the published contract alone (KTK-152 whole-issue
         template: { inputs: unknown[]; outputs: unknown[] };
         sign_inputs: { index: number }[];
         price: number;
+        ticket_deposit: number;
+        network_fee: number;
+        organizer_proceeds: number;
       };
       expect(buy.buy_id).toBeTruthy();
       expect(typeof buy.signing_template).toBe("string");
@@ -146,6 +149,12 @@ describe("headless client uses the published contract alone (KTK-152 whole-issue
         expect(index).toBeLessThan(buy.template.inputs.length);
       }
       expect(buy.price).toBe(EVENT_PRICE);
+      // The buyer pays exactly the price; the split adds up to it.
+      expect(buy.network_fee).toBeGreaterThan(0);
+      expect(buy.organizer_proceeds).toBeGreaterThan(0);
+      expect(buy.ticket_deposit + buy.network_fee + buy.organizer_proceeds).toBe(
+        buy.price,
+      );
 
       // --- 5. A documented error, in the documented envelope ---------------
       const missing = await app.inject({

@@ -492,6 +492,8 @@ function buySchemas(): JsonObject {
         "sign_inputs",
         "price",
         "ticket_deposit",
+        "network_fee",
+        "organizer_proceeds",
       ],
       properties: {
         buy_id: { type: "string", description: "Correlation id echoed on finalize." },
@@ -505,12 +507,23 @@ function buySchemas(): JsonObject {
         price: {
           type: "integer",
           minimum: MIN_TICKET_PRICE_SOMPI,
-          description: `Ticket price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
+          description: `Ticket price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS). This is exactly what the buyer pays.`,
         },
         ticket_deposit: {
           type: "integer",
           minimum: 0,
-          description: "Deposit carried by the newly minted ticket, in sompi.",
+          description:
+            "Value carried inside the newly minted ticket, in sompi. Part of `price`, not an extra charge.",
+        },
+        network_fee: {
+          type: "integer",
+          minimum: 0,
+          description: "Network fee taken out of `price`, in sompi.",
+        },
+        organizer_proceeds: {
+          type: "integer",
+          minimum: 0,
+          description: "What the organizer receives: `price - ticket_deposit - network_fee`.",
         },
       },
     },
@@ -720,6 +733,7 @@ function purchaseSchemas(): JsonObject {
         "price",
         "ticket_deposit",
         "seller_proceeds",
+        "network_fee",
         "seller_pkh",
         "event",
       ],
@@ -735,10 +749,23 @@ function purchaseSchemas(): JsonObject {
         price: {
           type: "integer",
           minimum: MIN_TICKET_PRICE_SOMPI,
-          description: `Asking price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS).`,
+          description: `Asking price in sompi (minimum ${MIN_TICKET_PRICE_KAS} KAS). This is exactly what the buyer pays.`,
         },
-        ticket_deposit: { type: "integer", minimum: 0 },
-        seller_proceeds: { type: "integer", minimum: 0 },
+        ticket_deposit: {
+          type: "integer",
+          minimum: 0,
+          description: "Value carried inside the ticket, in sompi. Included in `price`.",
+        },
+        seller_proceeds: {
+          type: "integer",
+          minimum: 0,
+          description: "What the seller receives: `price - network_fee`.",
+        },
+        network_fee: {
+          type: "integer",
+          minimum: 0,
+          description: "Network fee taken out of `price`, in sompi.",
+        },
         seller_pkh: { type: "string", pattern: HEX64_PATTERN },
         event: jsonRef("EventRef"),
       },

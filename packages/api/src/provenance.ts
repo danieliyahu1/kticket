@@ -69,6 +69,8 @@ export interface VerifiedEvent {
   image_hash: string;
   /** Price per ticket in sompi — recovered from covenant constants (verified). */
   price: number;
+  /** True for events deployed before the fee-from-price contract (old bytecode). */
+  legacy: boolean;
   capacity: number;
   /** The trust-anchor address the event provably belongs to. */
   organizer_address: string;
@@ -171,17 +173,25 @@ export async function verifyEventFromChain(
   const burnTemplateHash = burnTemplateHashOf(authorizingTxId).toLowerCase();
 
   // Recompile the per-event artifact from the recovered constants.
-  const artifact = compileEventArtifact({
+  const constants = {
     authorizingTxId,
     price,
     orgSpk,
     burnTemplateHash,
-  });
+  };
 
   // Address commitment check (HLD §2.2 step 5): scanning candidate capacities
   // recovers the deployed `remaining` AND proves the constants/state reproduce
-  // the on-chain covenant output.
-  const capacity = recoverEventCapacity(artifact, ownerPubkey, onChainScript);
+  // the on-chain covenant output. Events deployed before the fee-from-price
+  // contract match the frozen legacy artifact instead.
+  let artifact = compileEventArtifact(constants);
+  let capacity = recoverEventCapacity(artifact, ownerPubkey, onChainScript);
+  let legacy = false;
+  if (capacity === null) {
+    artifact = compileEventArtifact(constants, true);
+    capacity = recoverEventCapacity(artifact, ownerPubkey, onChainScript);
+    legacy = capacity !== null;
+  }
   if (capacity === null) {
     throw invalidError(`event ${deployTxId} fails on-chain verification`);
   }
@@ -211,6 +221,7 @@ export async function verifyEventFromChain(
     image,
     image_hash: imageHash,
     price,
+    legacy,
     capacity,
     organizer_address: organizerAddress,
     owner_pkh: bytesToHex(ownerPubkey),

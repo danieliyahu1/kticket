@@ -12,7 +12,7 @@ const BUYER_FILL = 0x02;
 const VERSION_1 = 0x01;
 const FUNDED_UTXO_VALUE = 10_000_000_000;
 const SECOND_UTXO_VALUE = 5_000;
-const PRICE = 1_000;
+const PRICE = 100_000_000;
 
 const NETWORK = "testnet10" as const;
 const SPK: ScriptPublicKey = { version: 0, script: "51" };

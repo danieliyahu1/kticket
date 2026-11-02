@@ -28,7 +28,7 @@ const mockedBurnHash = vi.mocked(burnTemplateHashOf);
 
 const TXID_BYTE_LENGTH = 32;
 const SIGNATURE_SCRIPT_BYTE_LENGTH = 70;
-const TICKET_PRICE = 1_000;
+const TICKET_PRICE = 100_000_000;
 const UTXO_VALUE = 1_000_000_000;
 const BUY_OUTPUTS = 4;
 const EVENT_CAPACITY = 100;
@@ -49,7 +49,7 @@ const HOLDER_UTXO = { transaction_id: "dd".repeat(TXID_BYTE_LENGTH), index: 0, v
 
 const CONSTANTS = {
   authorizing_txid: EVENT_ID,
-  price: 1_000,
+  price: TICKET_PRICE,
   org_spk: ORG_SPK_HEX,
   burn_template_hash: "77".repeat(TXID_BYTE_LENGTH),
 };
@@ -225,19 +225,18 @@ describe("buildTransaction (KTK-28) — deploy", () => {
 });
 
 describe("buildTransaction (KTK-28) — buy", () => {
-  it("builds a buy template where the event splits a ticket and the buyer pays price + dust + fee", async () => {
+  it("builds a buy template where the buyer pays exactly the ticket price", async () => {
     const kaspa = new FakeKaspa();
     const result = await buildTransaction(buyRequest(), ctx(kaspa));
 
     expect(result.template.outputs).toHaveLength(BUY_OUTPUTS); // ticket + remaining + payout + change
-    const payout = result.template.outputs.find((o) => o.value === TICKET_PRICE);
-    expect(payout).toBeDefined();
-    const change = result.template.outputs.find(
-      (o) => o.covenant === null && o.value !== TICKET_PRICE,
-    );
-    // buyer pays price + ticket dust + fee, so change is under what they supplied
-    expect(change?.value).toBeGreaterThan(0);
-    expect(change?.value).toBeLessThan(UTXO_VALUE);
+    const [, , payout, change] = result.template.outputs;
+    // The payout is price minus the ticket's value and the fee.
+    expect(payout?.value).toBeGreaterThan(0);
+    expect(payout?.value).toBeLessThan(TICKET_PRICE);
+    // The buyer pays exactly the price, so the change is the rest of their UTXO.
+    expect(change?.value).toBe(UTXO_VALUE - TICKET_PRICE);
+    expect(result.network_fee).toBeGreaterThan(0);
   });
 
   it("rejects invalid capacity as invalid", async () => {
@@ -246,6 +245,18 @@ describe("buildTransaction (KTK-28) — buy", () => {
       buildTransaction(deployRequest(INVALID_CAPACITY), ctx(kaspa)),
     ).rejects.toMatchObject({
       type: "invalid",
+    });
+  });
+
+  it("rejects a network fee above the covenant's per-input ceiling", async () => {
+    const kaspa = new FakeKaspa();
+    kaspa.feeEstimate = {
+      ...FEE_ESTIMATE,
+      priorityBucket: { feerate: 1_000_000, estimatedSeconds: 1 },
+    };
+    await expect(buildTransaction(buyRequest(), ctx(kaspa))).rejects.toMatchObject({
+      type: "policy",
+      message: expect.stringContaining("fee ceiling"),
     });
   });
 });
@@ -397,7 +408,7 @@ describe("buildTransaction (KTK-28) — failure paths", () => {
     const kaspa = new FakeKaspa();
     await expect(
       buildTransaction(
-        buyRequest({ ...CONSTANTS, price: 100_000 }, [
+        buyRequest(CONSTANTS, [
           { transaction_id: "cc".repeat(TXID_BYTE_LENGTH), index: 0, value: 500 },
         ]),
         ctx(kaspa),

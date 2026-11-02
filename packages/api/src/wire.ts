@@ -127,6 +127,12 @@ export type BuildRequest =
       buyer_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
       input_utxo_metas?: WireUtxoMeta[];
+      /**
+       * Legacy (pre-fee-from-price) event: build against the old covenant
+       * bytecode and the old payout split. Set from the verified event, never
+       * guessed by the client.
+       */
+      legacy?: boolean;
     }
   | {
       type: "handover";
@@ -147,6 +153,7 @@ export type BuildRequest =
       owner_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
       input_utxo_metas?: WireUtxoMeta[];
+      legacy?: boolean;
     }
   | {
       type: "list";
@@ -159,6 +166,7 @@ export type BuildRequest =
       owner_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
       input_utxo_metas?: WireUtxoMeta[];
+      legacy?: boolean;
     }
   | {
       type: "delist";
@@ -169,6 +177,7 @@ export type BuildRequest =
       owner_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
       input_utxo_metas?: WireUtxoMeta[];
+      legacy?: boolean;
     }
   | {
       type: "purchase";
@@ -184,6 +193,8 @@ export type BuildRequest =
       buyer_utxos: WireUtxo[];
       change_spk: WireScriptPublicKey;
       input_utxo_metas?: WireUtxoMeta[];
+      /** Legacy event: old bytecode and the seller receives price + deposit. */
+      legacy?: boolean;
     };
 
 export interface BuildResult {
@@ -196,6 +207,8 @@ export interface BuildResult {
   signing_template?: string;
   /** Set for deploy — the event's covenant family id (HLD §2.1). */
   event_covenant_id?: string;
+  /** The network fee the template pays, in sompi (when the build computed one). */
+  network_fee?: number;
 }
 
 export interface BroadcastResult {
@@ -328,6 +341,7 @@ function parseBuy(raw: Record<string, unknown>): BuildRequest {
     buyer: hex64(raw.buyer, "buyer"),
     buyer_utxos: utxos(raw.buyer_utxos, "buyer_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...(raw.legacy === true ? { legacy: true } : {}),
     ...(raw.input_utxo_metas !== undefined
       ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
       : {}),
@@ -354,6 +368,7 @@ function parseMarkUsed(raw: Record<string, unknown>): BuildRequest {
     owner: hex64(raw.owner, "owner"),
     owner_utxos: utxos(raw.owner_utxos, "owner_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...legacyFlag(raw),
     ...(raw.input_utxo_metas !== undefined
       ? { input_utxo_metas: utxoMetas(raw.input_utxo_metas, "input_utxo_metas") }
       : {}),
@@ -374,6 +389,11 @@ function fundingMetas(raw: Record<string, unknown>) {
     : {};
 }
 
+/** Legacy events keep the old bytecode; the flag comes from verification. */
+function legacyFlag(raw: Record<string, unknown>) {
+  return raw.legacy === true ? { legacy: true } : {};
+}
+
 function parseList(raw: Record<string, unknown>): BuildRequest {
   return {
     type: "list",
@@ -382,6 +402,7 @@ function parseList(raw: Record<string, unknown>): BuildRequest {
     owner: hex64(raw.owner, "owner"),
     owner_utxos: utxos(raw.owner_utxos, "owner_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...legacyFlag(raw),
     ...fundingMetas(raw),
   };
 }
@@ -393,6 +414,7 @@ function parseDelist(raw: Record<string, unknown>): BuildRequest {
     owner: hex64(raw.owner, "owner"),
     owner_utxos: utxos(raw.owner_utxos, "owner_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...legacyFlag(raw),
     ...fundingMetas(raw),
   };
 }
@@ -406,6 +428,7 @@ function parsePurchase(raw: Record<string, unknown>): BuildRequest {
     price: uint(raw.price, "price"),
     buyer_utxos: utxos(raw.buyer_utxos, "buyer_utxos"),
     change_spk: scriptSpk(raw.change_spk, "change_spk"),
+    ...(raw.legacy === true ? { legacy: true } : {}),
     ...fundingMetas(raw),
   };
 }

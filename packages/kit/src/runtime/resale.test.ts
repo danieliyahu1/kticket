@@ -167,7 +167,7 @@ describe("buildPurchase", () => {
     fee: RESALE_FEE,
   };
 
-  it("pays the seller exactly the asking price and re-keys the ticket to the buyer", () => {
+  it("pays the seller the asking price minus the fee and re-keys the ticket to the buyer", () => {
     const tx = buildPurchase(args);
     expect(tx.outputs).toHaveLength(3); // ticket + seller payout + change
 
@@ -183,11 +183,11 @@ describe("buildPurchase", () => {
     expect(ticket?.scriptPublicKey.script).toBe(p2shScript(expectedTicket).script);
     expect(ticket?.covenant).toEqual({ authorizingInput: 0, covenantId: EVENT_COVENANT_ID });
 
-    expect(payout?.value).toBe(ASKING_PRICE + TICKET_DUST);
+    expect(payout?.value).toBe(ASKING_PRICE - RESALE_FEE);
     expect(payout?.scriptPublicKey).toEqual(p2pkScriptFromPubkey(filled(SELLER_FILL)));
     expect(payout?.covenant).toBeNull();
 
-    expect(change?.value).toBe(FUNDED_UTXO_VALUE - ASKING_PRICE - TICKET_DUST - RESALE_FEE);
+    expect(change?.value).toBe(FUNDED_UTXO_VALUE - ASKING_PRICE);
   });
 
   it("p2pkScriptFromPubkey emits `20 <x> ac`", () => {
@@ -203,10 +203,10 @@ describe("buildPurchase", () => {
     expect(() =>
       buildPurchase({
         ...args,
-        buyerUtxoValues: [ASKING_PRICE + RESALE_FEE],
+        buyerUtxoValues: [ASKING_PRICE - 1],
         fee: RESALE_FEE,
       }),
-    ).toThrow(/cannot cover price/);
+    ).toThrow(/cannot cover the asking price/);
   });
 });
 
@@ -220,7 +220,7 @@ describe("resale sig-script assembly", () => {
     salePrice: 0,
   });
   const sig = new Uint8Array(65).fill(0x11);
-  // the ~14kB redeem needs a PUSHDATA2 header (opcode + u16 LE length)
+  // the ~4.8kB redeem needs a PUSHDATA2 header (opcode + u16 LE length)
   const redeemPushLength = 3 + redeem.length;
 
   it("list: sig || price(i64) || dispatch tag || redeem", () => {

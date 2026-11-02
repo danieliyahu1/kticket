@@ -213,6 +213,7 @@ export async function usePrepare(
         burn_template_hash: verified.burn_template_hash,
       },
       input_utxo_metas: ownerUtxos.map(toWireUtxoMeta),
+      ...(verified.legacy ? { legacy: true } : {}),
     },
     { kaspa: ctx.kaspa, networkId: ctx.networkId },
   );

@@ -63,7 +63,7 @@ function throwPolicy(err: unknown, fallback: string): never {
 async function buildFeeAware(
   prepared: PreparedBuild,
   kaspa: KaspaClientLike,
-): Promise<BuiltTransaction> {
+): Promise<{ built: BuiltTransaction; fee: number }> {
   let provisional: BuiltTransaction;
   try {
     provisional = prepared.build(0);
@@ -82,11 +82,20 @@ async function buildFeeAware(
       sizeBytes,
       feerateSompiPerGram: feerate,
       inputTotal: prepared.inputTotal,
-      payouts: prepared.payouts,
+      // When the fee comes out of a payout, the payer's required funds do not
+      // include it; the builder validates that split.
+      payouts: prepared.feeFromPayout ? [] : prepared.payouts,
+      allowNegativeChange: prepared.feeFromPayout === true,
       computeMass: massResult.compute_mass,
     }).fee;
   } catch (err) {
     throwPolicy(err, "inputs cannot cover payouts + fee");
+  }
+
+  if (prepared.maxFee !== undefined && fee > prepared.maxFee) {
+    throw policyError(
+      `network fee ${fee} exceeds the event's fee ceiling ${prepared.maxFee}`,
+    );
   }
 
   let built: BuiltTransaction;
@@ -96,14 +105,14 @@ async function buildFeeAware(
     throwPolicy(err, "inputs cannot cover payouts + fee");
   }
 
-  return built;
+  return { built, fee };
 }
 
 export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<BuildResult> {
   const request = parseBuildRequest(raw);
   const prepared = await preparedBuildFor(request, ctx.kaspa);
 
-  const built = await buildFeeAware(prepared, ctx.kaspa);
+  const { built, fee } = await buildFeeAware(prepared, ctx.kaspa);
 
   const wire = toWireTx(built.tx);
 
@@ -111,7 +120,7 @@ export async function buildTransaction(raw: unknown, ctx: TxContext): Promise<Bu
     wire.inputs[0].signature_script = built.covenantRedeemScript;
   }
 
-  const result: BuildResult = { template: wire };
+  const result: BuildResult = { template: wire, network_fee: fee };
 
   if (built.eventCovenantId) {
     result.event_covenant_id = built.eventCovenantId;

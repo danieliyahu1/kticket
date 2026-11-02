@@ -13,7 +13,14 @@
 // the template + the wallet's output. It never merges, retries, or owns state.
 
 import { randomUUID } from "node:crypto";
-import { MAX_EVENT_CAPACITY, organizerPkh, orgSpkFromPublicKey, TICKET_DUST } from "@kticket/kit";
+import {
+  MAX_BUY_UTXOS,
+  MAX_EVENT_CAPACITY,
+  maxFeeForInputs,
+  organizerPkh,
+  orgSpkFromPublicKey,
+  TICKET_DUST,
+} from "@kticket/kit";
 import type { KaspaNetwork } from "@kticket/kit";
 import { invalidError, policyError } from "./errors.js";
 import { eventAvailability } from "./events.js";
@@ -56,8 +63,12 @@ export interface BuyPrepareResult {
   sign_inputs: { index: number }[];
   /** Ticket price in sompi (from the verified event) for the confirm dialog. */
   price: number;
-  /** Deposit carried by the newly minted ticket. */
+  /** Value carried inside the new ticket (included in `price`, not extra). */
   ticket_deposit: number;
+  /** Network fee taken out of `price` (sompi). */
+  network_fee: number;
+  /** What the organizer receives: `price - ticket_deposit - network_fee`. */
+  organizer_proceeds: number;
 }
 
 /** The buy's answer: the mint's txid and whether the ledger accepted it. */
@@ -155,11 +166,28 @@ export async function buyPrepare(
 
   const buyer = organizerPkh(req.publicKey);
   const changeSpk = orgSpkFromPublicKey(req.publicKey);
-  const buyerUtxos = (await ctx.kaspa.getUtxos(req.address))
+  const spendable = (await ctx.kaspa.getUtxos(req.address))
     .filter((u) => u.outpoint && u.utxoEntry)
     .sort((a, b) => Number(b.utxoEntry.amount) - Number(a.utxoEntry.amount));
-  if (buyerUtxos.length === 0) {
+  if (spendable.length === 0) {
     throw policyError("no spendable UTXOs on the buyer address");
+  }
+  // The buyer pays exactly the price; the covenant inspects at most MAX_ITEMS
+  // inputs, so select the fewest largest UTXOs that cover the price.
+  const required = verified.legacy
+    ? verified.price + TICKET_DUST + maxFeeForInputs(MAX_BUY_UTXOS + 1)
+    : verified.price;
+  const buyerUtxos: typeof spendable = [];
+  let covered = 0;
+  for (const utxo of spendable) {
+    if (covered >= required || buyerUtxos.length >= MAX_BUY_UTXOS) break;
+    buyerUtxos.push(utxo);
+    covered += Number(utxo.utxoEntry.amount);
+  }
+  if (covered < required) {
+    throw policyError(
+      `buyer funds ${covered} cannot cover the ticket price ${required} (max ${MAX_BUY_UTXOS} UTXOs)`,
+    );
   }
 
   const result = await buildTransaction(
@@ -182,6 +210,7 @@ export async function buyPrepare(
       buyer_utxos: buyerUtxos.map(toWireUtxo),
       change_spk: { version: 0, script: changeSpk },
       input_utxo_metas: buyerUtxos.map(toWireUtxoMeta),
+      ...(verified.legacy ? { legacy: true } : {}),
     },
     { kaspa: ctx.kaspa, networkId: ctx.networkId },
   );
@@ -189,6 +218,7 @@ export async function buyPrepare(
   if (!result.signing_template) {
     throw invalidError("could not build a signing template for the buy");
   }
+  const networkFee = result.network_fee ?? 0;
   return {
     buy_id: randomUUID(),
     signing_template: result.signing_template,
@@ -196,6 +226,10 @@ export async function buyPrepare(
     sign_inputs: result.template.inputs.slice(1).map((_, i) => ({ index: i + 1 })),
     price: verified.price,
     ticket_deposit: TICKET_DUST,
+    network_fee: networkFee,
+    organizer_proceeds: verified.legacy
+      ? verified.price
+      : verified.price - TICKET_DUST - networkFee,
   };
 }
 

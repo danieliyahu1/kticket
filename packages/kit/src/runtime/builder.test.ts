@@ -29,9 +29,8 @@ const DEPLOY_FEE = 1_000;
 const BUY_FEE = 1_000;
 const HANDOVER_FEE = 400;
 const BUY_OUTPUT_COUNT = 4;
-const FREE_TICKET_OUTPUT_COUNT = 3;
 const HANDOVER_TICKET_INDEX = 4;
-const PRICE = 1_000;
+const PRICE = 100_000_000;
 
 const NETWORK: AddressNetwork = "testnet10";
 
@@ -143,16 +142,25 @@ describe("buildBuy (mint on sale, HLD v0.22)", () => {
     expect(ticket?.covenant).toEqual({ authorizingInput: 0, covenantId: EVENT_COVENANT_ID });
     expect(remainingEvent?.value).toBe(EVENT_DUST);
     expect(remainingEvent?.covenant?.covenantId).toBe(EVENT_COVENANT_ID);
-    expect(payout).toEqual({ value: PRICE, scriptPublicKey: orgScript, covenant: null });
-    expect(change?.value).toBe(FUNDED_UTXO_VALUE - PRICE - TICKET_DUST - BUY_FEE);
+    // The buyer pays exactly PRICE: ticket value + fee come out of it.
+    expect(payout).toEqual({
+      value: PRICE - TICKET_DUST - BUY_FEE,
+      scriptPublicKey: orgScript,
+      covenant: null,
+    });
+    expect(change?.value).toBe(FUNDED_UTXO_VALUE - PRICE);
   });
 });
 
-describe("buildBuy: free tickets", () => {
-  it("free ticket (price 0) has no payout output", () => {
-    const tx = buildBuy(buyArgs({ price: 0, fee: 500 }));
-    expect(tx.outputs).toHaveLength(FREE_TICKET_OUTPUT_COUNT); // ticket + remaining event + change
-    expect(tx.outputs[0]?.covenant?.covenantId).toBe(EVENT_COVENANT_ID);
+describe("buildBuy: legacy events", () => {
+  it("pays the organizer exactly price and funds deposit + fee on top", () => {
+    const tx = buildBuy(buyArgs({ legacy: true }));
+
+    const [ticket, remainingEvent, payout, change] = tx.outputs;
+    expect(ticket?.value).toBe(TICKET_DUST);
+    expect(remainingEvent?.value).toBe(EVENT_DUST);
+    expect(payout?.value).toBe(PRICE);
+    expect(change?.value).toBe(FUNDED_UTXO_VALUE - PRICE - TICKET_DUST - BUY_FEE);
   });
 });
 
@@ -161,7 +169,7 @@ describe("buildBuy: validation", () => {
     expect(() => buildBuy(buyArgs({ remaining: 0 }))).toThrow(/remaining/);
   });
 
-  it("rejects when buyer inputs cannot cover price + ticket dust + fee", () => {
+  it("rejects when buyer inputs cannot cover the ticket price", () => {
     expect(() =>
       buildBuy(
         buyArgs({
@@ -170,6 +178,12 @@ describe("buildBuy: validation", () => {
         }),
       ),
     ).toThrow(/cannot cover/);
+  });
+
+  it("rejects a price that cannot cover the ticket value and the fee", () => {
+    expect(() => buildBuy(buyArgs({ price: TICKET_DUST + 1, fee: 2 }))).toThrow(
+      /cannot cover the .* ticket value/,
+    );
   });
 });
 
@@ -212,7 +226,7 @@ describe("burnTemplateHash (reader's GONE check)", () => {
 describe("golden template_hash (KTK-88 A6)", () => {
   it("the event artifact's template_hash is the pinned golden value (silverscript v1.0.0)", () => {
     expect(bytesToHex(Uint8Array.from(EVENT_ARTIFACT.template_hash))).toBe(
-      "cc8301ee9611eb5e16f625780d6e8fb1167de2863a513d6134f56e1a00360e38",
+      "966303672ccf8b1d00c2b9f879184118e05446f6e27e31cfce6ab587db99fafe",
     );
   });
 
@@ -279,7 +293,7 @@ describe("buildMetadataPrep (KCC-23 preparation transaction)", () => {
 
     expect(tx.version).toBe(1);
     expect(tx.inputs).toHaveLength(1);
-    expect(tx.outputs).toHaveLength(1); // the output genesis spends — no change
+    expect(tx.outputs).toHaveLength(1); // the output genesis spends ï¿½ no change
     const [output] = tx.outputs;
     expect(output?.value).toBe(DUST_INPUT - PREP_FEE);
     expect(output?.scriptPublicKey).toEqual(ownerSpk);

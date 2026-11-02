@@ -102,13 +102,16 @@ function eventConstructorArgs(constants: {
 }
 
 /** Compile the event contract for one event's constants (per-event compile). */
-export function compileEventArtifact(constants: {
-  authorizingTxId: string;
-  price: number;
-  orgSpk: string;
-  burnTemplateHash: string;
-}): CompiledContractArtifact {
-  return compileContract("event", eventConstructorArgs(constants));
+export function compileEventArtifact(
+  constants: {
+    authorizingTxId: string;
+    price: number;
+    orgSpk: string;
+    burnTemplateHash: string;
+  },
+  legacy = false,
+): CompiledContractArtifact {
+  return compileContract(legacy ? "event-v1" : "event", eventConstructorArgs(constants));
 }
 
 /**
@@ -126,6 +129,7 @@ export function eventMintSigScript(
     burnTemplateHash: string;
   },
   buyerPkhHex: string,
+  legacy = false,
 ): string {
   const ctor = eventConstructorArgs(constants);
   const args = [bytesArg(buyerPkhHex)];
@@ -141,7 +145,7 @@ export function eventMintSigScript(
       ctorFile,
       "--args",
       argsFile,
-      join(CONTRACTS_DIR, "event.sil"),
+      join(CONTRACTS_DIR, legacy ? "event-v1.sil" : "event.sil"),
       "mint",
     ]).trim();
   } finally {

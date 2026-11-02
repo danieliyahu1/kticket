@@ -60,6 +60,11 @@ linking or listing what it should.
 - **No free tickets.** Every event must carry a paid ticket price of at least
   1 KAS. The API rejects cheaper deploys and registrations, discovery hides
   unpaid events, and the boot warm-up removes them from the registry.
+- **The buyer pays exactly the listed price.** The ticket's 0.5 KAS value and
+  the network fee come out of that price; the organizer receives the rest.
+  Nothing is charged on top. The covenant enforces the split on chain by
+  reading the transaction's real fee (`OpTxInputAmount`), and a per-input fee
+  ceiling keeps a buyer from burning the organizer's payout.
 - **Error shape is stable.** Every failure is `{ error: { type, message,
   retryable, retryAfter?, detail? } }`; clients branch on `type`, not prose.
 

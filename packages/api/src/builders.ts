@@ -18,6 +18,7 @@ import {
   buildMetadataPrep,
   buildPurchase,
   injectState,
+  maxFeeForInputs,
   pushData,
   TICKET_DUST,
   type UnsignedTransaction,
@@ -51,6 +52,14 @@ export type PreparedBuild = {
   build: (fee: number) => BuiltTransaction;
   inputTotal: number;
   payouts: readonly number[];
+  /**
+   * True when the fee comes out of a payout (buy / purchase) instead of the
+   * payer's change. `computeFee`'s change check does not model that split, so
+   * the builder validates it itself.
+   */
+  feeFromPayout?: boolean;
+  /** The covenant's fee ceiling for this transaction, in sompi. */
+  maxFee?: number;
   /**
    * Full prev-output metadata for every spending input, in input order â€” the
     * wallet needs these to sign (`signTx` safe-JSON carries `utxo` per input).
@@ -138,7 +147,8 @@ async function buyBuild(
   req: BuildRequest & { type: "buy" },
   kaspa: KaspaClientLike,
 ): Promise<PreparedBuild> {
-  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const legacy = req.legacy === true;
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants), legacy);
 
   const eventTx = await kaspa.getTransaction(req.event_outpoint.transaction_id);
   const eventOutput = eventTx?.outputs[req.event_outpoint.index];
@@ -156,10 +166,15 @@ async function buyBuild(
 
   const buyerMetas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
   const metas = [eventMeta, ...buyerMetas];
+  const buyerTotal = req.buyer_utxos.reduce((a, u) => a + u.value, 0);
 
   return {
-    inputTotal: eventMeta.value + req.buyer_utxos.reduce((a, u) => a + u.value, 0),
-    payouts: req.constants.price > 0 ? [req.constants.price] : [],
+    inputTotal: eventMeta.value + buyerTotal,
+    // The buyer pays exactly `price`; the fee comes out of the organizer's
+    // payout, so `computeFee` cannot model the split (the builder does).
+    payouts: [],
+    feeFromPayout: true,
+    maxFee: maxFeeForInputs(1 + req.buyer_utxos.length),
     inputUtxoMetas: metas,
     build: (fee) => {
       const tx = buildBuy({
@@ -176,11 +191,12 @@ async function buyBuild(
         price: req.constants.price,
         network: TESTNET10,
         fee,
+        legacy,
       });
       return {
         tx,
         covenantRedeemScript:
-          eventMintSigScript(toCompilerConstants(req.constants), req.buyer) +
+          eventMintSigScript(toCompilerConstants(req.constants), req.buyer, legacy) +
           bytesToHex(pushData(eventRedeemPush(eventArtifact, req))),
       };
     },
@@ -231,7 +247,10 @@ async function markUsedBuild(
   req: BuildRequest & { type: "markUsed" },
   kaspa: KaspaClientLike,
 ): Promise<PreparedBuild> {
-  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const eventArtifact = compileEventArtifact(
+    toCompilerConstants(req.constants),
+    req.legacy === true,
+  );
 
   // The ticket covenant UTXO (input index 0) — the wallet needs its full
   // prev-output metadata (script, amount, daa, covenant id) to co-sign it.
@@ -305,7 +324,10 @@ async function listBuild(
   req: BuildRequest & { type: "list" },
   kaspa: KaspaClientLike,
 ): Promise<PreparedBuild> {
-  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const eventArtifact = compileEventArtifact(
+    toCompilerConstants(req.constants),
+    req.legacy === true,
+  );
   const { meta, value } = await ticketInputMeta(req, kaspa);
   const holderMetas = req.input_utxo_metas ?? req.owner_utxos.map((u) => utxoMetaOf(u));
 
@@ -334,7 +356,10 @@ async function delistBuild(
   req: BuildRequest & { type: "delist" },
   kaspa: KaspaClientLike,
 ): Promise<PreparedBuild> {
-  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const eventArtifact = compileEventArtifact(
+    toCompilerConstants(req.constants),
+    req.legacy === true,
+  );
   const { meta, value } = await ticketInputMeta(req, kaspa);
   const holderMetas = req.input_utxo_metas ?? req.owner_utxos.map((u) => utxoMetaOf(u));
 
@@ -362,12 +387,14 @@ async function purchaseBuild(
   req: BuildRequest & { type: "purchase" },
   kaspa: KaspaClientLike,
 ): Promise<PreparedBuild> {
-  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants));
+  const legacy = req.legacy === true;
+  const eventArtifact = compileEventArtifact(toCompilerConstants(req.constants), legacy);
   const { meta, value } = await ticketInputMeta(req, kaspa);
   if (value !== TICKET_DUST) {
     throw new Error(`ticket value ${value} is not the required ${TICKET_DUST} deposit`);
   }
   const buyerMetas = req.input_utxo_metas ?? req.buyer_utxos.map((u) => utxoMetaOf(u));
+  const buyerTotal = req.buyer_utxos.reduce((a, u) => a + u.value, 0);
 
   // Input 0 needs NO signature — the covenant escrow enforces payment and
   // delivery — so the sig-script can be assembled right here and stamped into
@@ -378,10 +405,12 @@ async function purchaseBuild(
   );
 
   return {
-    inputTotal: value + req.buyer_utxos.reduce((a, u) => a + u.value, 0),
-    // The buyer funds a fresh ticket deposit. The old ticket deposit is
-    // returned to the seller as part of the proceeds.
-    payouts: [req.price + TICKET_DUST, TICKET_DUST],
+    inputTotal: value + buyerTotal,
+    // The buyer pays exactly the asking price; the fee comes out of the
+    // seller's proceeds, and the ticket's 0.5 KAS travels with the ticket.
+    payouts: [],
+    feeFromPayout: true,
+    maxFee: maxFeeForInputs(1 + req.buyer_utxos.length),
     inputUtxoMetas: [meta, ...buyerMetas],
     build: (fee) => ({
       tx: buildPurchase({
@@ -396,6 +425,7 @@ async function purchaseBuild(
         buyerUtxoValues: req.buyer_utxos.map((u) => u.value),
         changeScript: toSpk(req.change_spk),
         fee,
+        legacy,
       }),
       covenantRedeemScript: purchaseSigScript,
     }),

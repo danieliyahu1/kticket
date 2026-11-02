@@ -312,9 +312,15 @@ fetches the buyer's UTXOs, and returns:
   "template": { "version": 0, "inputs": [...], "outputs": [...], "lock_time": 0 },
   "sign_inputs": [{ "index": 1 }],
   "price": 100000000,
-  "ticket_deposit": 50000000
+  "ticket_deposit": 50000000,
+  "network_fee": 2000000,
+  "organizer_proceeds": 48000000
 }
 ```
+
+`price` is exactly what the buyer pays. The ticket's own value
+(`ticket_deposit`) and the `network_fee` come out of that price; the organizer
+receives `organizer_proceeds`. Nothing is charged on top.
 
 Sign every index in `sign_inputs`. Input 0 is the event covenant spend; the
 server has already prepared its redeem script, so `sign_inputs` omits it.
@@ -488,9 +494,11 @@ Content-Type: application/json
 
 The server re-proves the listing on chain, then returns a template where input
 0 is the signatureless ticket spend and `sign_inputs` covers only the buyer's
-fee inputs. The response also reports `price`, `ticket_deposit`,
-`seller_proceeds`, and `seller_pkh` so a client can show the exact split before
-signing.
+fee inputs. The buyer pays exactly the listing `price`; the response reports
+`network_fee` (taken from that price) and `seller_proceeds` (what the seller
+receives), plus `ticket_deposit` — the value already inside the ticket, which
+travels with it to the buyer. `seller_pkh` lets a client verify the payout
+address.
 
 Finalize with `{ "template": { ... }, "signed": { ... } }`. The index row is
 dropped and the buyer holds a fully usable ticket.

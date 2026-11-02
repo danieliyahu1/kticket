@@ -24,6 +24,8 @@ import {
   injectState,
   isPaidTicketPrice,
   listedStateAddress,
+  MAX_BUY_UTXOS,
+  maxFeeForInputs,
   MIN_TICKET_PRICE_KAS,
   organizerPkh,
   orgSpkFromPublicKey,
@@ -107,6 +109,27 @@ async function fundingUtxos(ctx: ResaleContext, address: string): Promise<UtxoRe
     throw policyError("no spendable UTXOs on the funding address");
   }
   return utxos;
+}
+
+/** The fewest largest UTXOs that cover `required`, capped at `max`. */
+function coverFunding(
+  utxos: readonly UtxoResponse[],
+  required: number,
+  max: number,
+): UtxoResponse[] {
+  const selected: UtxoResponse[] = [];
+  let covered = 0;
+  for (const utxo of utxos) {
+    if (covered >= required || selected.length >= max) break;
+    selected.push(utxo);
+    covered += Number(utxo.utxoEntry.amount);
+  }
+  if (covered < required) {
+    throw policyError(
+      `funding ${covered} cannot cover ${required} (max ${max} UTXOs)`,
+    );
+  }
+  return selected;
 }
 
 /**
@@ -365,6 +388,7 @@ export async function listPrepare(
       owner_utxos: utxos.map(toWireUtxo),
       change_spk: { version: 0, script: orgSpkFromPublicKey(holder.publicKey) },
       input_utxo_metas: utxos.map(toWireUtxoMeta),
+      ...(verified.legacy ? { legacy: true } : {}),
     },
     { kaspa: ctx.kaspa, networkId: ctx.networkId },
   );
@@ -481,6 +505,7 @@ export async function delistPrepare(
       owner_utxos: utxos.map(toWireUtxo),
       change_spk: { version: 0, script: orgSpkFromPublicKey(holder.publicKey) },
       input_utxo_metas: utxos.map(toWireUtxoMeta),
+      ...(verified.legacy ? { legacy: true } : {}),
     },
     { kaspa: ctx.kaspa, networkId: ctx.networkId },
   );
@@ -560,8 +585,10 @@ export interface PurchasePrepareResult {
   price: number;
   /** Fresh deposit funded by the buyer and carried by the replacement ticket. */
   ticket_deposit: number;
-  /** Asking price plus the old ticket deposit, paid to the seller. */
+  /** What the seller receives: the asking price minus the network fee. */
   seller_proceeds: number;
+  /** Network fee taken out of the asking price (sompi). */
+  network_fee: number;
   seller_pkh: string;
   event: { name: string; date: string };
 }
@@ -594,7 +621,10 @@ export async function purchasePrepare(
   }
 
   const buyerPkh = organizerPkh(buyer.publicKey);
-  const utxos = await fundingUtxos(ctx, buyer.address);
+  const required = verified.legacy
+    ? stored.price + TICKET_DUST + maxFeeForInputs(MAX_BUY_UTXOS + 1)
+    : stored.price;
+  const utxos = coverFunding(await fundingUtxos(ctx, buyer.address), required, MAX_BUY_UTXOS);
 
   const result = await buildTransaction(
     {
@@ -608,6 +638,7 @@ export async function purchasePrepare(
       buyer_utxos: utxos.map(toWireUtxo),
       change_spk: { version: 0, script: orgSpkFromPublicKey(buyer.publicKey) },
       input_utxo_metas: utxos.map(toWireUtxoMeta),
+      ...(verified.legacy ? { legacy: true } : {}),
     },
     { kaspa: ctx.kaspa, networkId: ctx.networkId },
   );
@@ -615,6 +646,7 @@ export async function purchasePrepare(
   if (!result.signing_template) {
     throw invalidError("could not build a signing template for the purchase");
   }
+  const networkFee = result.network_fee ?? 0;
   return {
     purchase_id: randomUUID(),
     signing_template: result.signing_template,
@@ -622,7 +654,10 @@ export async function purchasePrepare(
     sign_inputs: result.template.inputs.slice(1).map((_, i) => ({ index: i + 1 })),
     price: stored.price,
     ticket_deposit: TICKET_DUST,
-    seller_proceeds: stored.price + TICKET_DUST,
+    seller_proceeds: verified.legacy
+      ? stored.price + TICKET_DUST
+      : stored.price - networkFee,
+    network_fee: networkFee,
     seller_pkh: stored.sellerPkh,
     event: { name: verified.name, date: verified.date },
   };
@@ -643,11 +678,10 @@ export async function purchaseFinalize(
   assertPaidListing(stored.price);
 
   // Validate the fixed escrow outputs before relaying. The covenant enforces
-  // these rules too, but rejecting malformed templates here gives the buyer a
-  // useful error instead of submitting a transaction that must fail on-chain.
+  // the exact split (price minus the fee) on-chain, so this only checks the
+  // shape: the ticket continuation plus a positive seller payout.
   const ticketOutput = req.template.outputs[0];
   const sellerScript = p2pkScriptFromPubkey(hexToBytes(stored.sellerPkh)).script;
-  const sellerProceeds = stored.price + TICKET_DUST;
   const sellerOutput = req.template.outputs.find(
     (output) => output.script_public_key.script === sellerScript,
   );
@@ -655,9 +689,9 @@ export async function purchaseFinalize(
     !ticketOutput?.covenant ||
     ticketOutput.value !== TICKET_DUST ||
     !sellerOutput ||
-    sellerOutput.value !== sellerProceeds
+    sellerOutput.value <= 0
   ) {
-    throw policyError("template is not a purchase (no covenant output)");
+    throw policyError("template is not a purchase for this listing");
   }
 
   const outcome = await broadcastAndConfirm(req.template, req.signed, ctx, () => {});

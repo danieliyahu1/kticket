@@ -215,7 +215,9 @@ fn buy_mint_covenant_passes_on_chain_vm() {
     let buyer_value = 98_568_234_200u64;
     let buyer_spk = p2pk_script(&buyer_x);
 
-    let change_value = buyer_value - PRICE as u64 - DUST - 100_000;
+    // The buyer pays exactly PRICE: the ticket's DUST and the 100_000 fee come
+    // out of it, and the organizer receives the rest.
+    let change_value = buyer_value - PRICE as u64;
 
     // Build the buy tx (mirrors buildBuy output structure).
     let sig0 = mint_sigscript(&compiled, &buyer_x, &event_redeem);
@@ -247,7 +249,7 @@ fn buy_mint_covenant_passes_on_chain_vm() {
                 covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
             },
             TransactionOutput {
-                value: PRICE as u64,
+                value: PRICE as u64 - DUST - 100_000,
                 script_public_key: ScriptPublicKey::new(0, org_spk.clone().into()),
                 covenant: None,
             },
@@ -285,6 +287,85 @@ fn buy_mint_covenant_passes_on_chain_vm() {
 
     let result = execute_input_with_covenants(tx, entries, 0);
     assert!(result.is_ok(), "buy covenant spend should pass: {result:?}");
+}
+
+/// A buyer who pays the price but burns the organizer's payout in miner fees
+/// must be rejected by the per-input fee ceiling. Without it, a buyer could
+/// pay the price and leave the organizer with nothing at no extra cost.
+#[test]
+fn buy_with_burned_payout_is_rejected_by_vm() {
+    let authorizing_txid = hex("a5ab658104d1984066e070c644dd53a0977129898423430e1607fe577e2e731b");
+    let org_spk = hex("2050a41b9578b6be3a7044c94ddfcdf40142b44984d309bf946c3c5e89eb95d48fac");
+    let org = hex("50a41b9578b6be3a7044c94ddfcdf40142b44984d309bf946c3c5e89eb95d48f");
+
+    let buyer_kp = random_keypair();
+    let buyer_x = buyer_kp.x_only_public_key().0.serialize().to_vec();
+
+    let compiled = event_compiled(authorizing_txid.clone(), org_spk.clone());
+    let event_redeem = inject_state(&compiled, org.clone(), 12);
+    let ticket_redeem = inject_state(&compiled, buyer_x.clone(), 1);
+    let remaining_redeem = inject_state(&compiled, org.clone(), 11);
+
+    let event_value = DUST;
+    let buyer_value = 98_568_234_200u64;
+    let buyer_spk = p2pk_script(&buyer_x);
+    let change_value = buyer_value - PRICE as u64;
+
+    // Same as the passing test, but the organizer payout output is missing:
+    // the difference is burned as transaction fee.
+    let sig0 = mint_sigscript(&compiled, &buyer_x, &event_redeem);
+    let unsigned = Transaction::new(
+        1,
+        vec![
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([1; 32]), index: 0 },
+                sig0,
+                0,
+                50,
+            ),
+            TransactionInput::new_with_compute_budget(
+                TransactionOutpoint { transaction_id: TransactionId::from_bytes([2; 32]), index: 0 },
+                vec![],
+                0,
+                50,
+            ),
+        ],
+        vec![
+            TransactionOutput {
+                value: DUST,
+                script_public_key: pay_to_script_hash_script(&ticket_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: DUST,
+                script_public_key: pay_to_script_hash_script(&remaining_redeem),
+                covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
+            },
+            TransactionOutput {
+                value: change_value,
+                script_public_key: buyer_spk.clone(),
+                covenant: None,
+            },
+        ],
+        0,
+        Default::default(),
+        0,
+        vec![],
+    );
+
+    let entries = vec![
+        UtxoEntry::new(event_value, pay_to_script_hash_script(&event_redeem), 0, false, Some(COV_A)),
+        UtxoEntry::new(buyer_value, buyer_spk.clone(), 0, false, None),
+    ];
+    let sig1 = sign_input1(&unsigned, &entries, 1, &buyer_kp);
+    let mut sig1_script = sig1;
+    sig1_script.extend_from_slice(&buyer_spk.script());
+    let mut input1 = unsigned.inputs[1].clone();
+    input1.signature_script = sig1_script;
+    let tx = Transaction::new(1, vec![unsigned.inputs[0].clone(), input1], unsigned.outputs.clone(), 0, Default::default(), 0, vec![]);
+
+    let result = execute_input_with_covenants(tx, entries, 0);
+    assert!(result.is_err(), "burning the payout in fees must be rejected: {result:?}");
 }
 
 /// The door check-in (KTK-118): owner + organizer co-sign the ticket into its
@@ -550,10 +631,10 @@ fn purchase_covenant_passes_on_chain_vm() {
 
     let ticket_value = DUST;
     let buyer_value = 1_000_000_000u64;
-    let change_value = buyer_value - PRICE as u64 - DUST - 100_000;
+    let change_value = buyer_value - PRICE as u64;
 
     // inputs [ticket(0), buyer fee(1)],
-        // outputs [ticket@buyer (bound), seller payout @asking price + deposit, buyer change].
+        // outputs [ticket@buyer (bound), seller payout @asking price - fee, buyer change].
     let unsigned = Transaction::new(
         1,
         vec![
@@ -577,7 +658,7 @@ fn purchase_covenant_passes_on_chain_vm() {
                 covenant: Some(CovenantBinding { authorizing_input: 0, covenant_id: COV_A }),
             },
             TransactionOutput {
-                value: PRICE as u64 + DUST,
+                value: PRICE as u64 - 100_000,
                 script_public_key: p2pk_script(&seller_x),
                 covenant: None,
             },

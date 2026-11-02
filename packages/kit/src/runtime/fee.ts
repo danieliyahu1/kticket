@@ -61,6 +61,12 @@ export interface FeeInput {
    * is `100 sompi × max(compute grams, 2 × tx bytes)`.
    */
   computeMass?: number;
+  /**
+   * True when the fee comes out of a payout (buy / purchase) instead of the
+   * payer's change. The payer's funds then do not have to cover the fee, so the
+   * change/solvency check is skipped (the builder validates the split).
+   */
+  allowNegativeChange?: boolean;
 }
 
 export interface FeeResult {
@@ -102,7 +108,7 @@ export function computeFee(input: FeeInput): FeeResult {
   const fee = Math.max(estimated, floor);
 
   const change = input.inputTotal - payoutsTotal - fee;
-  if (change < 0) {
+  if (change < 0 && !input.allowNegativeChange) {
     throw new FeeError(
       `inputs ${input.inputTotal} cannot cover payouts ${payoutsTotal} + fee ${fee}`,
     );

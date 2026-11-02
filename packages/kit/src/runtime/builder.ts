@@ -11,8 +11,8 @@
 //              the prep tx output, so the covenant id commits to the metadata.
 //              No per-ticket pre-creation.
 //   buy      — the event covenant splits: ticket (amount=1, buyer) + event
-//              covenant (remaining−1) + org payout (price) + change. Buyer pays
-//              price + ticket dust + fee.
+//              covenant (remaining−1) + org payout (price − ticket value − fee)
+//              + change. The buyer pays exactly `price`.
 //   handover — consume the ticket into this event's burn-owner covenant
 //              (unspendable) — the ticket, dust included, is gone.
 //
@@ -543,7 +543,7 @@ export interface BuyInput {
   eventArtifact: CompiledContractArtifact;
   /** Buyer's 32-byte owner identifier (pubkey). */
   buyer: Uint8Array;
-  /** Buyer KAS UTXOs covering price + ticket dust + fee (fee payer = buyer). */
+  /** Buyer KAS UTXOs funding exactly the ticket price (fee payer = buyer). */
   buyerUtxos: Outpoint[];
   /** Buyer input values (sompi). */
   buyerUtxoValues: readonly number[];
@@ -556,10 +556,16 @@ export interface BuyInput {
   /** Price per ticket in sompi. The product accepts only paid events (at least 1 KAS). */
   price: number;
   network: AddressNetwork;
-  /** Network fee in sompi (paid by the buyer). */
+  /** Network fee in sompi, taken out of the ticket price. */
   fee: number;
   /** Dust locked in the minted ticket output. */
   ticketDust?: number;
+  /**
+   * Legacy (pre-fee-from-price) events: the organizer receives exactly `price`
+   * and the buyer funds the ticket deposit plus the fee on top. The event's
+   * covenant bytecode is the old one, so the template must match it.
+   */
+  legacy?: boolean;
 }
 
 export function buildBuy(input: BuyInput): UnsignedTransaction {
@@ -570,10 +576,23 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
   }
   const ticketDust = ticketDustOf(input.ticketDust);
   const buyerTotal = totalOf(input.buyerUtxoValues);
-  const change = buyerTotal - price - ticketDust - input.fee;
+  // New model: the buyer pays exactly `price`; the ticket's 0.5 KAS and the
+  // fee come out of it, and the organizer receives the rest. Legacy: the buyer
+  // funds price + deposit + fee, and the organizer receives all of `price`.
+  const change = input.legacy
+    ? buyerTotal - price - ticketDust - input.fee
+    : buyerTotal - price;
+  const orgPayout = input.legacy ? price : price - ticketDust - input.fee;
   if (change < 0) {
     throw new Error(
-      `buyer inputs ${buyerTotal} cannot cover price ${price} + ticket dust ${ticketDust} + fee ${input.fee}`,
+      input.legacy
+        ? `buyer inputs ${buyerTotal} cannot cover price ${price} + ticket dust ${ticketDust} + fee ${input.fee}`
+        : `buyer inputs ${buyerTotal} cannot cover the ticket price ${price}`,
+    );
+  }
+  if (orgPayout <= 0) {
+    throw new Error(
+      `price ${price} cannot cover the ${ticketDust} ticket value and the ${input.fee} network fee`,
     );
   }
 
@@ -590,11 +609,11 @@ export function buildBuy(input: BuyInput): UnsignedTransaction {
   const outputs: TxOutput[] = [
     { value: ticketDust, scriptPublicKey: ticket, covenant: binding },
     { value: EVENT_DUST, scriptPublicKey: remainingEvent, covenant: binding },
+    { value: orgPayout, scriptPublicKey: input.orgScript, covenant: null },
   ];
-  if (price > 0) {
-    outputs.push({ value: price, scriptPublicKey: input.orgScript, covenant: null });
+  if (change > 0) {
+    outputs.push(changeOutput(input.changeScript, change));
   }
-  outputs.push(changeOutput(input.changeScript, change));
 
   return {
     version: TX_VERSION_V1,
@@ -858,23 +877,29 @@ export interface PurchaseInput {
   used: boolean;
   /** The asking price in sompi (paid to the seller's P2PK script). */
   price: number;
-  /** Buyer KAS UTXOs covering price + fresh ticket deposit + fee. */
+  /** Buyer KAS UTXOs funding exactly the asking price (fee payer = buyer). */
   buyerUtxos: Outpoint[];
   /** Buyer input values (sompi). */
   buyerUtxoValues: readonly number[];
   /** Buyer change script public key. */
   changeScript: ScriptPublicKey;
-  /** Network fee in sompi (paid by the buyer). */
+  /** Network fee in sompi, taken out of the asking price. */
   fee: number;
   /** Dust preserved on the purchased ticket output. */
   ticketDust?: number;
+  /**
+   * Legacy (pre-fee-from-price) events: the buyer pays the asking price plus a
+   * fresh deposit and the fee, and the seller receives the asking price plus
+   * their returned deposit. The event's covenant bytecode is the old one.
+   */
+  legacy?: boolean;
 }
 
 /**
  * The trustless purchase template: inputs `[ticket, buyer fee…]`, outputs
- * `[ticket@buyer (covenant-bound), seller payout @asking price + deposit,
- * buyer change]`. The buyer funds a fresh deposit; the old ticket deposit is
- * returned to the seller as part of the proceeds.
+ * `[ticket@buyer (covenant-bound), seller payout, buyer change]`. The buyer
+ * pays exactly the asking price; the fee comes out of it, and the ticket's
+ * existing 0.5 KAS travels inside the ticket to the buyer.
  * The seller signature does not exist — the covenant IS the escrow.
  */
 export function buildPurchase(input: PurchaseInput): UnsignedTransaction {
@@ -887,15 +912,24 @@ export function buildPurchase(input: PurchaseInput): UnsignedTransaction {
     throw new Error(`buyer must be ${HASH_LENGTH} bytes, got ${input.buyer.length}`);
   }
   const ticketDust = ticketDustOf(input.ticketDust);
-  const sellerProceeds = input.price + ticketDust;
+  const sellerProceeds = input.legacy ? input.price + ticketDust : input.price - input.fee;
   if (!Number.isSafeInteger(sellerProceeds)) {
-    throw new Error(`price ${input.price} plus ticket deposit is too large`);
+    throw new Error(`seller proceeds for price ${input.price} are too large`);
   }
   const buyerTotal = totalOf(input.buyerUtxoValues);
-  const change = buyerTotal - input.price - ticketDust - input.fee;
+  const change = input.legacy
+    ? buyerTotal - input.price - ticketDust - input.fee
+    : buyerTotal - input.price;
   if (change < 0) {
     throw new Error(
-      `buyer inputs ${buyerTotal} cannot cover price ${input.price} + ticket deposit ${ticketDust} + fee ${input.fee}`,
+      input.legacy
+        ? `buyer inputs ${buyerTotal} cannot cover price ${input.price} + ticket deposit ${ticketDust} + fee ${input.fee}`
+        : `buyer inputs ${buyerTotal} cannot cover the asking price ${input.price}`,
+    );
+  }
+  if (sellerProceeds <= 0) {
+    throw new Error(
+      `asking price ${input.price} cannot cover the ${input.fee} network fee`,
     );
   }
 
@@ -915,7 +949,7 @@ export function buildPurchase(input: PurchaseInput): UnsignedTransaction {
     outputs: [
       { value: ticketDust, scriptPublicKey: purchasedTicket, covenant: binding },
       { value: sellerProceeds, scriptPublicKey: p2pkScriptFromPubkey(input.seller), covenant: null },
-      changeOutput(input.changeScript, change),
+      ...(change > 0 ? [changeOutput(input.changeScript, change)] : []),
     ],
     lockTime: 0,
   };
