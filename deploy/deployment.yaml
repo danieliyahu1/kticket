@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: app
-          image: ghcr.io/danieliyahu1/kticket:sha-959ec0fb33ec2cc20e6f8ef8010d1c53638dd0c7@sha256:d29a15b05f8c9be85ee70871e31d76fcfc64da05d4ecf4086d803290584c0e83
+          image: ghcr.io/danieliyahu1/kticket:sha-08bb336c16cb5f5a6463136467f75698eac496b0@sha256:31f1527b71db7209359d1c4d298f8ccbff68347799c6f35775566b33738e4400
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
