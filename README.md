@@ -5,6 +5,14 @@ by event organisers and bought / held by attendees — all on chain.
 
 **Live:** https://kticket.danieliyahu.com/
 
+## Architecture
+
+[![kticket architecture: browser wallets sign in to the React SPA, the Fastify API re-verifies events from Kaspa testnet-10 over REST, broadcasts covenant transactions over wRPC, mirrors discovery data in Turso, and ships as one image through GitHub Actions, GHCR and Argo CD](docs/architecture.png)](docs/architecture.png)
+
+The chain is the source of truth: the SPA and the API only build, relay and
+re-verify ticket covenants, and the registry keeps just the identifiers
+discovery needs.
+
 ## Packages
 
 | Package | Path | Stack | Responsibility |
